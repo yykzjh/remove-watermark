@@ -1,0 +1,39 @@
+[project]
+name = "watermark-studio"
+version = "0.1.0"
+description = "Linux desktop batch restoration with a self-hosted Qwen-Image-2.1-Turbo service"
+requires-python = ">=3.11,<3.14"
+dependencies = ["pillow>=11", "numpy>=2", "pydantic>=2.10"]
+
+[project.optional-dependencies]
+server = [
+  "fastapi>=0.115", "uvicorn>=0.34", "torch>=2.6",
+  "diffusers", "transformers>=5.17.0", "accelerate>=1.2",
+  "huggingface-hub>=0.34", "safetensors>=0.5",
+]
+desktop = ["PySide6>=6.8", "httpx>=0.28"]
+
+[project.scripts]
+watermark-server = "watermark_studio.server:main"
+watermark-studio = "watermark_studio.desktop:main"
+watermark-batch = "watermark_studio.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.28", "ruff>=0.11", "fastapi>=0.115"]
+
+[tool.uv]
+environments = ["sys_platform == 'linux'"]
+
+[tool.uv.sources]
+diffusers = { git = "https://github.com/huggingface/diffusers.git" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

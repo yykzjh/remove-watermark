@@ -1,0 +1,22 @@
+# Linux development machine: start with one idle L40; expand after measuring memory.
+host = "127.0.0.1"
+port = 8765
+model = "Qwen/Qwen-Image-2.1-Turbo"
+revision = "main"
+cache_dir = "~/.cache/huggingface/hub"
+gpus = [1]
+replicas_per_gpu = 1
+load_parallelism = 1
+dtype = "bfloat16"
+attention = "sdpa"
+compile = false
+compile_mode = "default"
+offload = "none"
+vae_tiling = true
+vae_slicing = true
+kv_cache = true
+tf32 = true
+cpu_threads = 4
+allowed_roots = ["~", "/mnt"]
+state_dir = "~/.local/state/watermark-studio"
+backend = "qwen"
