@@ -333,6 +333,12 @@ class Runtime:
                 "recommended_concurrency": self.config.worker_count * self.config.batch_size * min(2, self.config.batch_window),
                 "batch_size": self.config.batch_size,
                 "batch_window": self.config.batch_window,
+                "optimization": {
+                    "dtype": self.config.dtype, "quantization": self.config.quantization,
+                    "compile": self.config.compile, "compile_scope": self.config.compile_scope,
+                    "compile_dynamic": self.config.compile_dynamic,
+                    "attention_backend": self.config.attention_backend,
+                },
                 "model": self.config.model,
                 "revision": self.model_revision,
                 "roots": list(map(str, self.roots)),

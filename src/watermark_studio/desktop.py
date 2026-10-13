@@ -215,6 +215,12 @@ class MainWindow(QMainWindow):
         title.setObjectName("title")
         layout.addWidget(title)
         layout.addWidget(QLabel(f"开发机服务 · {state.get('worker_count', 8)} 个 GPU 工作进程"))
+        optimization = state.get("optimization", {})
+        if optimization.get("quantization", "none") != "none":
+            precision = {"float8": "FP8", "int8": "INT8"}.get(optimization["quantization"], optimization["quantization"])
+            layout.addWidget(QLabel(f"当前采用 {precision} 量化推理：吞吐优先，生成细节可能与 BF16 不同。"))
+        if optimization.get("compile"):
+            layout.addWidget(QLabel("已启用模型编译；首次处理及新输入形状可能需要额外准备时间。"))
         if state["backend"] == "mock":
             layout.addWidget(QLabel("测试模式：不执行模型去水印。"))
         self.tabs = QTabWidget()

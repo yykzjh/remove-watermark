@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -81,6 +82,10 @@ profiles = {
 }
 records = []
 for profile in args.profiles:
+    # Never submit benchmark jobs to an existing service on this port.
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", 18770))
     command = [sys.executable, "-m", "watermark_studio.server", *common, *profiles[profile]]
     log_path = root / f"server-{profile}-{args.pattern}.log"
     with log_path.open("w") as log:

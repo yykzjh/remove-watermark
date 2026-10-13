@@ -31,7 +31,7 @@ mkdir -p ~/project/inference
 cd ~/project/inference
 git clone https://github.com/yykzjh/remove-watermark.git
 cd remove-watermark
-UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --no-dev
+UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --extra quantization --no-dev
 bash scripts/launch-server.sh
 uv run --no-sync python scripts/check-health.py
 ```
@@ -45,7 +45,7 @@ uv run --no-sync python scripts/check-health.py
 **在有 Linux 图形桌面的开发机上：**
 
 ```bash
-uv sync --frozen --extra server --extra desktop
+uv sync --frozen --extra server --extra quantization --extra desktop
 uv run --no-sync watermark-studio
 ```
 
@@ -58,7 +58,7 @@ uv sync --frozen --extra desktop
 uv run --no-sync watermark-studio --ssh-host cdu_dev
 ```
 
-需要 WSL 内的 ssh cdu_dev 免密连接。启动器调用开发机 scripts/start-server.sh，并建立只传控制信息的 SSH 隧道。默认项目目录 ~/project/inference/remove-watermark，可用 --remote-dir 调整。目录浏览与输入/输出路径都指向开发机，不是 WSL 本地路径。默认每 5 秒查询一次简短状态；可用 --poll-seconds 增大间隔。
+需要 WSL 内的 ssh cdu_dev 免密连接。启动器调用开发机 scripts/start-server.sh，并建立主要传控制信息、按需传小型预览的 SSH 隧道。默认项目目录 ~/project/inference/remove-watermark，可用 --remote-dir 调整。目录浏览与输入/输出路径都指向开发机，不是 WSL 本地路径。默认每 5 秒查询一次简短状态；可用 --poll-seconds 增大间隔。
 
 GUI 需要 Linux Qt 系统库；Ubuntu 常用依赖：
 ```bash
@@ -131,7 +131,7 @@ uv run --no-sync pytest
 uv run --no-sync ruff check src tests
 ```
 
-代码更新统一使用本地 git commit、git push，随后开发机在 ~/project/inference/remove-watermark 执行 git pull --ff-only，再 UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --no-dev 并重启服务。不得通过 SSH 传输源码包或图像大数据。
+代码更新统一使用本地 git commit、git push，随后开发机在 ~/project/inference/remove-watermark 执行 git pull --ff-only，再 UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --extra quantization --no-dev 并重启服务。不得通过 SSH 传输源码包或图像大数据。
 
 测试使用明确标记的 mock 后端，它只复制图像来验证队列、目录、UI 和错误处理，不代表模型推理效果。
 
