@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Complete eight-L40 deployment example. Trailing CLI options override values below.
-# Boolean switches omitted below (compile) remain false.
+# Boolean switches omitted below (compile, compile-dynamic, fuse-qkv) remain false.
 # To disable an enabled boolean, remove its line or call start-server.sh directly.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,13 +23,24 @@ exec bash scripts/start-server.sh \
   --load-parallelism 8 \
   --dtype bfloat16 \
   --attention sdpa \
+  --attention-backend native \
   --compile-mode default \
+  --compile-scope blocks \
+  --prompt-encoder stock \
+  --encoder-batch-size 1 \
+  --quantization none \
   --offload none \
   --vae-tiling \
+  --vae-tile-size 256 \
+  --vae-tile-stride 192 \
   --vae-slicing \
   --kv-cache \
   --tf32 \
   --cpu-threads 1 \
+  --expandable-segments \
+  --shape-sort \
+  --scan-workers 1 \
+  --report-interval 64 \
   --allowed-roots "$HOME" /mnt \
   --state-dir "$HOME/.local/state/watermark-studio" \
   "$@"

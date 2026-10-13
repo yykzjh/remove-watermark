@@ -4,15 +4,15 @@
 
 > 动态凑批版本：默认 GPU 0–7，每卡一个模型。concurrency 现为全局在途图片数；
 > 每卡 batch_size 独立配置。所有 bool 未指定为 false。完整启动、参数和实测见
-> [启动调优指南](docs/startup-and-tuning.md) 与 [实测记录](docs/batch-tuning-results.md)。
-> 最终输出保持原文件存储宽高及 EXIF 方向；局部推理 resolution 不改变输出尺寸。
-> 去除“今日水印”等标识需显式勾选对应选项或传 --remove-logo。
+> [启动调优指南](docs/startup-and-tuning.md) 与 [整图吞吐调优](docs/deep-tuning.md)。
+> 默认输出保持原文件存储宽高及 EXIF 方向，也可指定完整输出尺寸。
+> 批量整图提示词包含左右两类水印，无需设置区域或 remove-logo。
 
 # Watermark Studio
 
 使用 Qwen-Image-2.1-Turbo 在 Linux 开发机批量修复工地/户外照片的数字水印。提供 Linux 原生 PySide6 桌面窗口、GPU 推理服务与命令行。环境统一由 uv 管理。
 
-图像由用户提前放在开发机。服务在开发机递归读取输入目录，过滤非图像及损坏/多帧图像，并按相同相对路径写入输出目录。桌面窗口通过少量 JSON 控制请求操作；没有图片上传/下载 API。
+图像由用户提前放在开发机。服务在开发机递归读取输入目录，过滤非图像及损坏/多帧图像，并按相同相对路径写入输出目录。桌面窗口通过少量 JSON 控制请求操作；单张框选时按需请求不超过 64 KiB 的预览，不自动下载原图。
 
 ## 启动参数与调优
 
@@ -69,14 +69,17 @@ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
 
 ## 批处理
 
-窗口默认自动逐图定位水印，位置和大小不需要一致，也不需要人工框选。复用已部署的 Qwen3-VL 文本/视觉编码器，先识别完整信息栏及相机标识，再局部修复。可设置输入/输出目录、并发图片数、检测与修复分辨率、上下文扩展比例、过渡边缘和补充提示词。固定模板和自定义区域仅为可选的高级模式。支持暂停、继续与取消；已提交的 GPU 推理会完成后停止派发新图。关闭远程客户端不会取消开发机任务，重新连接可查看当前任务。
+导航栏提供“批量去除水印”和“单张去除水印”。批量默认整图处理，无需选择水印位置。
+单张提供“自动识别水印位置”（整图模型编辑）和“自定义区域”（鼠标多框/数值坐标）两种模式。
+模型输入分辨率与完整输出尺寸分开设置，输出默认原尺寸；调整输出使用 Lanczos 重采样。
+支持暂停、继续与取消；已提交 GPU 推理完成后停止派发。关闭客户端不会取消开发机任务，重新连接可查看当前任务。
 
 输入/输出必须互不包含；不跟随目录/文件符号链接。默认跳过已有输出，实现重启后继续处理；需要重新修复已有结果时勾选覆盖。逐图错误互不影响，输出采用原子写入。保存格式、名字和目录结构与输入对应，非图像不复制，空目录保留。
 
 命令行：
 ```bash
 uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
-  --concurrency 32 --remove-logo --preset auto --resolution 1024
+  --concurrency 32 --input-resolution 1024
 ```
 
 每次任务在 ~/.local/state/watermark-studio/<job-id>/ 记录 summary.json、results.jsonl 和 invalid.json。summary 包含模型 revision、参数、计数与时间。进程重启后不自动恢复队列；使用同一目录且不勾选覆盖重新提交，已成功输出会跳过。

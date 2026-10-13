@@ -51,7 +51,7 @@ starting 仅表示进程创建，/health stage=ready 才表示所有模型加载
 | --compile | bool，编译 transformer；首次和新形状有额外编译开销 |
 | --compile-mode | default / max-autotune-no-cudagraphs；后者增加冷启动搜索耗时。reduce-overhead / max-autotune 因 CUDA Graph 错误拒绝 |
 | --attention-backend | native（默认）/ native_flash / native_cudnn / native_efficient / flash_hub / sage_hub；仅切换图像 attention，文本因果部分保持 native；Hub 需 kernels extra、网络及兼容二进制 |
-| --compile-scope | full（默认）/ blocks；blocks 编译重复 Transformer 块 |
+| --compile-scope | full（默认）/ blocks / projections；blocks 编译重复 Transformer 块，projections 仅编译 attention 线性投影与 MLP，避开 KV/mask 分支 |
 | --compile-dynamic | bool，动态形状编译；不能保证完全消除不同宽高比/尾批重编译 |
 | --prompt-encoder | stock（默认）/ lean；lean 跳过无用 LM logits、全层 hidden history 和生成 KV |
 | --encoder-batch-size | 默认 1，1–16；仅 lean 生效，独立图像联合编码的上限；与去噪 batch-size 分开 |

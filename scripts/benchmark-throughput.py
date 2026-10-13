@@ -13,7 +13,7 @@ from PIL import Image, ImageOps
 from watermark_studio.cli import request
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--profiles", nargs="+", default=["baseline", "compiled", "fp8"])
+parser.add_argument("--profiles", nargs="+", default=["baseline", "compiled", "fp8", "fp8-projections"])
 parser.add_argument("--images", type=int, default=128)
 parser.add_argument("--pattern", choices=["uniform", "mixed"], default="uniform")
 parser.add_argument("--repeats", type=int, default=2)
@@ -58,6 +58,9 @@ profiles = {
     "fp8": ["--prompt-encoder", "lean", "--encoder-batch-size", "2",
             "--quantization", "float8", "--compile", "--compile-scope", "blocks",
             "--expandable-segments", "--shape-sort", "--report-interval", "64"],
+    "fp8-projections": ["--prompt-encoder", "lean", "--encoder-batch-size", "2",
+                        "--quantization", "float8", "--compile", "--compile-scope", "projections",
+                        "--compile-dynamic", "--expandable-segments", "--shape-sort", "--report-interval", "64"],
     "fp8-b1": ["--prompt-encoder", "lean", "--quantization", "float8", "--compile",
                "--compile-scope", "blocks", "--batch-size", "1", "--batch-window", "4",
                "--expandable-segments", "--shape-sort", "--report-interval", "64"],
