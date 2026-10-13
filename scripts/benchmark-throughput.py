@@ -18,6 +18,8 @@ parser.add_argument("--images", type=int, default=128)
 parser.add_argument("--pattern", choices=["uniform", "mixed"], default="uniform")
 parser.add_argument("--repeats", type=int, default=2)
 parser.add_argument("--concurrency", type=int, default=32)
+parser.add_argument("--concurrencies", type=int, nargs="+", help="Explicit per-trial concurrency sequence")
+parser.add_argument("--followup-images", type=int, default=0, help="Final sustained job without restarting workers")
 args = parser.parse_args()
 root = Path(".run/throughput").resolve()
 root.mkdir(exist_ok=True)
@@ -34,15 +36,23 @@ for i, source in enumerate(originals):
         target = fixtures / f"{ratio}-{i}.jpg"
         if not target.exists():
             ImageOps.pad(raw, size, color=(110, 120, 105)).save(target, quality=97, subsampling=0)
-source = root / f"input-{args.pattern}-{args.images}"
-source.mkdir(exist_ok=True)
-pool = sorted(fixtures.glob("original-*.jpg") if args.pattern == "uniform" else fixtures.glob("*.jpg"))
-for index in range(args.images):
-    path = source / f"folder-{index % 7}" / f"{index:05}.jpg"
-    path.parent.mkdir(exist_ok=True)
-    if not path.exists():
-        os.link(pool[index % len(pool)], path)
-(source / "not-image.txt").write_text("ignored")
+def make_input(count):
+    source = root / f"input-{args.pattern}-{count}"
+    source.mkdir(exist_ok=True)
+    pool = sorted(fixtures.glob("original-*.jpg") if args.pattern == "uniform" else fixtures.glob("*.jpg"))
+    for index in range(count):
+        path = source / f"folder-{index % 7}" / f"{index:05}.jpg"
+        path.parent.mkdir(exist_ok=True)
+        if not path.exists():
+            os.link(pool[index % len(pool)], path)
+    (source / "not-image.txt").write_text("ignored")
+    return source
+
+
+trials = [(args.images, n) for n in (args.concurrencies or [args.concurrency] * args.repeats)]
+if args.followup_images:
+    trials.append((args.followup_images, args.concurrency))
+inputs = {count: make_input(count) for count, _ in trials}
 url = "http://127.0.0.1:18770"
 common = [
     "--config", "config/deployment.toml", "--port", "18770", "--gpus", "0,1,2,3,4,5,6,7",
@@ -93,12 +103,13 @@ for profile in args.profiles:
             else:
                 raise TimeoutError("Service startup timeout")
             boot_s = time.monotonic() - boot
-            for repeat in range(args.repeats):
-                target = root / f"output-{profile}-{args.pattern}"
+            for repeat, (count, concurrency) in enumerate(trials):
+                source = inputs[count]
+                target = root / f"output-{profile}-{args.pattern}-{count}"
                 start = time.monotonic()
                 job_id = request(url, "/jobs", {
                     "input_dir": str(source), "output_dir": str(target),
-                    "options": {"concurrency": min(args.concurrency, state["capacity"]),
+                    "options": {"concurrency": min(concurrency, state["capacity"]),
                                 "resolution": 1024, "overwrite": True},
                 })["id"]
                 samples = []
@@ -128,7 +139,7 @@ for profile in args.profiles:
                     with Image.open(source / row["file"]) as before, Image.open(target / row["file"]) as after:
                         bad_sizes += before.size != after.size
                 record = {
-                    "profile": profile, "pattern": args.pattern, "images": args.images,
+                    "profile": profile, "pattern": args.pattern, "images": count, "concurrency": concurrency,
                     "repeat": repeat, "job": job_id, "boot_s": round(boot_s, 3),
                     "seconds": round(elapsed, 3), "images_per_s": round(job["succeeded"] / elapsed, 4),
                     "success": job["succeeded"], "failed": job["failed"], "bad_sizes": bad_sizes,
@@ -149,7 +160,7 @@ for profile in args.profiles:
                 with (root / "results.jsonl").open("a") as stream:
                     stream.write(json.dumps(record) + "\n")
                 print(json.dumps({k: v for k, v in record.items() if k != "progress_samples"}), flush=True)
-                assert job["state"] == "completed" and job["succeeded"] == args.images and bad_sizes == 0, record
+                assert job["state"] == "completed" and job["succeeded"] == count and bad_sizes == 0, record
         finally:
             process.terminate()
             try:

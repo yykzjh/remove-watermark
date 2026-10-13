@@ -45,6 +45,9 @@ Diffusers 的 image 列表是同一次生成的参考图列表，不能直接当
 提供全模型和重复块编译。QwenImage21TransformerBlock 在当前源码中标为重复块。
 新增 compile_scope=blocks，降低编译范围；compile_dynamic 可尝试减少形状变化导致的重编译。
 编译仍可能遇到 Python 分支、不同 token 长度、尾批大小，不能保证只编译一次。
+另提供 projections 范围：只编译 attention 的 Q/K/V/输出 Linear 和每块 MLP，
+使可变 KV cache、mask 和 segment Python 分支留在编译外。
+它的热吞吐可能略低，但冷启动和宽高比变化时的代价可能更小，适合作为稳定性候选。
 
 max-autotune-no-cudagraphs 可搜索矩阵乘内核而不启用 CUDA Graph；
 reduce-overhead/max-autotune 在此前实测发生缓存生命周期错误，仍在参数校验阶段拒绝。
@@ -70,6 +73,9 @@ lean 编码器跳过模型未使用的 LM logits、所有层 hidden history、�
 仅为非因果图像部分选择内核；不能为了加速丢掉 mask。
 Hub 内核需要通过官方初始化接口验证并下载，直接传名称不会完成初始化。
 Hub 二进制能否下载/支持当前 Torch/CUDA 组合，需要实测，不能仅按产品名称宣称可用。
+初次 Hub 测试暴露出缺少官方初始化的实现问题，已修正并重测；
+随后 Sage 下载报网络不可达，未获得可用内核，所以不列为已验证加速选项。
+FP8 编译 batch3/4 的追加微测没有完成，不将其宣称为已验证的推荐方案。
 
 [VAE 内存指南](https://huggingface.co/docs/diffusers/main/optimization/memory)
 区分 tiling 和 slicing。tiling 主要减少空间激活，slicing 主要减少 VAE batch 峰值，
@@ -106,6 +112,11 @@ QKV 融合也可能改变编译/显存行为；本轮没有足够收益支持默
 | native / flash / cuDNN / efficient | 16.90/17.60/18.15/19.00 秒 | 保持 native |
 | 开启 allocator 后 BF16 full compile | 15.81 秒，峰值 42029 MiB | 能跑通但余量较小 |
 | 开启 allocator 后 FP8 eager batch4 | 35.69 秒/4张 | 增大 batch 未改善吞吐 |
+| 开启 allocator 后 BF16 blocks batch1 | 首次408.50秒，热7.90秒/张 | 尾批的新编译代价明显 |
+| 开启 allocator 后 BF16 blocks batch3 | 首次217.63秒，热24.33秒/3张 | 热吞吐0.123张/秒 |
+| FP8 blocks batch1 | 首次624.75秒，热5.69秒/张 | 比batch2稍快，但冷启动更长 |
+| FP8 projections | 首次56.94秒，热12.67秒/2张 | 缩小编译范围 |
+| FP8 dynamic projections | 首次33.43秒，热13.03秒/2张 | 继续测试混合形状 |
 
 分辨率独立实验：batch2 的 512/768/1024 分别约 4.49/9.92/18.17 秒；
 1280/1536/2048 的 batch2 在该组合下 OOM。低输入预算会影响画面，不能归为同质量加速。
