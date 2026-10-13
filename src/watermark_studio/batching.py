@@ -55,7 +55,10 @@ def independent_batch(pipe, items, resolution, kv_cache):
         # Transformer reads spatial/rotary layout from row zero: fail closed on mismatch.
         if any(not torch.equal(image_masks[0], mask) for mask in image_masks[1:]):
             raise ValueError("Image-token positions differ; independent batch layout is unsafe")
-        combined = (torch.cat(embeddings), torch.cat(masks), torch.cat(image_masks))
+        combined_mask = torch.cat(masks)
+        if combined_mask.all():
+            combined_mask = None
+        combined = (torch.cat(embeddings), combined_mask, torch.cat(image_masks))
         vae_batch = torch.cat(vae_images)
 
         def encode_prompt(**kwargs):

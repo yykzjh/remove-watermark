@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         title = QLabel("批量图像去水印")
         title.setObjectName("title")
         layout.addWidget(title)
-        subtitle = QLabel(f"Qwen-Image-2.1-Turbo  ·  {self.capacity} 个 GPU 工作进程已就绪")
+        subtitle = QLabel(f"Qwen-Image-2.1-Turbo  ·  {state.get('worker_count', len(state['workers']))} 个 GPU 工作进程已就绪")
         subtitle.setObjectName("muted")
         layout.addWidget(subtitle)
         if state["backend"] == "mock":
@@ -223,8 +223,8 @@ class MainWindow(QMainWindow):
         form = QFormLayout(controls)
         self.concurrency = QSpinBox()
         self.concurrency.setRange(1, self.capacity)
-        self.concurrency.setValue(self.capacity)
-        form.addRow("并发图片数", self.concurrency)
+        self.concurrency.setValue(min(self.capacity, state.get("recommended_concurrency", 16)))
+        form.addRow("全局在途图片数", self.concurrency)
         self.resolution = QComboBox()
         for size in [512, 768, 1024, 1280, 1536, 2048]:
             self.resolution.addItem(str(size), size)
@@ -256,7 +256,7 @@ class MainWindow(QMainWindow):
         self.detection_resolution.setCurrentIndex(2)
         form.addRow("自动检测分辨率（长边）", self.detection_resolution)
         self.logo = QCheckBox("同时去除相机标识及附属小字（任意位置）")
-        self.logo.setChecked(True)
+        self.logo.setChecked(False)
         self.overwrite = QCheckBox("覆盖输出目录中已有同名文件")
         row = QHBoxLayout()
         row.addWidget(self.logo)
@@ -522,7 +522,7 @@ def main():
                 "loading": "加载 GPU 工作进程",
             }
             ready = sum(w["state"] == "idle" for w in state["workers"])
-            splash.label.setText(f"{names.get(stage, stage)} · {ready}/{state['capacity']} 已就绪")
+            splash.label.setText(f"{names.get(stage, stage)} · {ready}/{state.get('worker_count', len(state['workers']))} 已就绪")
 
     api.done.connect(receive)
     timer = QTimer()

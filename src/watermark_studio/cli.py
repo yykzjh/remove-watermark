@@ -41,7 +41,7 @@ def main():
                 "resolution": args.resolution,
                 "detection_resolution": args.detection_resolution,
                 "overwrite": args.overwrite,
-                    "remove_logo": args.remove_logo,
+                "remove_logo": args.remove_logo,
             },
         },
     )
