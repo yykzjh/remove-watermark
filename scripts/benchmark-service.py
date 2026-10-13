@@ -13,13 +13,15 @@ from watermark_studio.images import pixel_box
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["custom", "auto"], default="custom")
+parser.add_argument("--images", type=int)
+parser.add_argument("--concurrency", nargs="+", type=int)
 args = parser.parse_args()
 root = Path(".run/tuning/e2e").resolve()
 source = root/args.mode/"input"
 source.mkdir(parents=True, exist_ok=True)
 # Different dimensions, including non-multiples of 32, portrait and original 4K photos.
 sizes = [(800,600), (1600,1200), (4000,3000), (1707,1279)]
-for i in range(32 if args.mode == "custom" else 16):
+for i in range(args.images or (64 if args.mode == "custom" else 32)):
     width, height = sizes[i % len(sizes)]
     if args.mode == "auto" and i % 5 == 0:
         width, height = height, width
@@ -44,7 +46,7 @@ for i in range(32 if args.mode == "custom" else 16):
 (source/"invalid.jpg").write_text("invalid image")
 url = "http://127.0.0.1:8765"
 health = request(url,"/health")
-for concurrency in ([8,16,32,64] if args.mode == "custom" else [16,32]):
+for concurrency in (args.concurrency or ([8,16,32,64] if args.mode == "custom" else [16,32])):
     if concurrency > health["capacity"]:
         continue
     for detection in ([1280] if args.mode == "custom" else [768,1280]):
@@ -59,8 +61,12 @@ for concurrency in ([8,16,32,64] if args.mode == "custom" else [16,32]):
             "input_dir":str(source),"output_dir":str(target),"options":options,
         })
         start = time.monotonic()
+        max_inflight = 0
         while time.monotonic()-start < 1800:
-            job = request(url,"/health")["job"]
+            state = request(url,"/health")
+            job = state["job"]
+            max_inflight = max(max_inflight, state["inflight_images"])
+            assert state["inflight_images"] <= concurrency
             if job["id"] != response["id"]:
                 raise RuntimeError("Another job replaced the benchmark")
             if job["state"] in {"completed","failed","cancelled"}:
@@ -91,7 +97,7 @@ for concurrency in ([8,16,32,64] if args.mode == "custom" else [16,32]):
             if row["action"] == "restored":
                 assert not np.array_equal(before[allowed],after[allowed]), row
         report = {
-            "mode":args.mode, "concurrency":concurrency, "detection_resolution":detection,
+            "mode":args.mode, "concurrency":concurrency, "max_inflight":max_inflight, "detection_resolution":detection,
             "seconds":round(elapsed,3), "images":len(rows),
             "job":job["id"], "workers":len({r["worker"] for r in rows}),
             "batch_sizes":sorted({b for r in rows for b in r.get("batch_sizes",[])}),
