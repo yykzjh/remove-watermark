@@ -22,6 +22,8 @@ bash scripts/start-server.sh
 uv run --no-sync python scripts/check-health.py
 ```
 
+当前配置使用 Qwen 官方 ModelScope 仓库（开发机访问 Hugging Face 超时）。可设置 model_source="huggingface"、revision="main" 切换来源；生产复现建议将 revision 固定为仓库提交。
+
 首次启动先下载权重，再加载 GPU 工作进程；/health 的 stage 依次为 downloading、loading、ready 或 failed。服务日志在 .run/server.log。主批处理窗口仅在 ready 后展示。编译采用 PyTorch 的延迟编译，第一张图片仍可能有明显编译开销。
 
 ## 桌面启动

@@ -2,8 +2,9 @@
 host = "127.0.0.1"
 port = 8765
 model = "Qwen/Qwen-Image-2.1-Turbo"
-revision = "main"
-cache_dir = "~/.cache/huggingface/hub"
+model_source = "modelscope"
+revision = "master"
+cache_dir = "~/.cache/watermark-models"
 gpus = [1]
 replicas_per_gpu = 1
 load_parallelism = 1

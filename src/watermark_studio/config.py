@@ -65,6 +65,7 @@ class DeploymentConfig(BaseModel):
     port: int = Field(default=8765, ge=1024, le=65535)
     model: str = "Qwen/Qwen-Image-2.1-Turbo"
     revision: str = "main"
+    model_source: Literal["huggingface", "modelscope"] = "huggingface"
     cache_dir: str = "~/.cache/huggingface/hub"
     gpus: list[int] = Field(default_factory=lambda: [1], min_length=1, max_length=16)
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)

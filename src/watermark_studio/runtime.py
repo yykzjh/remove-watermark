@@ -45,18 +45,17 @@ class Runtime:
                 self.stage = "downloading"
             model_path = self.config.model
             if self.config.backend != "mock":
-                if Path(model_path).expanduser().is_dir():
-                    model_path = str(Path(model_path).expanduser().resolve())
-                else:
-                    from huggingface_hub import snapshot_download
+                from .download import download_model
 
-                    model_path = snapshot_download(
-                        self.config.model,
-                        revision=self.config.revision,
-                        cache_dir=str(Path(self.config.cache_dir).expanduser()),
-                        ignore_patterns=["assets/*", "*.md", "*.png", "*.jpg"],
-                    )
-                    self.model_revision = Path(model_path).name
+                model_path = download_model(
+                    self.config.model,
+                    self.config.model_source,
+                    self.config.revision,
+                    self.config.cache_dir,
+                )
+                snapshot_name = Path(model_path).name
+                if len(snapshot_name) == 40 and all(c in "0123456789abcdef" for c in snapshot_name):
+                    self.model_revision = snapshot_name
             if self.stop.is_set():
                 return
             gate = self.ctx.Semaphore(self.config.load_parallelism)
@@ -220,6 +219,7 @@ class Runtime:
                 "backend": self.config.backend,
                 "model": self.config.model,
                 "model_revision": self.model_revision,
+                "model_source": self.config.model_source,
             }
             self._persist()
             thread = threading.Thread(target=self._scan, args=(source, target), daemon=True)

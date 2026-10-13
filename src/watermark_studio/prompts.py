@@ -8,9 +8,16 @@ using the immediately surrounding visual evidence. Continue the same soil, grave
 concrete path, grass, weeds, fallen leaves, branches or construction materials where
 these surfaces meet the removed overlay. Match their local scale, direction,
 perspective, irregular texture, focus, lighting, color, noise and compression.
-Continue existing edges and shadows smoothly across the repaired area. If the overlay
-crosses a person's visible clothing, legs or shoes, continue only that existing person's
-shape and fabric consistently with the visible parts. Preserve every person's identity,
+Continue existing edges and shadows smoothly across the repaired area. Every area formerly covered by the watermark must be naturally filled, never left
+blank, flat-colored, blurred or transparent. When the overlay hides part of a human
+body, continue the visible body silhouette, limb position, clothing folds, trouser
+legs, hands or shoes with plausible anatomy and proportions. Use only the visible
+person as context; avoid missing, extra, duplicated or disconnected body parts.
+For covered soil, grass, trees and other plants, naturally extend the existing
+terrain, blades of grass, tree trunks, roots, branches and foliage, with coherent
+depth, edge continuity and contact shadows. Do not insert unrelated vegetation.
+If the overlay crosses a person's visible clothing, legs or shoes, continue only
+that existing person's shape and fabric consistently with the visible parts. Preserve every person's identity,
 pose and proportions and every existing object, building, road edge and plant.
 Do not add people, objects, machinery, signage, writing, symbols, logos or decorative
 details. Do not beautify, clean up, sharpen, recolor, relight, crop, rotate or redesign

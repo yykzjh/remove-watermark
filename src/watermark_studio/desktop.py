@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 from .config import ProcessingConfig, Region
 
 STYLE = """
-QWidget { background: #f4f6f5; color: #182d2a; font-size: 14px; }
+QWidget { background: #f4f6f5; color: #182d2a; font-size: 14px; font-family: "Noto Sans CJK SC", sans-serif; }
 QMainWindow { background: #f4f6f5; }
 QGroupBox { border: 1px solid #d7e1dc; border-radius: 9px; margin-top: 18px;
             padding: 18px 12px 12px; font-weight: 600; background: #ffffff; }

@@ -1,6 +1,6 @@
 # 水印区域与提示词
 
-实际发送给 Qwen 的提示词位于 `src/watermark_studio/prompts.py`。每次调用只处理一个带周围上下文的裁剪区域，并在提示词中写明水印在裁剪图内的百分比坐标。默认英文提示词约 250 词；不做额外大模型提示词改写，避免额外延迟和内容漂移。
+实际发送给 Qwen 的提示词位于 `src/watermark_studio/prompts.py`。每次调用只处理一个带周围上下文的裁剪区域，并在提示词中写明水印在裁剪图内的百分比坐标。默认英文提示词约 350 词；不做额外大模型提示词改写，避免额外延迟和内容漂移。
 
 ## 两类样例
 
@@ -28,6 +28,10 @@
 Continue the narrow concrete path across the removed panel with the same width,
 perspective and weathered edge; preserve the adjacent grass and existing shoe outline.
 ```
+
+## 被遮挡内容的自然补全
+
+去水印之后不能留白、填纯色或用模糊块代替内容。人体部分根据可见姿态、身体轮廓、衣物褶皱、裤腿、手和鞋子作合理续接，保持解剖结构与比例，避免断肢、多肢和重复人体。泥土、草地、树干、根系、树枝及其他植物根据周围内容自然延伸，保持深度、纹理尺度、边缘连贯性以及接触阴影，避免插入无关植物。完全被遮挡的细节是推断性重建，不是原始细节恢复。
 
 ## 局部回贴
 
