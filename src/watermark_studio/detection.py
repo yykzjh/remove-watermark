@@ -22,7 +22,9 @@ Coordinates are integers normalized to 0..1000, origin top left. At most 8 group
 If no digital overlay is visible return {"watermarks":[]}. Do not invent boxes."""
 
 
-def parse_detection(text: str, padding: float = 0.008) -> list[Region]:
+def parse_detection(
+    text: str, padding: float = 0.008, relative_padding: float = 0.06
+) -> list[Region]:
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -43,9 +45,13 @@ def parse_detection(text: str, padding: float = 0.008) -> list[Region]:
         x0, y0, x1, y1 = raw.box
         if (x1 - x0) * (y1 - y0) > 0.8:
             raise ValueError("自动检测区域覆盖过大，已避免整图重绘")
+        # A proportional margin covers slightly underestimated panel edges, without
+        # giving a small logo the same large margin as a large information panel.
+        px = padding + (x1-x0)*relative_padding
+        py = padding + (y1-y0)*relative_padding
         regions.append(Region(kind=kind, box=(
-            max(0, x0-padding), max(0, y0-padding),
-            min(1, x1+padding), min(1, y1+padding),
+            max(0, x0-px), max(0, y0-py),
+            min(1, x1+px), min(1, y1+py),
         )))
     # Merge overlapping detections so a later repair cannot restore an earlier overlay.
     while True:

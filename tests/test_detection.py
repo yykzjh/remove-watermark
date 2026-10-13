@@ -11,7 +11,7 @@ from watermark_studio.worker import process_image
 
 def test_detection_schema_padding_and_invalid_results():
     boxes = parse_detection('{"watermarks":[{"kind":"logo","box":[800,0,1000,100]}]}')
-    assert boxes[0].box == pytest.approx((0.792, 0, 1, 0.108))
+    assert boxes[0].box == pytest.approx((0.78, 0, 1, 0.114))
     assert parse_detection('{"watermarks":[]}') == []
     for box in [[900, 100, 100, 200], [0, 0, 1001, 10], [0, 0, 1000, 1000]]:
         with pytest.raises(ValueError):
@@ -37,7 +37,14 @@ def test_overlapping_detection_groups_are_merged():
         {"kind": "panel", "box": [100, 100, 300, 300]},
         {"kind": "logo", "box": [200, 200, 400, 400]},
         {"kind": "logo", "box": [350, 350, 500, 500]},
-    ]}), padding=0)
+    ]}), padding=0, relative_padding=0)
     assert len(regions) == 1
     assert regions[0].kind == "panel"
     assert regions[0].box == (0.1, 0.1, 0.5, 0.5)
+
+def test_margin_covers_underestimated_panel_bottom():
+    region = parse_detection(
+        '{"watermarks":[{"kind":"panel","box":[556,712,985,950]}]}'
+    )[0]
+    # The shifted fixture panel ends at y=561 in a 576 px image.
+    assert region.box[3] * 576 > 560
