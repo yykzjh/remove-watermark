@@ -2,7 +2,7 @@
   "input_dir": "/home/zjh/images",
   "output_dir": "/home/zjh/images-clean",
   "options": {
-    "concurrency": 7,
+    "concurrency": 16,
     "preset": "auto",
     "regions": [],
     "detection_resolution": 1280,

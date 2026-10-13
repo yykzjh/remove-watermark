@@ -1,3 +1,9 @@
+> 动态凑批版本：默认 GPU 0–7，每卡一个模型。concurrency 现为全局在途图片数；
+> 每卡 batch_size 独立配置。所有 bool 未指定为 false。完整启动、参数和实测见
+> [启动调优指南](docs/startup-and-tuning.md) 与 [实测记录](docs/batch-tuning-results.md)。
+> 最终输出保持原文件存储宽高及 EXIF 方向；局部推理 resolution 不改变输出尺寸。
+> 去除“今日水印”等标识需显式勾选对应选项或传 --remove-logo。
+
 # Watermark Studio
 
 使用 Qwen-Image-2.1-Turbo 在 Linux 开发机批量修复工地/户外照片的数字水印。提供 Linux 原生 PySide6 桌面窗口、GPU 推理服务与命令行。环境统一由 uv 管理。
@@ -22,7 +28,7 @@ cd ~/project/inference
 git clone https://github.com/yykzjh/remove-watermark.git
 cd remove-watermark
 UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --no-dev
-bash scripts/start-server.sh
+bash scripts/launch-server.sh
 uv run --no-sync python scripts/check-health.py
 ```
 
@@ -73,7 +79,7 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 
 ## 模型部署与吞吐参数
 
-编辑 config/deployment.toml 后重启服务。默认使用 GPU 1–7，BF16，每卡一个完整副本，CFG=1，官方 Turbo 8 步调度，启用 KV cache、VAE tiling/slicing 和 TF32。
+编辑 config/deployment.toml 后重启服务。默认使用 GPU 0–7，BF16，每卡一个完整副本，CFG=1，官方 Turbo 8 步调度，启用 KV cache、VAE tiling/slicing 和 TF32。
 
 | 参数 | 作用与限制 |
 | --- | --- |
@@ -89,13 +95,13 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 | cpu_threads | 每个工作进程的 PyTorch CPU 线程数 |
 | allowed_roots | 桌面可访问的目录根，默认用户家目录与 /mnt |
 
-默认 config/deployment.toml 已启用 GPU 1–7 的七副本数据并行，GUI 默认并发为 7。GPU 0 保留给已有进程。config/deployment-throughput.toml 为可选的 flex/compile 配置，编译方案尚未完成实测，首次编译会增加等待时间。并发数受已部署副本数限制。官方 Diffusers 的 image 列表代表多参考输入，因此本项目不会把不同图片误传为一个图像批次。此实现通过独立 GPU 进程与动态任务队列实现数据并行，一张图的检测及所有修复区域由同一副本处理。Diffusers 也提供模型分片等多卡机制；对于本机单卡能容纳的模型，多副本更适合独立图片的吞吐目标。此项目尚未接入 TP/Ulysses/Ring 等单图计算并行。
+默认 config/deployment.toml 已启用 GPU 0–7 的七副本数据并行，GUI 默认并发为 7。GPU 0 保留给已有进程。config/deployment-throughput.toml 为可选的 flex/compile 配置，编译方案尚未完成实测，首次编译会增加等待时间。并发数受已部署副本数限制。官方 Diffusers 的 image 列表代表多参考输入，因此本项目不会把不同图片误传为一个图像批次。此实现通过独立 GPU 进程与动态任务队列实现数据并行，一张图的检测及所有修复区域由同一副本处理。Diffusers 也提供模型分片等多卡机制；对于本机单卡能容纳的模型，多副本更适合独立图片的吞吐目标。此项目尚未接入 TP/Ulysses/Ring 等单图计算并行。
 
 服务默认沿用 checkpoint 中的 8 步 sample_sigmas。没有提供会被该调度忽略的 num_inference_steps 滑块，也不默认打开 CFG 或额外负向提示词。
 
 ```bash
 bash scripts/stop-server.sh
-bash scripts/start-server.sh config/deployment-throughput.toml
+bash scripts/launch-server.sh --attention flex --compile
 ```
 
 ## 质量与提示词
@@ -118,4 +124,4 @@ uv run --no-sync ruff check src tests
 
 测试使用明确标记的 mock 后端，它只复制图像来验证队列、目录、UI 和错误处理，不代表模型推理效果。
 
-部署实测、七卡并发验收及当前限制见 [docs/deployment-validation.md](docs/deployment-validation.md)。
+部署实测、八卡并发验收及当前限制见 [docs/deployment-validation.md](docs/deployment-validation.md)。

@@ -67,9 +67,12 @@ for concurrency in ([8,16,32,64] if args.mode == "custom" else [16,32]):
                 break
             time.sleep(.25)
         assert job["state"] == "completed" and job["failed"] == 0, job
+        elapsed = time.monotonic()-start
         rows = [json.loads(line) for line in
                 (Path.home()/".local/state/watermark-studio"/job["id"]/"results.jsonl")
                 .read_text().splitlines()]
+        assert len({row["worker"] for row in rows}) == 8, "Not all GPUs were used"
+        assert job["no_watermark"] == 0, job
         for row in rows:
             original = Image.open(source/row["file"])
             output = Image.open(target/row["file"])
@@ -82,7 +85,7 @@ for concurrency in ([8,16,32,64] if args.mode == "custom" else [16,32]):
             assert np.array_equal(before[~allowed],after[~allowed]), row
         report = {
             "mode":args.mode, "concurrency":concurrency, "detection_resolution":detection,
-            "seconds":round(time.monotonic()-start,3), "images":len(rows),
+            "seconds":round(elapsed,3), "images":len(rows),
             "job":job["id"], "workers":len({r["worker"] for r in rows}),
             "batch_sizes":sorted({b for r in rows for b in r.get("batch_sizes",[])}),
             "peak_allocated_mib":max(r["peak_allocated_mib"] for r in rows),

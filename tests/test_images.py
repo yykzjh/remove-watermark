@@ -71,3 +71,24 @@ def test_explicit_templates_and_parameter_validation():
         DeploymentConfig(compile=True, offload="model")
     with pytest.raises(ValueError):
         ProcessingConfig(preset="custom", regions=[])
+
+
+def test_all_exif_orientations_preserve_stored_and_display_dimensions(tmp_path):
+    from PIL import ImageOps
+
+    from watermark_studio.images import load_photo, restore_storage_orientation
+    for orientation in range(1, 9):
+        image = Image.new("RGB", (173, 127))
+        image.putpixel((10, 20), (255, 70, 20))
+        exif = image.getexif()
+        exif[274] = orientation
+        path = tmp_path / f"orientation-{orientation}.png"
+        image.save(path, exif=exif)
+        displayed, _, _, _ = load_photo(path)
+        stored, restored_exif = restore_storage_orientation(displayed, path)
+        assert stored.size == (173, 127)
+        assert stored.tobytes() == image.tobytes()
+        output = tmp_path / f"output-{orientation}.png"
+        stored.save(output, exif=restored_exif)
+        with Image.open(path) as a, Image.open(output) as b:
+            assert ImageOps.exif_transpose(a).tobytes() == ImageOps.exif_transpose(b).tobytes()

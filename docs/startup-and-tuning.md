@@ -1,222 +1,157 @@
-# 服务启动参数与调优指南
+# 服务启动、动态凑批与调优
 
-所有示例均在 Linux 开发机的 `~/project/inference/remove-watermark` 执行，使用 uv 环境。
+在 Linux 开发机 ~/project/inference/remove-watermark 执行，使用 uv。
+完整可执行脚本：[launch-server.sh](../scripts/launch-server.sh)。
+实测结果见 [batch-tuning-results.md](batch-tuning-results.md)。
 
-## 1. 完整启动脚本
-
-可执行脚本：[scripts/launch-server.sh](../scripts/launch-server.sh)。它显式列出全部部署字段，并调用负责后台进程管理的 [scripts/start-server.sh](../scripts/start-server.sh)。
+## 启动
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cd ~/project/inference/remove-watermark
-
-# 第一次安装或更新依赖后执行；平时仅重启无需重复安装。
-UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --no-dev
-
-# 确认当前任务已完成后停止旧服务；新参数仅对新进程生效。
+uv sync --frozen --extra server --no-dev
+bash scripts/launch-server.sh --print-config
+# 确认任务结束后重启：
 bash scripts/stop-server.sh
-
-bash scripts/start-server.sh \
-  --config config/deployment.toml \
-  --host 127.0.0.1 \
-  --port 8765 \
-  --backend qwen \
-  --model Qwen/Qwen-Image-2.1-Turbo \
-  --model-source modelscope \
-  --revision master \
-  --cache-dir "$HOME/.cache/watermark-models" \
-  --parallelism data \
-  --gpus 1,2,3,4,5,6,7 \
-  --replicas-per-gpu 1 \
-  --load-parallelism 1 \
-  --dtype bfloat16 \
-  --attention sdpa \
-  --no-compile \
-  --compile-mode default \
-  --offload none \
-  --vae-tiling \
-  --vae-slicing \
-  --kv-cache \
-  --tf32 \
-  --cpu-threads 4 \
-  --allowed-roots "$HOME" /mnt \
-  --state-dir "$HOME/.local/state/watermark-studio"
-
-uv run --no-sync python scripts/check-health.py --url http://127.0.0.1:8765
-```
-
-以上完整参数已经保存在 launch-server.sh；日常可以简写：
-
-```bash
 bash scripts/launch-server.sh
-# 尾部参数覆盖脚本中的默认值：
-bash scripts/launch-server.sh --gpus 1,2,3 --load-parallelism 2
-```
-
-启动脚本输出 starting 只表示后台进程已创建。/health 的 stage=ready 才表示所有模型副本就绪。日志为 .run/server.log；PID 为 .run/server.pid；本次最终参数快照为 .run/deployment.json。任务报告在 --state-dir。
-
-不自动停止已有服务：有显式新参数时返回错误，明确提示参数未应用；无参数调用 start-server.sh 时返回已有进程，兼容桌面启动器。launch-server.sh 总是带显式参数，修改配置后应先完成任务并停止旧服务。停止服务会中断未完成任务。
-
-## 2. 参数优先级与预检查
-
-优先级为：**命令行 > TOML 文件 > 程序内置默认值**。下面表格的值对应完整启动脚本，不代表每个字段的内置默认值。
-
-```bash
-# 查看全部可用选项，不启动模型
-bash scripts/start-server.sh --help
-
-# 校验并打印最终参数，不创建服务、不加载 GPU
-bash scripts/launch-server.sh --gpus 1,2 --print-config
-
-# 原始服务命令，适用于前台调试/系统服务管理
-uv run --no-sync watermark-server --config config/deployment.toml \
-  --parallelism single --gpus 1 --replicas-per-gpu 1
-```
-
-布尔参数均同时提供正反开关，例如 --compile / --no-compile、--kv-cache / --no-kv-cache。不能写 --compile false，应写 --no-compile。重复的标量/布尔参数以最后一次为准；--gpus 和 --allowed-roots 替换整组列表，不是追加。
-
-### 基础与模型参数
-
-| 参数 | 完整脚本值 | 含义 |
-| --- | --- | --- |
-| --config | config/deployment.toml | 基础 TOML 文件。保留旧的 start-server.sh config/xxx.toml 写法 |
-| --host | 127.0.0.1 | 只接受 127.0.0.1 或 ::1；远程桌面通过 SSH 控制隧道访问 |
-| --port | 8765 | API 端口，1024–65535。改端口后客户端 URL/SSH 转发端口也要对应修改 |
-| --backend | qwen | qwen 执行实际模型；mock 仅测试、原样复制，不去水印。--mock 是后者的别名 |
-| --model | Qwen/Qwen-Image-2.1-Turbo | 仓库 ID 或完整本地模型目录；本地目录应包含 model_index.json 等组件 |
-| --model-source | modelscope | modelscope 或 huggingface。已有本地模型目录时不使用下载源 |
-| --revision | master | ModelScope 分支/提交；HF 通常 main。可固定不可变提交以便复现，master 会变化 |
-| --cache-dir | ~/.cache/watermark-models | 由开发机直接下载的模型缓存；本地模型目录不需要下载 |
-| --allowed-roots | 用户家目录、/mnt | 允许目录浏览和批处理访问的根目录，空格分隔；带空格的路径须加引号 |
-| --state-dir | ~/.local/state/watermark-studio | 每个任务的参数、检测范围、耗时、逐图结果和错误报告目录 |
-| --print-config | 未启用 | 打印合并后的 JSON 配置并退出，不启动模型 |
-
-### 并行与资源参数
-
-| 参数 | 完整脚本值 | 含义及调优 |
-| --- | --- | --- |
-| --parallelism | data | data 为独立图片数据并行；single 为单 GPU 单副本。single 下多个 GPU 或 replicas>1 会直接报错 |
-| --gpus | 1,2,3,4,5,6,7 | 逗号分隔 GPU 编号，每个 worker 只看见分配给它的 GPU。当前机器 GPU 0 有其他进程 |
-| --replicas-per-gpu | 1 | 每卡完整模型副本数，1–4。增加副本会复制模型显存；当前 L40 实测每副本约 34 GiB，不能据此在 46 GiB 卡上放两个副本 |
-| --load-parallelism | 1 | 同时加载模型的 worker 数，1–16。只影响启动阶段，不是批处理并发；可试 2，观察 CPU 内存、磁盘和加载时间 |
-| --cpu-threads | 4 | 每个 GPU worker 的 PyTorch CPU 线程数，1–64；不是整个服务总线程上限，也不限制所有第三方库线程 |
-
-工作进程容量 = GPU 数 × 每卡副本数。每批图片的 concurrency 再决定同时占用多少 worker，不能大于已部署容量。一个 worker 依次完成一张图的检测及各个水印区域修复，然后领取下一张，按任务动态分配。
-
-**本项目当前接入 single/data 两种运行方式。** Diffusers 框架还支持模型分片、上下文并行等机制，但没有给本项目尚未实现的 TP/Ulysses/Ring 增加空参数。--gpus 1,2 表示两个完整副本处理不同图片，不表示将单张图片拆到两张卡上。此服务自行创建 GPU worker，不要再套 torchrun 或给 uvicorn 增加 workers，否则会重复创建模型。
-
-### 推理、显存与编译参数
-
-| 参数 | 完整脚本值 | 含义及限制 |
-| --- | --- | --- |
-| --dtype | bfloat16 | bfloat16 / float16。L40 建议沿用已验证的 BF16；更换精度需重新检查画面和数值稳定性 |
-| --attention | sdpa | sdpa / flex。SDPA 为当前实测基线；flex 必须同时 --compile |
-| --compile / --no-compile | --no-compile | 编译 transformer；有首次编译开销，不会加速所有检测/文本编码代码 |
-| --compile-mode | default | default、reduce-overhead、max-autotune。仅 compile 开启时生效；更激进模式可能增加编译时间/显存 |
-| --offload | none | none 全部留在 GPU；model 按组件卸载到 CPU；sequential 更细粒度卸载。通常以传输开销换显存，不能与 compile 同时开启 |
-| --vae-tiling / --no-vae-tiling | 开 | VAE 分块，降低高分辨率编解码的峰值显存，可能增加少量计算 |
-| --vae-slicing / --no-vae-slicing | 开 | VAE 分片。当前每次解码一张，收益可能有限，不能视为图片批次并行 |
-| --kv-cache / --no-kv-cache | 开 | 同一张图去噪过程复用前缀 KV；不是不同图片之间共用内容 |
-| --tf32 / --no-tf32 | 开 | 允许适用的 FP32 CUDA 矩阵乘使用 TF32。不会把 BF16 权重改为 TF32，不保证所有算子都受益 |
-
-Turbo 沿用 checkpoint 内的 sample_sigmas（当前 8 步）与 CFG=1。当前没有暴露会与 checkpoint 调度冲突的步数参数，也未接入量化、跨图 prefix-cache 或单次多图片 microbatch。官方 pipeline 的 image 列表是多参考图输入，不能当成独立照片批次。
-
-## 3. 常用启动方案
-
-以下使用 start-server.sh，从 TOML 继承未指定的值。若旧服务在运行，先等待任务结束并停止它。
-
-```bash
-# 单卡验证效果
-bash scripts/start-server.sh --parallelism single --gpus 1 --replicas-per-gpu 1 \
-  --attention sdpa --no-compile --offload none
-
-# 当前七卡吞吐基线（建议）
-bash scripts/launch-server.sh
-
-# 只用三张卡；可尝试同时加载两个副本，减少启动等待
-bash scripts/launch-server.sh --gpus 1,2,3 --load-parallelism 2
-
-# 显存不足时的单卡方案；该组合尚未在本任务完成性能实测
-bash scripts/launch-server.sh --parallelism single --gpus 1 \
-  --offload model --no-compile --attention sdpa
-
-# 编译实验：先单卡测量，勿直接将首次编译等待当作稳态吞吐
-bash scripts/launch-server.sh --parallelism single --gpus 1 \
-  --attention flex --compile --compile-mode default --offload none
-
-# 使用已经下载的模型目录，避免启动时查询远端仓库
-bash scripts/launch-server.sh \
-  --model "$HOME/.cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
-
-# 自定义端口
-bash scripts/launch-server.sh --port 8877
-uv run --no-sync python scripts/check-health.py --url http://127.0.0.1:8877
-```
-
-默认桌面 SSH 启动器转发到远端 127.0.0.1。若使用 --host ::1，需要自行建立 IPv6 对应的隧道并用客户端 --url 连接；常规桌面使用保持 127.0.0.1。
-
-自定义远端端口的 WSL 客户端：
-```bash
-uv run --no-sync watermark-studio --ssh-host cdu_dev --remote-port 8877 --port 8877
-```
-先在开发机用指定参数启动服务；桌面客户端只连接该服务，不负责修改已启动实例的部署参数。修改 GPU 数或每卡副本数后，重新打开桌面客户端，以刷新并发数上限。
-
-## 4. 每批图像的全部处理参数
-
-这些参数在提交任务时生效，不要求重新加载模型；它们属于任务配置，不能混入启动服务的部署参数。GUI 提供常用项，API 可以设置全部字段。
-
-| options 字段 | 默认值 | 含义 |
-| --- | --- | --- |
-| concurrency | API 为 1；GUI 为服务容量 | 同时处理的图片数，1–64 且不超过 worker 容量；七卡建议先 7 |
-| preset | auto | auto 每图自动检测；gray/blue 固定样例位置模板；custom 使用 regions。批量不同布局用 auto |
-| regions | [] | custom 模式必填，最多 8 个对象；kind 为 panel/logo/custom，box 为归一化 x0,y0,x1,y1 |
-| detection_resolution | 1280 | 自动检测图的长边上限，512–2048、32 的倍数；更大更利于小字定位，但增加检测开销 |
-| remove_logo | true | 同时清理相机标识及附属文字，无论位于哪个角落 |
-| resolution | 1024 | 每个修复裁剪的生成分辨率参数，256–2048、32 的倍数；不是最终整图输出尺寸 |
-| context | 0.6 | 水印区域周围的上下文扩展比例，0.1–2；给自然补全提供场景信息 |
-| feather | 12 | 原图像素单位的外侧过渡宽度，0–64；区域内部不做半透明回贴 |
-| seed | 42 | 0–4294967295；与相对路径及区域序号组合，固定测试条件，但不保证跨硬件/版本位级复现；目前通过 API 指定 |
-| overwrite | false | 跳过已有输出；开启则重新生成并原子替换。调参对比应换输出目录或开启覆盖 |
-| extra_prompt | 空字符串 | 最多 2000 字符的场景补充指令，与项目自然补全提示词组合 |
-
-请求本身还需 input_dir 和 output_dir，均为开发机上的绝对路径或可展开的家目录路径，二者不能相同或相互包含。路径及 task options 完整示例见 [config/job.example.json](../config/job.example.json)：
-
-```bash
-# 在开发机编辑示例中的输入/输出路径，再提交小型 JSON 请求
-curl --fail -H 'Content-Type: application/json' \
-  --data-binary @config/job.example.json http://127.0.0.1:8765/jobs
-
-# 常用参数也可由批处理命令指定
-uv run --no-sync watermark-batch /home/zjh/images /home/zjh/images-clean \
-  --concurrency 7 --preset auto --detection-resolution 1280 --resolution 1024
-```
-
-## 5. 调优顺序与观测
-
-1. **先质量后速度**：在开发机准备少量有代表性的真实照片，涵盖人体遮挡、小字、多水印和无水印图。先固定 seed、auto、1280 检测、1024 修复、BF16、SDPA、单副本。
-2. **把并发填满**：七个独立 GPU 对应 concurrency=7。增大 HTTP 线程数或将 concurrency 写成 64 不会多出 GPU 工作进程，也不会自动增加吞吐。
-3. **分辨率对比**：修复 768/1024/1536 分别抽样。小字漏检时先提高 detection_resolution；提高生成分辨率不会弥补检测漏框。
-4. **显存不足**：先保持每卡一个副本、降低修复分辨率并保持 VAE tiling；必要时试 model offload。只降低任务 concurrency 不会卸载已经驻留的模型副本。
-5. **编译单独实验**：先单卡 flex+compile，记录首次编译和热身后的吞吐。自动检测产生不同裁剪形状，可能重复编译；确认有收益再扩到多卡。此方案尚未完成实测。
-6. **加载速度**：load_parallelism 从 1 试到 2，观察 CPU 内存和存储吞吐。它不影响服务 ready 后的任务并发上限。
-7. **测真实数据**：使用足够多图片，分别记录图/分钟、逐图耗时、水印区域数、错误率和显存峰值；区分磁盘 I/O、自动检测与生成耗时。results.jsonl 含 detection_seconds、seconds、regions 和 action。
-
-```bash
-nvidia-smi
 uv run --no-sync python scripts/check-health.py
-tail -n 40 .run/server.log
 ```
 
-前次实测：七卡处理 8 张合成测试图约 14.31 秒；单卡 1024 单区域生成记录 8.15 秒。这些用于链路验收，不能直接作为真实图片吞吐承诺；当时显存快照约 34 GiB/卡，也不是峰值。详见 [部署验证记录](deployment-validation.md)。
+starting 仅表示进程创建，/health stage=ready 才表示所有模型加载完成。
+.run/deployment.json 保存最终参数，.run/server.log 保存服务日志。
+有活动服务时显式传新参数会报错，不会悄悄忽略参数或中断现有任务。
 
-## 6. 下载和代码同步
+非布尔参数优先级：命令行 > TOML > 内置值。
+**所有 bool 开关不传为 false，传 --参数名 为 true**。不提供 --no-*，不接受 true/false 字符串。
+启动 CLI 的布尔默认 false 会覆盖旧 TOML 中的 true。完整脚本显式传入需要启用的开关；
+要关闭脚本中已列出的开关，删除该行，或直接使用 start-server.sh 列出需要启用的开关。
+标量重复时最后一次生效；GPU/路径列表整体替换。
 
-模型与依赖均由开发机直接下载。网络较慢时可用 UV_HTTP_TIMEOUT=600 延长 uv 请求超时。ModelScope SDK 支持 MODELSCOPE_DOWNLOAD_PARALLEL_WORKERS（单文件范围下载线程，默认 1；此前下载用 8），它是下载环境变量，不是 GPU 并行参数；可在启动脚本前设置，过高可能增加下载重试。
+## 全部部署参数
 
-代码继续使用本地 git commit/push，开发机 git pull --ff-only。通过 SSH 只运行普通长度命令、查看有限文本输出，不传图片、模型或源码压缩包。
+| 参数 | 含义、默认或完整脚本配置 |
+| --- | --- |
+| --config | 基础 TOML，默认 config/deployment.toml |
+| --host | 127.0.0.1 或 ::1，仅监听回环 |
+| --port | 默认 8765，1024–65535；客户端与隧道同步修改 |
+| --model | 仓库 ID 或本地模型路径；默认 Qwen/Qwen-Image-2.1-Turbo |
+| --model-source | huggingface / modelscope；脚本用 modelscope，依赖和模型由开发机下载 |
+| --revision | 脚本 master；此分支可变，严格复现应固定不可变版本 |
+| --cache-dir | 脚本 ~/.cache/watermark-models |
+| --parallelism | data / single；single 限制一个 GPU 一个副本，但仍可在该卡凑批 |
+| --gpus | 默认 0,1,2,3,4,5,6,7，启用全部 8 卡 |
+| --replicas-per-gpu | 默认 1，范围 1–4；复制完整权重，L40 不建议多副本 |
+| --batch-size | 默认 2，范围 1–16；每 GPU 单次模型调用最多编辑区域数 |
+| --batch-window | 默认 4，范围 1–8；每 worker 候选图片上限=batch_size×batch_window |
+| --batch-bucketing | bool，按相同推理宽高分桶；完整脚本显式启用 |
+| --oom-split-batch | bool，CUDA OOM 递归拆批；单图仍失败则报告且不写半成品 |
+| --load-parallelism | 默认 1，1–16；仅控制同时加载模型的进程数，不控制推理并发 |
+| --dtype | bfloat16 / float16；BF16 为默认，精度变更需重新验收画面 |
+| --attention | sdpa / flex；flex 必须 --compile |
+| --compile | bool，编译 transformer；首次和新形状有额外编译开销 |
+| --compile-mode | default / reduce-overhead / max-autotune；仅编译开启时有效 |
+| --offload | none / model / sequential；卸载换显存，不能与 compile 同时启用 |
+| --vae-tiling | bool，VAE 分块节省高分辨率峰值显存 |
+| --vae-slicing | bool，VAE 分片降低 batch 解码峰值；去噪仍批量执行 |
+| --kv-cache | bool，同一批去噪步骤复用前缀 KV，不跨照片共享内容 |
+| --tf32 | bool，允许符合条件的 FP32 矩阵乘使用 TF32；BF16 权重不改变 |
+| --cpu-threads | 每 worker 的 PyTorch CPU 线程，默认 4，1–64 |
+| --allowed-roots | 允许输入/输出目录根，默认家目录和 /mnt，空格分隔 |
+| --state-dir | 任务结果、错误和参数记录，默认 ~/.local/state/watermark-studio |
+| --backend | qwen 真实模型 / mock 测试复制，默认 qwen |
+| --mock | bool 开关，backend=mock 的快捷方式 |
+| --print-config | bool，打印最终配置并退出 |
+| --help | 显示所有启动参数 |
 
-## 参考
+完整脚本中的开关组合才是调优运行配置；裸 start-server.sh 的所有 bool 均关闭。
+查看每个选项的当前实际值，用 launch-server.sh --print-config。
 
-- [Diffusers 分布式推理](https://huggingface.co/docs/diffusers/main/training/distributed_inference)：数据并行、模型放置与其他并行机制。
-- [QwenImage21Pipeline](https://huggingface.co/docs/diffusers/main/api/pipelines/qwenimage21)：多参考输入、KV cache、Flex attention 与采样参数。
+## concurrency 的新含义
+
+工作进程数 W = GPU 数 × 每卡副本数。
+
+**concurrency 是全服务同时在途的原图数上限**：包含检测、等待凑批、推理和写入。
+它不再表示工作进程数，也不是每卡 batch 大小。调度器保证已分配图片总数不超过此值。
+
+- 8 卡、batch_size=2、concurrency=16：通常每卡领取两张图。
+- concurrency=32/64：提供更多凑批候选，但每次模型调用仍最多 batch_size 个区域。
+- 最大在途容量 = W × batch_size × batch_window；超出时 API 拒绝，GUI 限制输入。
+- 一图多个水印时会生成多个修复区域，因此实际 batch 区域数不等于原图数。
+- 目录扫描完成后才处理，候选队列已知；尾批立即执行，不人为增加 batch-wait-ms 延迟。
+- 尺寸不兼容或图片不足时用较小 batch，不为凑批强制拉伸原图。
+
+每张图独立检测和文本编码，再将相同推理尺寸的区域组成去噪 batch。
+Diffusers 原生 image 列表仍是共享参考图；项目适配层独立编码各图并验证 token 布局。
+不同长度提示词使用正确 padding mask；大块 padding attention 按样本剔除无效 key，
+投影和 MLP 仍使用批维度。该优化不跨图混合参考像素。
+
+## 原图尺寸与质量
+
+最终输出始终在原图画布上局部合成，**输出存储尺寸与原文件严格一致，同时保留 EXIF 方向**。
+4000×3000、竖图、奇数宽高和非 32 倍数均支持。EXIF 旋转照片内部按正常观看方向处理，保存前反变换，存储宽高和正常显示方向均与原图一致。
+resolution 是局部生成预算，不是最终输出宽高。PNG 未修改区域像素保持一致；
+JPEG 重新编码会有压缩差异。原图不覆盖，输出目录保持相对结构。
+生成内容只是自然补全，无法保证还原被水印遮挡的真实细节。
+
+## 全部任务参数
+
+API 请求还需 input_dir、output_dir，均为开发机目录，不能相同或相互包含。
+完整示例：[job.example.json](../config/job.example.json)。
+
+| options 字段 | 默认与作用 |
+| --- | --- |
+| concurrency | 16，1–1024 且不超过缓冲容量；GUI 推荐 W×batch_size |
+| preset | auto；gray/blue 为固定样例模板，custom 使用 regions；常规批量用 auto |
+| regions | []，custom 必填，最多 8 个；kind=panel/logo/custom，box 为 0..1 坐标 |
+| detection_resolution | 1280，512–2048，32 倍数；检测预览长边，不改变输出大小 |
+| remove_logo | false；**需要完整去除今日水印及附属块时显式勾选或传 true** |
+| resolution | 1024，256–2048，32 倍数；局部生成的面积分辨率预算 |
+| context | 0.6，0.1–2；周围场景上下文扩展比例 |
+| feather | 12，0–64；原图像素单位的外侧过渡宽度，区域内部完整替换 |
+| seed | 42；结合相对路径与区域序号；BF16 批量与单图可能有少量数值差异 |
+| overwrite | false；不开启时跳过已存在输出 |
+| extra_prompt | 空，最多 2000 字符；场景补充提示词 |
+
+```bash
+uv run --no-sync watermark-batch /home/zjh/images /home/zjh/images-clean \
+  --concurrency 16 --preset auto --remove-logo \
+  --detection-resolution 1280 --resolution 1024
+```
+
+## 调优与复现
+
+先固定质量预算：自动检测 1280、生成 1024、BF16、每卡一副本。
+分别测 batch、concurrency、KV、VAE、线程、编译、offload，记录吞吐和显存峰值。
+不通过漏清理 logo、降低检测分辨率或跳过文件来制造吞吐提升。
+路径、端口、seed、区域、提示词等参数不是可以独立按速度最大化的开关。
+load_parallelism 仅比较启动时间，不算入热身后的推理吞吐。
+真实照片由用户准备；当前合成测试不能代替人体/植被等细节的真实画质验收。
+
+```bash
+# 单卡脚本须选择空闲 GPU；不可与同卡服务副本同时运行
+uv run --no-sync python scripts/benchmark-batches.py --gpu 0 --profile optimized
+uv run --no-sync python scripts/benchmark-batches.py --gpu 0 --profile compile
+uv run --no-sync python scripts/benchmark-batches.py --gpu 0 --profile offload
+
+# 八卡服务 ready 且空闲时执行
+uv run --no-sync python scripts/benchmark-service.py --mode custom
+uv run --no-sync python scripts/benchmark-service.py --mode auto
+```
+
+测试图片和输出保留在开发机 .run/tuning；仅小型结果摘要通过 SSH 返回。
+每图 results.jsonl 包含 detection_seconds、window_seconds、window_images、batch_sizes、
+peak_allocated_mib、peak_reserved_mib、oom_retries、output_size。
+窗口指标重复记录到各图，不能按图片简单求和。PyTorch 峰值不含其他进程/CUDA 上下文全部开销。
+
+## 客户端与同步
+
+先在开发机运行完整启动脚本，然后在 WSL 使用桌面客户端连接：
+```bash
+uv run --no-sync watermark-studio --ssh-host cdu_dev
+```
+桌面在 WSLg 运行，窗口显示在 Windows 桌面。图像和模型均在开发机处理；
+SSH 隧道只传目录/状态/参数。更改 GPU/batch 容量后重开客户端。
+自定义端口用 --remote-port 和 --port；IPv6 需要相应 IPv6 转发。
+
+代码必须本地 Linux 环境开发、git commit/push，开发机 git pull --ff-only。
+不通过 SSH 传源码包、图片或模型；用户自行准备开发机图像。
+
+参考：[官方 QwenImage21Pipeline](https://huggingface.co/docs/diffusers/main/api/pipelines/qwenimage21)。

@@ -129,6 +129,25 @@ def load_photo(path: str):
         return image.convert("RGB"), exif.tobytes(), raw.info.get("icc_profile"), alpha
 
 
+
+def restore_storage_orientation(image, original_path):
+    """Inverse EXIF display transform; preserve both stored width/height and orientation."""
+    with Image.open(original_path) as raw:
+        original_size = raw.size
+        exif = raw.getexif()
+        orientation = exif.get(274, 1)
+    inverse = {
+        2: Image.Transpose.FLIP_LEFT_RIGHT, 3: Image.Transpose.ROTATE_180,
+        4: Image.Transpose.FLIP_TOP_BOTTOM, 5: Image.Transpose.TRANSPOSE,
+        6: Image.Transpose.ROTATE_90, 7: Image.Transpose.TRANSVERSE,
+        8: Image.Transpose.ROTATE_270,
+    }
+    if orientation in inverse:
+        image = image.transpose(inverse[orientation])
+    if image.size != original_size:
+        raise ValueError("保存尺寸与原文件不一致，停止写入")
+    return image, exif.tobytes()
+
 def atomic_save(image, destination, exif=b"", icc=None, overwrite=False):
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)

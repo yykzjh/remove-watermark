@@ -7,7 +7,7 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gpu", type=int, default=0)
-parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized"], default="base")
+parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized", "flex", "precision"], default="base")
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 import numpy as np
@@ -112,15 +112,19 @@ if args.profile in {"base", "optimized"}:
     run("tf32")
     for resolution in (768,1280):
         run(f"b2-{resolution}", resolution=resolution)
-elif args.profile == "compile":
-    pipe.transformer.compile(mode="default")
-    run("compile-sdpa", repeats=2)
+elif args.profile in {"compile", "flex"}:
+    if args.profile == "compile":
+        pipe.transformer.compile(mode="default")
+        run("compile-sdpa", repeats=2)
     pipe.transformer._compiled_call_impl = None
     torch._dynamo.reset()
     from diffusers.models.transformers.transformer_qwenimage21 import QwenImage21FlexAttnProcessor
     pipe.transformer.set_attn_processor(QwenImage21FlexAttnProcessor())
     pipe.transformer.compile(mode="default")
     run("compile-flex", repeats=2)
+elif args.profile == "precision":
+    pipe.to(dtype=torch.float16)
+    run("float16", repeats=2)
 else:
     pipe.enable_model_cpu_offload(gpu_id=0)
     run("model-offload", repeats=2)

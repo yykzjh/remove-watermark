@@ -1,5 +1,4 @@
-# 7 independent image workers on GPUs 1..7. Each replica holds a complete model.
-# GPU 0 is left available because it had another allocation during initial inspection.
+# Eight independent GPU workers; enable boolean optimizations explicitly in launch script.
 host = "127.0.0.1"
 port = 8765
 model_source = "modelscope"
@@ -8,12 +7,12 @@ cache_dir = "~/.cache/watermark-models"
 gpus = [0, 1, 2, 3, 4, 5, 6, 7]
 replicas_per_gpu = 1
 load_parallelism = 1
-attention = "flex"
-compile = true
+attention = "sdpa"
+compile = false
 compile_mode = "default"
-kv_cache = true
-vae_tiling = true
-vae_slicing = true
+kv_cache = false
+vae_tiling = false
+vae_slicing = false
 cpu_threads = 4
 allowed_roots = ["~", "/mnt"]
 batch_size = 2

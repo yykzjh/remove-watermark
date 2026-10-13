@@ -15,6 +15,7 @@ from .images import (
     load_photo,
     pixel_box,
     regions_for,
+    restore_storage_orientation,
 )
 from .prompts import build_prompt
 
@@ -56,13 +57,14 @@ def load_pipeline(config, model_path):
     return pipe
 
 
-def process_batch(tasks, options, config, pipe):
+def process_batch(tasks, options, config, pipe, batch_limits=None):
     """Bounded lookahead; independently detect files, then batch compatible crop edits."""
     from collections import defaultdict
 
     from .batching import dimensions, independent_batch
 
     start = time.monotonic()
+    batch_limits = {} if batch_limits is None else batch_limits
     states, results, edits = [], {}, []
     cuda = config.backend != "mock"
     if cuda:
@@ -141,6 +143,8 @@ def process_batch(tasks, options, config, pipe):
             split = len(group) > 1 and (not is_oom or config.oom_split_batch)
             if is_oom:
                 oom_retries += 1
+                if split:
+                    batch_limits[(options.resolution, group[0]["size"])] = len(group) // 2
         # Release exception traceback and transient tensors before retrying.
         torch.cuda.empty_cache()
         if split:
@@ -152,8 +156,11 @@ def process_batch(tasks, options, config, pipe):
                 edit["state"]["failed"] = failure
 
     for bucket in buckets.values():
-        for offset in range(0, len(bucket), config.batch_size):
-            execute(bucket[offset:offset + config.batch_size])
+        offset = 0
+        while offset < len(bucket):
+            size = min(config.batch_size, batch_limits.get((options.resolution, bucket[0]["size"]), config.batch_size))
+            execute(bucket[offset:offset + size])
+            offset += size
     for edit in edits:
         state = edit["state"]
         if not state["failed"]:
@@ -175,7 +182,8 @@ def process_batch(tasks, options, config, pipe):
                 raise RuntimeError("Output dimensions differ from original")
             if state["alpha"] is not None:
                 output.putalpha(state["alpha"])
-            atomic_save(output, task["destination"], state["exif"], state["icc"], options.overwrite)
+            output, original_exif = restore_storage_orientation(output, task["source"])
+            atomic_save(output, task["destination"], original_exif, state["icc"], options.overwrite)
             result.update(action="restored", output_size=list(output.size))
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
@@ -207,13 +215,15 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate):
         traceback.print_exc()
         events.put({"type": "fatal", "worker": index, "error": str(error)[:800]})
         return
+    batch_limits = {}
     while True:
         request = requests.get()
         if request is None:
             return
         try:
             results = process_batch(
-                request["tasks"], ProcessingConfig.model_validate(request["options"]), config, pipe
+                request["tasks"], ProcessingConfig.model_validate(request["options"]), config, pipe,
+                batch_limits,
             )
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             traceback.print_exc()
