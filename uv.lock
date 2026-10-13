@@ -1512,6 +1512,7 @@ dev = [
     { name = "httpx", marker = "sys_platform == 'linux'" },
     { name = "pytest", marker = "sys_platform == 'linux'" },
     { name = "ruff", marker = "sys_platform == 'linux'" },
+    { name = "uvicorn", marker = "sys_platform == 'linux'" },
 ]
 
 [package.metadata]
@@ -1540,6 +1541,7 @@ dev = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.11" },
+    { name = "uvicorn", specifier = ">=0.34" },
 ]
 
 [[package]]

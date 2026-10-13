@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import argparse
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 
-from .config import DeploymentConfig, JobRequest, load_deployment
+from .config import DeploymentConfig, JobRequest
+from .deployment_cli import parse_deployment, render_config
 from .runtime import Runtime
 
 
@@ -66,20 +66,10 @@ def create_app(config: DeploymentConfig):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Start API, download weights and deploy GPU workers"
-    )
-    parser.add_argument("--config", default="config/deployment.toml")
-    parser.add_argument("--gpus", help="Override GPU indices, e.g. 1,2,3")
-    parser.add_argument("--mock", action="store_true", help="Test only; copies images, no removal")
-    args = parser.parse_args()
-    config = load_deployment(args.config)
-    overrides = {}
-    if args.gpus:
-        overrides["gpus"] = [int(value) for value in args.gpus.split(",")]
-    if args.mock:
-        overrides["backend"] = "mock"
-    config = DeploymentConfig.model_validate(config.model_dump() | overrides)
+    config, print_config = parse_deployment()
+    if print_config:
+        print(render_config(config))
+        return
     import uvicorn
 
     uvicorn.run(create_app(config), host=config.host, port=config.port, access_log=False)

@@ -69,6 +69,7 @@ class DeploymentConfig(BaseModel):
     model_source: Literal["huggingface", "modelscope"] = "huggingface"
     cache_dir: str = "~/.cache/huggingface/hub"
     gpus: list[int] = Field(default_factory=lambda: [1], min_length=1, max_length=16)
+    parallelism: Literal["single", "data"] = "data"
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
     dtype: Literal["bfloat16", "float16"] = "bfloat16"
     attention: Literal["sdpa", "flex"] = "sdpa"
@@ -89,6 +90,8 @@ class DeploymentConfig(BaseModel):
     def compatible(self):
         if len(set(self.gpus)) != len(self.gpus) or any(g < 0 for g in self.gpus):
             raise ValueError("GPU 编号必须非负且不能重复")
+        if self.parallelism == "single" and self.capacity != 1:
+            raise ValueError("single 模式要求一个 GPU 且 replicas_per_gpu=1")
         if self.attention == "flex" and not self.compile:
             raise ValueError("flex attention 必须启用 compile，否则可能造成显存溢出")
         if self.compile and self.offload != "none":

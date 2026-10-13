@@ -19,7 +19,13 @@ watermark-studio = "watermark_studio.desktop:main"
 watermark-batch = "watermark_studio.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.28", "ruff>=0.11", "fastapi>=0.115"]
+dev = [
+    "pytest>=8",
+    "httpx>=0.28",
+    "ruff>=0.11",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+]
 
 [tool.uv]
 environments = ["sys_platform == 'linux'"]
