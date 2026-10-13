@@ -71,9 +71,17 @@ def load_pipeline(config, model_path):
     pipe._watermark_prompt_encoder = config.prompt_encoder
     pipe._watermark_encoder_batch_size = config.encoder_batch_size
     if config.compile:
-        compile_fn = (pipe.transformer.compile_repeated_blocks if config.compile_scope == "blocks"
-                      else pipe.transformer.compile)
-        compile_fn(mode=config.compile_mode, dynamic=config.compile_dynamic)
+        if config.compile_scope == "projections":
+            # Keep KV mutation, masks and Python segment branches outside compilation.
+            for block in pipe.transformer.transformer_blocks:
+                attn = block.attn
+                linears = [attn.to_qkv] if hasattr(attn, "to_qkv") else [attn.to_q, attn.to_k, attn.to_v]
+                for module in [*linears, attn.to_out[0], block.img_mlp]:
+                    module.compile(mode=config.compile_mode, dynamic=config.compile_dynamic)
+        else:
+            compile_fn = (pipe.transformer.compile_repeated_blocks if config.compile_scope == "blocks"
+                          else pipe.transformer.compile)
+            compile_fn(mode=config.compile_mode, dynamic=config.compile_dynamic)
     if not getattr(pipe.config, "sample_sigmas", None):
         raise RuntimeError("模型缺少 Turbo sample_sigmas；请检查模型及 Diffusers 版本")
     return pipe

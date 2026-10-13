@@ -98,7 +98,7 @@ class DeploymentConfig(BaseModel):
     attention_backend: Literal["native", "native_flash", "native_cudnn", "native_efficient", "flash_hub", "sage_hub"] = "native"
     compile: bool = False
     compile_mode: Literal["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"] = "default"
-    compile_scope: Literal["full", "blocks"] = "full"
+    compile_scope: Literal["full", "blocks", "projections"] = "full"
     compile_dynamic: bool = False
     prompt_encoder: Literal["stock", "lean"] = "stock"
     encoder_batch_size: int = Field(default=1, ge=1, le=16)

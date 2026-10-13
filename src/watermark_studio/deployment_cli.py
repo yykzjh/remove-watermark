@@ -25,7 +25,7 @@ HELP = {
     "attention_backend": "Unmasked/image attention kernel; text causal masks keep native. Hub kernels require kernels extra",
     "compile": "Compile transformer; first inference and new shapes can take longer",
     "compile_mode": "default or max-autotune-no-cudagraphs; CUDA graph modes remain rejected",
-    "compile_scope": "full transformer or repeated transformer blocks",
+    "compile_scope": "full transformer, repeated blocks, or only attention projections and MLP",
     "compile_dynamic": "Compile dynamic shapes; requires --compile to take effect",
     "prompt_encoder": "stock or lean (omit unused LM logits, hidden-state history and VLM KV cache)",
     "encoder_batch_size": "Independent VLM images per lean encoder forward; 1..16",
