@@ -34,7 +34,11 @@ def validate_directories(input_dir: str, output_dir: str) -> tuple[Path, Path]:
 def scan_images(source: Path, target: Path, overwrite: bool, stop=None):
     tasks, skipped, invalid = [], 0, []
     target.mkdir(parents=True, exist_ok=True)
-    for folder, dirs, names in os.walk(source, followlinks=False):
+
+    def scan_error(error):
+        invalid.append({"file": str(error.filename), "error": str(error)[:300]})
+
+    for folder, dirs, names in os.walk(source, followlinks=False, onerror=scan_error):
         if stop and stop.is_set():
             break
         dirs[:] = sorted(d for d in dirs if not (Path(folder) / d).is_symlink())
@@ -120,7 +124,12 @@ def load_photo(path: str):
         image = ImageOps.exif_transpose(raw)
         exif = image.getexif()
         exif.pop(274, None)
-        return image.convert("RGB"), exif.tobytes(), raw.info.get("icc_profile")
+        alpha = (
+            image.convert("RGBA").getchannel("A")
+            if ("A" in image.getbands() or "transparency" in image.info)
+            else None
+        )
+        return image.convert("RGB"), exif.tobytes(), raw.info.get("icc_profile"), alpha
 
 
 def atomic_save(image, destination, exif=b"", icc=None, overwrite=False):

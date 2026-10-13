@@ -25,7 +25,7 @@ dev = ["pytest>=8", "httpx>=0.28", "ruff>=0.11", "fastapi>=0.115"]
 environments = ["sys_platform == 'linux'"]
 
 [tool.uv.sources]
-diffusers = { git = "https://github.com/huggingface/diffusers.git" }
+diffusers = { url = "https://github.com/huggingface/diffusers/archive/916a5791ed5f29d966200d2eee53f06862ec4434.tar.gz" }
 
 [build-system]
 requires = ["hatchling"]

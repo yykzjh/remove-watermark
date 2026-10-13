@@ -21,7 +21,9 @@ def test_complete_remote_directory_batch_and_limits(tmp_path):
     source, target = tmp_path / "input", tmp_path / "output"
     (source / "deep").mkdir(parents=True)
     for number in range(4):
-        Image.new("RGB", (64, 48), (number * 30, 60, 90)).save(source / "deep" / f"{number}.png")
+        Image.new("RGBA", (64, 48), (number * 30, 60, 90, 170)).save(
+            source / "deep" / f"{number}.png"
+        )
     (source / "irrelevant.txt").write_text("ignored")
     (source / "invalid.jpg").write_text("invalid")
     cfg = DeploymentConfig(

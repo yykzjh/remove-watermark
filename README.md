@@ -6,7 +6,7 @@
 
 ## 环境与安装
 
-需要 Linux、Python 3.12、NVIDIA CUDA 驱动；权重和依赖由开发机直接下载。项目的 uv.lock 固定依赖版本及 Diffusers Git 提交。模型是新发布的 Turbo 版本，需要包含 sample_sigmas 支持的 Diffusers 与 transformers>=5.17。
+需要 Linux、Python 3.12、NVIDIA CUDA 驱动；权重和依赖由开发机直接下载。项目的 uv.lock 固定依赖版本及 Diffusers 源码归档提交。模型是新发布的 Turbo 版本，需要包含 sample_sigmas 支持的 Diffusers 与 transformers>=5.17。
 
 ```bash
 # 初次安装 uv（已安装则略过）

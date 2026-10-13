@@ -46,7 +46,7 @@ def load_pipeline(config, model_path):
 
 def process_image(task, options, config, pipe):
     start = time.monotonic()
-    source, exif, icc = load_photo(task["source"])
+    source, exif, icc, alpha = load_photo(task["source"])
     result = source.copy()
     stable_seed = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
     for index, region in enumerate(regions_for(source, options)):
@@ -71,6 +71,8 @@ def process_image(task, options, config, pipe):
                     ),
                 ).images[0]
         result = blend_patch(result, patch, box, crop, options.feather)
+    if alpha is not None:
+        result.putalpha(alpha)
     atomic_save(result, task["destination"], exif, icc, options.overwrite)
     return {"file": task["relative"], "ok": True, "seconds": round(time.monotonic() - start, 3)}
 
