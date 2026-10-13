@@ -72,6 +72,10 @@ profiles = {
     "fp8-projections": ["--prompt-encoder", "lean", "--encoder-batch-size", "2",
                         "--quantization", "float8", "--compile", "--compile-scope", "projections",
                         "--compile-dynamic", "--expandable-segments", "--shape-sort", "--report-interval", "64"],
+    "fp8-projections-b4": ["--prompt-encoder", "lean", "--encoder-batch-size", "2",
+                           "--quantization", "float8", "--compile", "--compile-scope", "projections",
+                           "--compile-dynamic", "--batch-size", "4", "--expandable-segments",
+                           "--shape-sort", "--report-interval", "64"],
     "fp8-b1": ["--prompt-encoder", "lean", "--quantization", "float8", "--compile",
                "--compile-scope", "blocks", "--batch-size", "1", "--batch-window", "4",
                "--expandable-segments", "--shape-sort", "--report-interval", "64"],
@@ -128,15 +132,14 @@ for profile in args.profiles:
                     if tick % 40 == 0:
                         samples.append({"seconds": round(time.monotonic() - start, 2),
                                         "completed": job["completed"]})
-                    if job["state"] in {"completed", "failed", "cancelled"}:
+                    if state["stage"] == "failed" or job["state"] in {"completed", "failed", "cancelled"}:
                         break
                     time.sleep(.25)
                 else:
                     raise TimeoutError("Job exceeded two hours")
                 elapsed = time.monotonic() - start
-                rows = [json.loads(line) for line in
-                        (Path.home() / ".local/state/watermark-studio" / job_id / "results.jsonl")
-                        .read_text().splitlines()]
+                result_file = Path.home() / ".local/state/watermark-studio" / job_id / "results.jsonl"
+                rows = [json.loads(line) for line in result_file.read_text().splitlines()] if result_file.exists() else []
                 bad_sizes = 0
                 for row in rows:
                     if not row["ok"]:
@@ -148,15 +151,15 @@ for profile in args.profiles:
                     "repeat": repeat, "job": job_id, "boot_s": round(boot_s, 3),
                     "seconds": round(elapsed, 3), "images_per_s": round(job["succeeded"] / elapsed, 4),
                     "success": job["succeeded"], "failed": job["failed"], "bad_sizes": bad_sizes,
-                    "workers": sorted({row["worker"] for row in rows}), "max_inflight": max_inflight,
+                    "workers": sorted({row.get("worker", -1) for row in rows}), "max_inflight": max_inflight,
                     "batch_sizes": sorted({n for row in rows for n in row.get("batch_sizes", [])}),
-                    "oom_retries": max((row["oom_retries"] for row in rows), default=0),
-                    "peak_allocated_mib": max((row["peak_allocated_mib"] for row in rows), default=0),
+                    "oom_retries": max((row.get("oom_retries", 0) for row in rows), default=0),
+                    "peak_allocated_mib": max((row.get("peak_allocated_mib", 0) for row in rows), default=0),
                     "progress_samples": samples,
                 }
                 by_worker = {}
                 for row in rows:
-                    by_worker.setdefault(row["worker"], []).append(row.get("peak_allocated_mib", 0))
+                    by_worker.setdefault(row.get("worker", -1), []).append(row.get("peak_allocated_mib", 0))
                 record["memory_by_worker"] = {
                     str(worker): {"first": values[0], "last": values[-1], "peak": max(values)}
                     for worker, values in by_worker.items()
@@ -165,7 +168,7 @@ for profile in args.profiles:
                 with (root / "results.jsonl").open("a") as stream:
                     stream.write(json.dumps(record) + "\n")
                 print(json.dumps({k: v for k, v in record.items() if k != "progress_samples"}), flush=True)
-                assert job["state"] == "completed" and job["succeeded"] == count and bad_sizes == 0, record
+                assert job["state"] == "completed" and job["succeeded"] == count and len(rows) == count and bad_sizes == 0, record
         finally:
             process.terminate()
             try:
