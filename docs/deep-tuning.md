@@ -214,7 +214,8 @@ batch4两轮均成功、无尺寸错误和OOM，实际batch包含1、3、4，但
 编译和量化可能使生成细节变化，尤其是人体、细小枝叶和长直线，需在真实场景样本上验收。
 对两张实拍样例的受限预览检查：stock 和 FP8 编译结果都未见左下信息栏及右下相机水印残留；
 草地、泥路及人物细节存在差别。预览不能证明原尺寸下无细微残留，也不能证明被遮挡内容真实还原。
-仅回传四张各不超过 64 KiB 的预览，原始推理结果保留开发机。
+本轮共回传六张各不超过64 KiB的预览（筛选四张、正式部署验收两张），原始推理结果保留开发机。
+正式部署的两张整图预览同样未见明显的信息栏/相机水印残留；不把缩略图检查当作原尺寸逐像素质量保证。
 
 ## 复现与文件位置
 
@@ -292,3 +293,15 @@ uv run --no-sync python scripts/benchmark-throughput.py \
   --profiles fp8-projections --pattern mixed --images 129 \
   --concurrencies 32 16 32 64 --concurrency 32 --followup-images 1025
 ```
+
+## 最终部署验收
+
+已使用launch-throughput.sh恢复正式8765端口服务：8卡、FP8、dynamic projections、batch2、window4，
+原生attention、VAE 256/192、KV cache、可扩展allocator、shape-sort、scan-workers=1、report-interval=64。
+正式脚本启动后stage=ready，8个worker均就绪；没有改变GPU0的既存进程。
+
+额外运行smoke-workflows.py：
+16张批量全部由8卡完成（实际batch2），输出1706×1279/4000×3000；
+单张多区域处理后输出1920×1440；单张自动模式输出4000×3000。
+这18张功能验收不计入前面的3081张性能测试累计。
+Linux/WSL测试50项通过，Ruff和git diff --check通过。
