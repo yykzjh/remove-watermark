@@ -30,6 +30,9 @@ def test_all_deployment_fields_have_cli_options_and_override_toml(tmp_path):
     ["--gpus", "oops"],
     ["--replicas-per-gpu", "9"],
     ["--parallelism", "tensor"],
+    ["--attention", "flex", "--compile"],
+    ["--compile", "--compile-mode", "reduce-overhead"],
+    ["--compile", "--compile-mode", "max-autotune"],
 ])
 def test_invalid_deployment_combinations_fail_before_start(tmp_path, flags):
     path = tmp_path / "base.toml"

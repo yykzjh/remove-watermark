@@ -27,7 +27,7 @@ exec bash scripts/start-server.sh \
   --vae-slicing \
   --kv-cache \
   --tf32 \
-  --cpu-threads 4 \
+  --cpu-threads 1 \
   --allowed-roots "$HOME" /mnt \
   --state-dir "$HOME/.local/state/watermark-studio" \
   "$@"

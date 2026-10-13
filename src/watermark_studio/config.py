@@ -98,6 +98,10 @@ class DeploymentConfig(BaseModel):
             raise ValueError("single 模式要求一个 GPU 且 replicas_per_gpu=1")
         if self.attention == "flex" and not self.compile:
             raise ValueError("flex attention 必须启用 compile，否则可能造成显存溢出")
+        if self.compile and self.compile_mode != "default":
+            raise ValueError("当前固定依赖的 reduce-overhead/max-autotune 实测 CUDA Graph 错误，请使用 default")
+        if self.attention == "flex" and self.compile:
+            raise ValueError("当前固定依赖的 Flex 实测 Inductor 编译失败，请使用 sdpa")
         if self.compile and self.offload != "none":
             raise ValueError("当前实现不组合 compile 与 CPU offload，请二选一")
         return self

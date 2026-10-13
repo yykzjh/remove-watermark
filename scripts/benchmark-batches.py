@@ -8,7 +8,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("--compile-mode", choices=["default","reduce-overhead","max-autotune"], default="default")
 parser.add_argument("--gpu", type=int, default=0)
-parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized", "flex", "precision", "compile-single", "sequential", "vae", "tf32", "resolutions", "threads"], default="base")
+parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized", "flex", "precision", "compile-single", "sequential", "vae", "tf32", "resolutions", "threads", "slicing"], default="base")
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 import numpy as np
@@ -130,6 +130,9 @@ elif args.profile == "vae":
     run("no-vae-tiling")
     pipe.vae.disable_slicing()
     run("no-vae-slicing-tiling")
+elif args.profile == "slicing":
+    pipe.vae.disable_slicing()
+    run("tiling-no-slicing", repeats=1)
 elif args.profile == "tf32":
     torch.backends.cuda.matmul.allow_tf32 = True
     run("tf32")

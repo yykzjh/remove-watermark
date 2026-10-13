@@ -45,9 +45,9 @@ starting 仅表示进程创建，/health stage=ready 才表示所有模型加载
 | --oom-split-batch | bool，CUDA OOM 递归拆批；单图仍失败则报告且不写半成品 |
 | --load-parallelism | 默认 1，1–16；仅控制同时加载模型的进程数，不控制推理并发 |
 | --dtype | bfloat16 / float16；BF16 为默认，精度变更需重新验收画面 |
-| --attention | sdpa / flex；flex 必须 --compile |
+| --attention | sdpa / flex；当前固定依赖 Flex 实测编译失败，启动校验会拒绝，使用 sdpa |
 | --compile | bool，编译 transformer；首次和新形状有额外编译开销 |
-| --compile-mode | default / reduce-overhead / max-autotune；仅编译开启时有效 |
+| --compile-mode | default / reduce-overhead / max-autotune；后两种当前实测 CUDA Graph 错误，开启编译时校验拒绝；使用 default |
 | --offload | none / model / sequential；卸载换显存，不能与 compile 同时启用 |
 | --vae-tiling | bool，VAE 分块节省高分辨率峰值显存 |
 | --vae-slicing | bool，VAE 分片降低 batch 解码峰值；去噪仍批量执行 |
