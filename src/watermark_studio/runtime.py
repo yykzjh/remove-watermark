@@ -278,7 +278,14 @@ class Runtime:
             if self.config.shape_sort and self.job["options"]["scope"] == "full_image":
                 from .images import inference_shape
                 resolution = self.job["options"]["resolution"]
-                tasks.sort(key=lambda task: inference_shape(task.source, resolution))
+                def shape_key(task):
+                    try:
+                        return inference_shape(task.source, resolution)
+                    except (OSError, ValueError):
+                        # A file may change after validation; per-image processing
+                        # records that failure without discarding the entire job.
+                        return (0, 0)
+                tasks.sort(key=shape_key)
             with self.lock:
                 self.pending = deque(asdict(t) for t in tasks)
                 self.job.update(

@@ -25,7 +25,7 @@ def attention(query, key, value, mask=None, backend=None):
             ))
         return torch.cat(outputs)
     return dispatch_attention_fn(query, key, value, attn_mask=mask,
-                                 dropout_p=0.0, backend=backend if mask is None else None)
+                                 dropout_p=0.0, backend=backend if mask is None else "native")
 
 
 class IndependentSDPAProcessor(QwenImage21AttnProcessor):

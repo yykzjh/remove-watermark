@@ -50,6 +50,11 @@ def load_pipeline(config, model_path):
         backend = config.attention_backend
         if backend.startswith("native_"):
             backend = "_" + backend
+        # Selecting a dispatch name alone does not initialize Hub kernels.
+        # The official context manager validates dependencies and downloads once.
+        from diffusers.models.attention_dispatch import attention_backend
+        with attention_backend(backend):
+            pass
         pipe.transformer.set_attn_processor(IndependentSDPAProcessor(backend))
     if config.attention == "flex":
         from diffusers.models.transformers.transformer_qwenimage21 import (
