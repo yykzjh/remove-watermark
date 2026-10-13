@@ -34,11 +34,11 @@ PRESETS = {
 
 class ProcessingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    concurrency: int = Field(default=1, ge=1, le=64)
+    concurrency: int = Field(default=16, ge=1, le=1024)
     preset: Literal["gray", "blue", "auto", "custom"] = "auto"
     regions: list[Region] = Field(default_factory=list, max_length=8)
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
-    remove_logo: bool = True
+    remove_logo: bool = False
     resolution: int = Field(default=1024, ge=256, le=2048, multiple_of=32)
     context: float = Field(default=0.6, ge=0.1, le=2)
     feather: int = Field(default=12, ge=0, le=64)
@@ -68,18 +68,22 @@ class DeploymentConfig(BaseModel):
     revision: str = "main"
     model_source: Literal["huggingface", "modelscope"] = "huggingface"
     cache_dir: str = "~/.cache/huggingface/hub"
-    gpus: list[int] = Field(default_factory=lambda: [1], min_length=1, max_length=16)
+    gpus: list[int] = Field(default_factory=lambda: list(range(8)), min_length=1, max_length=16)
     parallelism: Literal["single", "data"] = "data"
+    batch_size: int = Field(default=2, ge=1, le=16)
+    batch_window: int = Field(default=4, ge=1, le=8)
+    batch_bucketing: bool = False
+    oom_split_batch: bool = False
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
     dtype: Literal["bfloat16", "float16"] = "bfloat16"
     attention: Literal["sdpa", "flex"] = "sdpa"
     compile: bool = False
     compile_mode: Literal["default", "reduce-overhead", "max-autotune"] = "default"
     offload: Literal["none", "model", "sequential"] = "none"
-    vae_tiling: bool = True
-    vae_slicing: bool = True
-    kv_cache: bool = True
-    tf32: bool = True
+    vae_tiling: bool = False
+    vae_slicing: bool = False
+    kv_cache: bool = False
+    tf32: bool = False
     cpu_threads: int = Field(default=4, ge=1, le=64)
     load_parallelism: int = Field(default=1, ge=1, le=16)
     allowed_roots: list[str] = Field(default_factory=lambda: ["~", "/mnt"])
@@ -90,7 +94,7 @@ class DeploymentConfig(BaseModel):
     def compatible(self):
         if len(set(self.gpus)) != len(self.gpus) or any(g < 0 for g in self.gpus):
             raise ValueError("GPU 编号必须非负且不能重复")
-        if self.parallelism == "single" and self.capacity != 1:
+        if self.parallelism == "single" and self.worker_count != 1:
             raise ValueError("single 模式要求一个 GPU 且 replicas_per_gpu=1")
         if self.attention == "flex" and not self.compile:
             raise ValueError("flex attention 必须启用 compile，否则可能造成显存溢出")
@@ -99,8 +103,12 @@ class DeploymentConfig(BaseModel):
         return self
 
     @property
-    def capacity(self):
+    def worker_count(self):
         return len(self.gpus) * self.replicas_per_gpu
+
+    @property
+    def capacity(self):
+        return self.worker_count * self.batch_size * self.batch_window
 
 
 def load_deployment(path: str | Path) -> DeploymentConfig:

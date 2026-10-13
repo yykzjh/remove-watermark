@@ -15,6 +15,10 @@ HELP = {
     "cache_dir": "Model download cache directory",
     "parallelism": "single: exactly one worker; data: independent image workers on selected GPUs",
     "gpus": "Comma-separated physical GPU indices, e.g. 1,2,3",
+    "batch_size": "Maximum independent edits per GPU forward, 1..16",
+    "batch_window": "Images gathered per worker = batch size times window, 1..8",
+    "batch_bucketing": "Group edits by identical inference dimensions within the window",
+    "oom_split_batch": "Recursively split a batch on CUDA OOM; singleton failure is reported",
     "replicas_per_gpu": "Full model copies per GPU, 1..4; multiplies VRAM use",
     "dtype": "Model weight and inference dtype",
     "attention": "sdpa or flex (flex requires --compile)",
@@ -54,7 +58,7 @@ def make_parser():
         if name == "gpus":
             options["type"] = gpu_list
         elif annotation is bool:
-            options["action"] = argparse.BooleanOptionalAction
+            options.update(action="store_true", default=False)
         elif get_origin(annotation) is Literal:
             options["choices"] = get_args(annotation)
         elif get_origin(annotation) is list:

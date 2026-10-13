@@ -105,10 +105,11 @@ class Runtime:
                         worker["state"] = "failed"
                         self.error = event["error"]
                         self.stage = "failed"
-                    elif event["type"] == "result":
+                    elif event["type"] == "results":
                         worker["state"], worker["task"] = "idle", None
                         if self.job and event["job"] == self.job["id"]:
-                            self._record(event)
+                            for result in event["results"]:
+                                self._record(result | {"worker": event["worker"], "job": event["job"]})
                     if all(w["state"] == "idle" for w in self.workers) and self.stage == "loading":
                         self.stage = "ready"
             except queue.Empty:
@@ -117,13 +118,11 @@ class Runtime:
                 for worker in self.workers:
                     if worker["state"] != "failed" and not worker["process"].is_alive():
                         if worker["task"] and self.job:
-                            self._record(
-                                {
-                                    "file": worker["task"]["relative"],
-                                    "ok": False,
+                            for task in worker["task"]:
+                                self._record({
+                                    "file": task["relative"], "ok": False,
                                     "error": "GPU 工作进程意外退出",
-                                }
-                            )
+                                })
                         worker["state"], worker["task"] = "failed", None
                         self.error = "GPU 工作进程意外退出，请查看服务日志并重启服务"
                         self.stage = "failed"
@@ -148,7 +147,7 @@ class Runtime:
         job = self.job
         if not job or job["state"] not in {"running", "paused", "cancelling"}:
             return
-        busy = sum(w["state"] == "busy" for w in self.workers)
+        busy = sum(len(w["task"]) for w in self.workers if w["state"] == "busy")
         if job["state"] == "running":
             if self.stage == "failed":
                 job["state"] = "cancelling"
@@ -158,12 +157,21 @@ class Runtime:
                     if not self.pending or busy >= job["options"]["concurrency"]:
                         break
                     if worker["state"] == "idle":
-                        task = self.pending.popleft()
+                        available = min(
+                            sum(w["state"] == "idle" for w in self.workers),
+                            job["options"]["concurrency"] - busy,
+                        )
+                        count = min(
+                            self.config.batch_size * self.config.batch_window,
+                            (len(self.pending) + available - 1) // available,
+                            max(1, (job["options"]["concurrency"] - busy) // available),
+                        )
+                        task = [self.pending.popleft() for _ in range(count)]
                         worker["state"], worker["task"] = "busy", task
                         worker["queue"].put(
-                            {"job": job["id"], "task": task, "options": job["options"]}
+                            {"job": job["id"], "tasks": task, "options": job["options"]}
                         )
-                        busy += 1
+                        busy += count
         if job["state"] == "cancelling" and busy == 0:
             job["state"] = "failed" if job.get("service_failure") else "cancelled"
             job["unprocessed"] = len(self.pending)
@@ -198,7 +206,7 @@ class Runtime:
             if self.job and self.job["state"] in {"scanning", "running", "paused", "cancelling"}:
                 raise ValueError("已有任务正在处理")
             if request.options.concurrency > self.config.capacity:
-                raise ValueError(f"并发度不能超过已部署工作进程数量 {self.config.capacity}")
+                raise ValueError(f"在途图片数不能超过工作进程缓冲容量 {self.config.capacity}")
             source, target = validate_directories(
                 str(self.safe_path(request.input_dir)), str(self.safe_path(request.output_dir))
             )
@@ -276,6 +284,10 @@ class Runtime:
                 "backend": self.config.backend,
                 "workers": [{"gpu": w["gpu"], "state": w["state"]} for w in self.workers],
                 "capacity": self.config.capacity,
+                "worker_count": self.config.worker_count,
+                "recommended_concurrency": self.config.worker_count * self.config.batch_size,
+                "batch_size": self.config.batch_size,
+                "batch_window": self.config.batch_window,
                 "model": self.config.model,
                 "revision": self.model_revision,
                 "roots": list(map(str, self.roots)),

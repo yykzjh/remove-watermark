@@ -53,61 +53,143 @@ def load_pipeline(config, model_path):
     return pipe
 
 
-def process_image(task, options, config, pipe):
-    start = time.monotonic()
-    source, exif, icc, alpha = load_photo(task["source"])
-    result = source.copy()
-    stable_seed = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
-    detection_start = time.monotonic()
-    if config.backend == "mock":
-        regions = []
-    elif options.preset == "auto":
-        regions, _ = locate_watermarks(
-            source, pipe.text_encoder, pipe.processor, pipe._execution_device,
-            options.detection_resolution,
-        )
-        regions = [r for r in regions if options.remove_logo or r.kind != "logo"]
-    else:
-        regions = regions_for(source, options)
-    detection_seconds = round(time.monotonic() - detection_start, 3)
-    if not regions:
-        atomic_copy(task["source"], task["destination"], options.overwrite)
-        return {
-            "file": task["relative"], "ok": True,
-            "action": "mock_copy" if config.backend == "mock" else "no_watermark_detected",
-            "regions": [], "detection_seconds": detection_seconds,
-            "seconds": round(time.monotonic() - start, 3),
-        }
-    for index, region in enumerate(regions):
-        box = pixel_box(region.box, source.size)
-        crop = context_box(box, source.size, options.context)
-        reference = source.crop(crop)
-        if config.backend == "mock":
-            # Explicit test backend: copying is not claimed to remove any watermark.
-            patch = reference
-        else:
-            import torch
+def process_batch(tasks, options, config, pipe):
+    """Bounded lookahead; independently detect files, then batch compatible crop edits."""
+    from collections import defaultdict
 
-            with torch.inference_mode():
-                patch = pipe(
-                    prompt=build_prompt(region.kind, box, crop, options.extra_prompt),
-                    image=reference,
-                    output_resolution=options.resolution,
-                    true_cfg_scale=1.0,
-                    use_kv_cache=config.kv_cache,
-                    generator=torch.Generator("cpu").manual_seed(
-                        (options.seed + stable_seed + index) % (2**32)
-                    ),
-                ).images[0]
-        result = blend_patch(result, patch, box, crop, options.feather)
-    if alpha is not None:
-        result.putalpha(alpha)
-    atomic_save(result, task["destination"], exif, icc, options.overwrite)
-    return {
-        "file": task["relative"], "ok": True, "action": "restored",
-        "regions": [r.model_dump() for r in regions], "detection_seconds": detection_seconds,
-        "seconds": round(time.monotonic() - start, 3),
+    from .batching import dimensions, independent_batch
+
+    start = time.monotonic()
+    states, results, edits = [], {}, []
+    cuda = config.backend != "mock"
+    if cuda:
+        import torch
+        torch.cuda.reset_peak_memory_stats()
+    for task in tasks:
+        try:
+            source, exif, icc, alpha = load_photo(task["source"])
+            detection_start = time.monotonic()
+            if not cuda:
+                regions = []
+            elif options.preset == "auto":
+                regions, _ = locate_watermarks(
+                    source, pipe.text_encoder, pipe.processor, pipe._execution_device,
+                    options.detection_resolution,
+                )
+                regions = [r for r in regions if options.remove_logo or r.kind != "logo"]
+            else:
+                regions = regions_for(source, options)
+            detected = round(time.monotonic() - detection_start, 3)
+            if not regions:
+                atomic_copy(task["source"], task["destination"], options.overwrite)
+                results[task["relative"]] = {
+                    "file": task["relative"], "ok": True, "regions": [],
+                    "action": "no_watermark_detected" if cuda else "mock_copy",
+                    "detection_seconds": detected, "output_size": list(source.size),
+                }
+                continue
+            state = {"task": task, "source": source, "result": source.copy(), "exif": exif, "icc": icc,
+                         "alpha": alpha, "regions": regions, "detection_seconds": detected,
+                         "batches": [], "failed": None}
+            states.append(state)
+            stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
+            for index, region in enumerate(regions):
+                box = pixel_box(region.box, source.size)
+                crop = context_box(box, source.size, options.context)
+                reference = source.crop(crop)
+                edits.append({
+                    "state": state, "box": box, "crop": crop, "index": index, "image": reference,
+                    "prompt": build_prompt(region.kind, box, crop, options.extra_prompt),
+                    "seed": (options.seed + stable + index) % (2**32),
+                    "size": dimensions(reference, options.resolution),
+                })
+        except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
+            results[task["relative"]] = {
+                "file": task["relative"], "ok": False,
+                "error": f"{type(error).__name__}: {error}"[:800],
+            }
+
+    buckets = defaultdict(list)
+    # Disable bucketing => adjacent compatible edits only; never mix different layouts.
+    run, previous = 0, None
+    for edit in edits:
+        if edit["size"] != previous:
+            run += 1
+        previous = edit["size"]
+        key = edit["size"] if config.batch_bucketing else (run, edit["size"])
+        buckets[key].append(edit)
+    oom_retries = 0
+
+    def execute(group):
+        nonlocal oom_retries
+        failure = None
+        try:
+            patches = independent_batch(pipe, group, options.resolution, config.kv_cache)
+            if len(patches) != len(group):
+                raise RuntimeError("Pipeline returned wrong image count")
+            for edit, patch in zip(group, patches):
+                # Store patches; apply in detection order even when buckets reorder edits.
+                edit["patch"] = patch
+                edit["state"]["batches"].append(len(group))
+            return
+        except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
+            failure = f"{type(error).__name__}: {error}"[:800]
+            is_oom = isinstance(error, torch.cuda.OutOfMemoryError)
+            split = len(group) > 1 and (not is_oom or config.oom_split_batch)
+            if is_oom:
+                oom_retries += 1
+        # Release exception traceback and transient tensors before retrying.
+        torch.cuda.empty_cache()
+        if split:
+            middle = len(group) // 2
+            execute(group[:middle])
+            execute(group[middle:])
+        else:
+            for edit in group:
+                edit["state"]["failed"] = failure
+
+    for bucket in buckets.values():
+        for offset in range(0, len(bucket), config.batch_size):
+            execute(bucket[offset:offset + config.batch_size])
+    for edit in edits:
+        state = edit["state"]
+        if not state["failed"]:
+            state["result"] = blend_patch(
+                state["result"], edit["patch"], edit["box"], edit["crop"], options.feather
+            )
+    for state in states:
+        task = state["task"]
+        result = {
+            "file": task["relative"], "ok": not bool(state["failed"]),
+            "regions": [r.model_dump() for r in state["regions"]],
+            "detection_seconds": state["detection_seconds"], "batch_sizes": state["batches"],
+        }
+        try:
+            if state["failed"]:
+                raise RuntimeError(state["failed"])
+            output = state["result"]
+            if output.size != state["source"].size:
+                raise RuntimeError("Output dimensions differ from original")
+            if state["alpha"] is not None:
+                output.putalpha(state["alpha"])
+            atomic_save(output, task["destination"], state["exif"], state["icc"], options.overwrite)
+            result.update(action="restored", output_size=list(output.size))
+        except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
+            result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
+        results[task["relative"]] = result
+    if cuda:
+        torch.cuda.synchronize()
+    metrics = {
+        "window_seconds": round(time.monotonic() - start, 3), "window_images": len(tasks),
+        "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,
+        "peak_reserved_mib": round(torch.cuda.max_memory_reserved()/2**20) if cuda else 0,
+        "oom_retries": oom_retries,
     }
+    return [results[task["relative"]] | metrics for task in tasks]
+
+
+def process_image(task, options, config, pipe):
+    return process_batch([task], options, config, pipe)[0]
 
 
 def worker_main(index, gpu, settings, model_path, requests, events, load_gate):
@@ -118,7 +200,7 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate):
         with load_gate:
             pipe = None if config.backend == "mock" else load_pipeline(config, model_path)
         events.put({"type": "ready", "worker": index})
-    except Exception as error:  # noqa: BLE001 - isolate worker/service failures
+    except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
         traceback.print_exc()
         events.put({"type": "fatal", "worker": index, "error": str(error)[:800]})
         return
@@ -127,18 +209,17 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate):
         if request is None:
             return
         try:
-            result = process_image(
-                request["task"], ProcessingConfig.model_validate(request["options"]), config, pipe
+            results = process_batch(
+                request["tasks"], ProcessingConfig.model_validate(request["options"]), config, pipe
             )
-        except Exception as error:  # noqa: BLE001 - isolate worker/service failures
+        except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             traceback.print_exc()
-            result = {
-                "file": request["task"]["relative"],
-                "ok": False,
-                "error": f"{type(error).__name__}: {error}"[:800],
-            }
+            results = [
+                {"file": task["relative"], "ok": False,
+                 "error": f"{type(error).__name__}: {error}"[:800]}
+                for task in request["tasks"]
+            ]
             if config.backend != "mock":
                 import torch
-
                 torch.cuda.empty_cache()
-        events.put({"type": "result", "worker": index, "job": request["job"], **result})
+        events.put({"type": "results", "worker": index, "job": request["job"], "results": results})

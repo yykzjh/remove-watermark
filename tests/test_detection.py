@@ -24,6 +24,11 @@ def test_no_detection_copies_original_bytes_without_claiming_restoration(tmp_pat
     source, target = tmp_path/"original.jpg", tmp_path/"result.jpg"
     Image.new("RGB", (50, 40), (110, 90, 60)).save(source)
     monkeypatch.setattr("watermark_studio.worker.locate_watermarks", lambda *args: ([], "{}"))
+    import sys
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda: None, synchronize=lambda: None,
+        max_memory_allocated=lambda: 0, max_memory_reserved=lambda: 0,
+    )))
     pipe = SimpleNamespace(text_encoder=None, processor=None, _execution_device="cpu")
     result = process_image(
         {"source": str(source), "destination": str(target), "relative": "original.jpg"},

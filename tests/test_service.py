@@ -39,10 +39,10 @@ def test_complete_remote_directory_batch_and_limits(tmp_path):
         payload = {
             "input_dir": str(source),
             "output_dir": str(target),
-            "options": {"concurrency": 3},
+            "options": {"concurrency": cfg.capacity + 1},
         }
         assert client.post("/jobs", json=payload).status_code == 409
-        payload["options"]["concurrency"] = 2
+        payload["options"]["concurrency"] = 4
         response = client.post("/jobs", json=payload)
         assert response.status_code == 202, response.text
         state = wait_for(client, lambda s: s["job"] and s["job"]["state"] == "completed")
