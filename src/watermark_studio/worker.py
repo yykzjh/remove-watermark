@@ -5,19 +5,18 @@ import os
 import time
 import traceback
 
-from .config import DeploymentConfig, ProcessingConfig
+from .config import DeploymentConfig, ProcessingConfig, Region
 from .detection import locate_watermarks
 from .images import (
     atomic_copy,
-    atomic_save,
     blend_patch,
     context_box,
     load_photo,
     pixel_box,
     regions_for,
-    restore_storage_orientation,
+    save_output,
 )
-from .prompts import build_prompt
+from .prompts import build_full_prompt, build_prompt
 
 
 def load_pipeline(config, model_path):
@@ -77,6 +76,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             detection_start = time.monotonic()
             if not cuda:
                 regions = []
+            elif options.scope == "full_image":
+                regions = [Region(box=(0, 0, 1, 1))]
             elif options.preset == "auto":
                 regions, _ = locate_watermarks(
                     source, pipe.text_encoder, pipe.processor, pipe._execution_device,
@@ -87,11 +88,19 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 regions = regions_for(source, options)
             detected = round(time.monotonic() - detection_start, 3)
             if not regions:
-                atomic_copy(task["source"], task["destination"], options.overwrite)
+                if options.output_width:
+                    if alpha is not None:
+                        source.putalpha(alpha)
+                    output_size = save_output(source, task["source"], task["destination"], exif, icc, options)
+                else:
+                    atomic_copy(task["source"], task["destination"], options.overwrite)
+                    from PIL import Image
+                    with Image.open(task["source"]) as raw:
+                        output_size = list(raw.size)
                 results[task["relative"]] = {
                     "file": task["relative"], "ok": True, "regions": [],
                     "action": "no_watermark_detected" if cuda else "mock_copy",
-                    "detection_seconds": detected, "output_size": list(source.size),
+                    "detection_seconds": detected, "output_size": output_size,
                 }
                 continue
             state = {"task": task, "source": source, "result": source.copy(), "exif": exif, "icc": icc,
@@ -105,7 +114,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 reference = source.crop(crop)
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
-                    "prompt": build_prompt(region.kind, box, crop, options.extra_prompt),
+                    "prompt": (build_full_prompt(options.extra_prompt) if options.scope == "full_image"
+                               else build_prompt(region.kind, box, crop, options.extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
                     "size": dimensions(reference, options.resolution),
                 })
@@ -169,9 +179,15 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     for edit in edits:
         state = edit["state"]
         if not state["failed"]:
-            state["result"] = blend_patch(
-                state["result"], edit["patch"], edit["box"], edit["crop"], options.feather
-            )
+            if options.scope == "full_image":
+                from PIL import Image
+                state["result"] = edit["patch"].convert("RGB").resize(
+                    state["source"].size, Image.Resampling.LANCZOS
+                )
+            else:
+                state["result"] = blend_patch(
+                    state["result"], edit["patch"], edit["box"], edit["crop"], options.feather
+                )
     for state in states:
         task = state["task"]
         result = {
@@ -187,9 +203,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 raise RuntimeError("Output dimensions differ from original")
             if state["alpha"] is not None:
                 output.putalpha(state["alpha"])
-            output, original_exif = restore_storage_orientation(output, task["source"])
-            atomic_save(output, task["destination"], original_exif, state["icc"], options.overwrite)
-            result.update(action="restored", output_size=list(output.size))
+            output_size = save_output(output, task["source"], task["destination"],
+                                      state["exif"], state["icc"], options)
+            result.update(action="restored", output_size=output_size)
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
         results[task["relative"]] = result

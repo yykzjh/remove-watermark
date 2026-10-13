@@ -34,6 +34,9 @@ PRESETS = {
 
 class ProcessingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    scope: Literal["full_image", "regions"] = "regions"
+    output_width: int = Field(default=0, ge=0, le=16384)
+    output_height: int = Field(default=0, ge=0, le=16384)
     concurrency: int = Field(default=32, ge=1, le=1024)
     preset: Literal["gray", "blue", "auto", "custom"] = "auto"
     regions: list[Region] = Field(default_factory=list, max_length=8)
@@ -48,13 +51,20 @@ class ProcessingConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_regions(self):
-        if self.preset == "custom" and not self.regions:
+        if bool(self.output_width) != bool(self.output_height):
+            raise ValueError("输出宽高必须同时填写，或同时为 0 保留原图尺寸")
+        if self.output_width * self.output_height > 64_000_000:
+            raise ValueError("输出最多支持 6400 万像素")
+        if self.scope == "regions" and self.preset == "custom" and not self.regions:
             raise ValueError("自定义模式至少需要一个水印区域")
         return self
 
 
 class JobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    mode: Literal["batch", "single"] = "batch"
+    preview_token: str = Field(default="", max_length=100)
+    input_file: str = Field(default="", max_length=4096)
     input_dir: str = Field(min_length=1, max_length=4096)
     output_dir: str = Field(min_length=1, max_length=4096)
     options: ProcessingConfig = Field(default_factory=ProcessingConfig)

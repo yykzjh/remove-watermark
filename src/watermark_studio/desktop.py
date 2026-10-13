@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import shlex
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -25,7 +27,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -90,15 +94,16 @@ class Api(QObject):
 
 
 class DirectoryDialog(QDialog):
-    def __init__(self, api, initial, roots, parent=None):
+    def __init__(self, api, initial, roots, parent=None, files=False):
         super().__init__(parent)
+        self.files = files
         self.api, self.selected, self.parent_path = api, "", None
         self.request_name = "browse-" + str(id(self))
         self.next_offset = None
-        self.setWindowTitle("选择开发机目录")
+        self.setWindowTitle("选择开发机图像" if files else "选择开发机目录")
         self.resize(600, 480)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("可输入新输出目录；输入目录必须已经存在。"))
+        layout.addWidget(QLabel("双击图像打开；双击目录进入。" if files else "可输入新输出目录；输入目录必须已经存在。"))
         self.path = QLineEdit(initial or roots[0])
         layout.addWidget(self.path)
         row = QHBoxLayout()
@@ -113,7 +118,7 @@ class DirectoryDialog(QDialog):
         layout.addLayout(row)
         self.list = QListWidget()
         self.list.itemDoubleClicked.connect(
-            lambda item: self.load(self.path.text().rstrip("/") + "/" + item.text())
+            lambda item: self.activate_item(item.text())
         )
         layout.addWidget(self.list)
         self.status = QLabel()
@@ -122,7 +127,7 @@ class DirectoryDialog(QDialog):
         self.more = QPushButton("更多目录")
         self.more.clicked.connect(self.load_more)
         buttons.addWidget(self.more)
-        choose = QPushButton("选择此路径")
+        choose = QPushButton("选择图像路径" if files else "选择此路径")
         choose.setObjectName("primary")
         choose.clicked.connect(self.choose)
         buttons.addWidget(choose)
@@ -144,8 +149,16 @@ class DirectoryDialog(QDialog):
         self.api.send(
             self.request_name,
             "GET",
-            "/directories?" + urlencode({"path": self.path.text(), "offset": offset}),
+            "/directories?" + urlencode({"path": self.path.text(), "offset": offset, "files": str(self.files).lower()}),
         )
+
+    def activate_item(self, name):
+        path = self.path.text().rstrip("/") + "/" + name.rstrip("/")
+        if self.files and not name.endswith("/"):
+            self.selected = path
+            self.accept()
+        else:
+            self.load(path)
 
     def load_more(self):
         if self.next_offset is not None:
@@ -177,132 +190,210 @@ class DirectoryDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self, api, state):
         super().__init__()
+        from .canvas import RegionCanvas
         self.api, self.capacity, self.roots = api, state["capacity"], state["roots"]
         self.job_state = ""
-        self.setWindowTitle("批量图像去水印 · Qwen Image")
-        self.resize(880, 870)
+        self.preview_path = self.preview_token = ""
+        self.preview_request = ""
+        self.setWindowTitle("图像去水印 · Qwen Image")
+        self.resize(1000, 940)
         body = QWidget()
-        self.setCentralWidget(body)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(body)
+        self.setCentralWidget(scroll)
         layout = QVBoxLayout(body)
-        layout.setContentsMargins(24, 20, 24, 20)
-        title = QLabel("批量图像去水印")
+        title = QLabel("图像去水印")
         title.setObjectName("title")
         layout.addWidget(title)
-        subtitle = QLabel(f"Qwen-Image-2.1-Turbo  ·  {state.get('worker_count', len(state.get('workers', [])))} 个 GPU 工作进程已就绪")
-        subtitle.setObjectName("muted")
-        layout.addWidget(subtitle)
+        layout.addWidget(QLabel(f"开发机服务 · {state.get('worker_count', 8)} 个 GPU 工作进程"))
         if state["backend"] == "mock":
-            layout.addWidget(QLabel("测试模式：只复制图片，不执行模型去水印。"))
-        folders = QGroupBox("开发机目录")
-        form = QFormLayout(folders)
+            layout.addWidget(QLabel("测试模式：不执行模型去水印。"))
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+        batch = QWidget()
+        self.tabs.addTab(batch, "批量去除水印")
+        batch_form = QFormLayout(batch)
+        batch_form.addRow(QLabel("逐张处理完整图像，自动去除任意位置的水印。递归遍历目录并保留输出目录结构。"))
         self.input_dir, self.output_dir = QLineEdit(), QLineEdit()
         for label, edit in [("输入目录", self.input_dir), ("输出目录", self.output_dir)]:
-            edit.setPlaceholderText(
-                "例如 /home/zjh/images"
-                if edit is self.input_dir
-                else "例如 /home/zjh/images-restored"
-            )
             row = QHBoxLayout()
             row.addWidget(edit)
-            button = QPushButton("浏览")
+            button = QPushButton("浏览开发机")
             button.clicked.connect(lambda checked=False, field=edit: self.browse(field))
             row.addWidget(button)
-            form.addRow(label, row)
-        layout.addWidget(folders)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        layout.addWidget(self.progress)
-        self.metrics = QLabel("选择目录后开始处理。输出保留原有子目录和文件名。")
-        layout.addWidget(self.metrics)
-        self.current = QLabel("")
-        self.current.setObjectName("muted")
-        self.current.setWordWrap(True)
-        layout.addWidget(self.current)
-
-        controls = QGroupBox("批处理设置")
-        form = QFormLayout(controls)
+            batch_form.addRow(label, row)
         self.concurrency = QSpinBox()
         self.concurrency.setRange(1, self.capacity)
         self.concurrency.setValue(min(self.capacity, state.get("recommended_concurrency", 32)))
-        self.concurrency.setToolTip("全服务已领取的原图数上限，包含检测、等待凑批、推理和写入；不是 GPU 数或每卡 batch 大小。")
-        form.addRow("全局在途图片数", self.concurrency)
+        self.concurrency.setToolTip("全服务在途原图上限，包含等待凑批、推理和保存。每卡 batch 上限由服务启动参数设置。")
+        batch_form.addRow("全局在途图片数", self.concurrency)
+        single = QWidget()
+        self.tabs.addTab(single, "单张去除水印")
+        single_form = QFormLayout(single)
+        self.input_file = QLineEdit()
+        self.input_file.setPlaceholderText("开发机上的图像文件路径")
+        row = QHBoxLayout()
+        row.addWidget(self.input_file)
+        browse = QPushButton("浏览图像")
+        browse.clicked.connect(self.browse_image)
+        row.addWidget(browse)
+        self.open_button = QPushButton("打开预览")
+        self.open_button.clicked.connect(self.open_preview)
+        row.addWidget(self.open_button)
+        single_form.addRow("输入图像", row)
+        self.single_output = QLineEdit()
+        row = QHBoxLayout()
+        row.addWidget(self.single_output)
+        browse_out = QPushButton("浏览开发机")
+        browse_out.clicked.connect(lambda: self.browse(self.single_output))
+        row.addWidget(browse_out)
+        single_form.addRow("输出目录", row)
+        self.preset = QComboBox()
+        self.preset.addItem("自动识别水印位置", "auto")
+        self.preset.addItem("自定义区域", "custom")
+        single_form.addRow("处理模式", self.preset)
+        self.canvas = RegionCanvas()
+        single_form.addRow(self.canvas)
+        self.preview_status = QLabel("仅按需传输压缩预览；处理始终使用开发机原图。")
+        single_form.addRow(self.preview_status)
+        self.region_controls = QWidget()
+        region_form = QFormLayout(self.region_controls)
+        self.boxes = QLineEdit()
+        self.boxes.setPlaceholderText("x0,y0,x1,y1; x0,y0,x1,y1（0..1，最多 8 个）")
+        self.boxes.setToolTip("相对于完整图像的归一化坐标；可拖动鼠标添加多个矩形，也可手动输入。")
+        self.boxes.editingFinished.connect(self.apply_boxes)
+        region_form.addRow("区域坐标", self.boxes)
+        buttons = QHBoxLayout()
+        undo = QPushButton("删除最后一个区域")
+        undo.clicked.connect(self.undo_region)
+        clear = QPushButton("清空区域")
+        clear.clicked.connect(self.canvas.clear)
+        buttons.addWidget(undo)
+        buttons.addWidget(clear)
+        region_form.addRow(buttons)
+        single_form.addRow(self.region_controls)
+        self.canvas.changed.connect(self.boxes_changed)
+        self.preset.currentIndexChanged.connect(self.mode_changed)
+        self.input_file.textChanged.connect(self.invalidate_preview)
+        self.tabs.currentChanged.connect(self.tab_changed)
+        self.folders = self.tabs
+
+        controls = QGroupBox("分辨率与输出")
+        form = QFormLayout(controls)
         self.resolution = QComboBox()
         for size in [512, 768, 1024, 1280, 1536, 2048]:
-            self.resolution.addItem(str(size), size)
+            self.resolution.addItem(f"{size} 档（约 {size} × {size} 像素预算）", size)
         self.resolution.setCurrentIndex(2)
-        form.addRow("修复区域推理分辨率", self.resolution)
-        self.preset = QComboBox()
-        for title, value in [
-            ("自动识别水印位置（逐张检测，无需框选）", "auto"),
-            ("灰底黑字（样例 1）", "gray"),
-            ("蓝底白字 + 灰底正文（样例 2）", "blue"),
-            ("自定义区域", "custom"),
-        ]:
-            self.preset.addItem(title, value)
-        form.addRow("水印定位方式", self.preset)
-        self.boxes = QLineEdit("0.012,0.727,0.45,0.988; 0.864,0.89,1,1")
-        self.boxes.setToolTip("每个区域为 x0,y0,x1,y1，范围 0..1；分号分隔多个区域")
-        self.boxes.setEnabled(False)
-        self.preset.currentIndexChanged.connect(
-            lambda: self.boxes.setEnabled(self.preset.currentData() == "custom")
-        )
-        form.addRow("自定义区域", self.boxes)
-        note = QLabel("默认逐图识别任意位置的数字水印；未检测到则原样复制并单独计数。固定模板仅供已知布局使用。")
-        note.setObjectName("muted")
+        self.resolution.setToolTip("保留送入模型的图像宽高比，并按模型网格对齐。较低档位省显存；更大 batch 需调整服务参数。")
+        form.addRow("模型输入分辨率", self.resolution)
+        self.output_mode = QComboBox()
+        self.output_mode.addItems(["每张图像的原始分辨率", "自定义完整图像分辨率"])
+        form.addRow("输出图像分辨率", self.output_mode)
+        self.output_dimensions = QWidget()
+        row = QHBoxLayout(self.output_dimensions)
+        self.output_width, self.output_height = QSpinBox(), QSpinBox()
+        for widget, value in [(self.output_width, 1920), (self.output_height, 1080)]:
+            widget.setRange(1, 16384)
+            widget.setValue(value)
+        row.addWidget(QLabel("宽"))
+        row.addWidget(self.output_width)
+        row.addWidget(QLabel("高"))
+        row.addWidget(self.output_height)
+        row.addWidget(QLabel("像素 · 完整图像"))
+        form.addRow(self.output_dimensions)
+        self.output_dimensions.setEnabled(False)
+        self.output_mode.currentIndexChanged.connect(lambda index: self.output_dimensions.setEnabled(index == 1))
+        note = QLabel("先完成去水印与整图合成，再以 Lanczos 高质量重采样缩放。自定义宽高会精确匹配尺寸；比例不同会拉伸。此方式不是 AI 超分辨率。")
         note.setWordWrap(True)
+        note.setObjectName("muted")
         form.addRow(note)
-        self.detection_resolution = QComboBox()
-        for size in [768, 1024, 1280, 1536, 2048]:
-            self.detection_resolution.addItem(str(size), size)
-        self.detection_resolution.setCurrentIndex(2)
-        form.addRow("自动检测分辨率（长边）", self.detection_resolution)
-        self.logo = QCheckBox("同时去除相机标识及附属小字（任意位置）")
-        self.logo.setChecked(False)
-        self.overwrite = QCheckBox("覆盖输出目录中已有同名文件")
-        row = QHBoxLayout()
-        row.addWidget(self.logo)
-        row.addWidget(self.overwrite)
-        form.addRow(row)
-        self.context = QDoubleSpinBox()
-        self.context.setRange(0.1, 2.0)
-        self.context.setSingleStep(0.1)
-        self.context.setValue(0.6)
-        self.feather = QSpinBox()
-        self.feather.setRange(0, 64)
-        self.feather.setValue(12)
-        row = QHBoxLayout()
-        row.addWidget(QLabel("上下文扩展比例"))
-        row.addWidget(self.context)
-        row.addWidget(QLabel("边缘过渡像素"))
-        row.addWidget(self.feather)
-        form.addRow(row)
+        self.overwrite = QCheckBox("覆盖输出目录中的同名文件")
+        form.addRow(self.overwrite)
         self.extra_prompt = QLineEdit()
-        self.extra_prompt.setPlaceholderText("可选：针对特殊地面、建筑线条等补充说明")
+        self.extra_prompt.setPlaceholderText("可选：补充地面、人物衣着、建筑线条等场景说明")
         form.addRow("补充提示词", self.extra_prompt)
         layout.addWidget(controls)
         self.controls = controls
-        self.folders = folders
+        self.progress = QProgressBar()
+        layout.addWidget(self.progress)
+        self.metrics = QLabel("请选择开发机上的输入与输出路径。")
+        layout.addWidget(self.metrics)
+        self.current = QLabel()
+        self.current.setWordWrap(True)
+        layout.addWidget(self.current)
         row = QHBoxLayout()
-        self.start_button = QPushButton("开始批处理")
+        self.start_button = QPushButton("开始批量去除水印")
         self.start_button.setObjectName("primary")
         self.start_button.clicked.connect(self.start_job)
         self.pause_button = QPushButton("暂停")
         self.pause_button.clicked.connect(self.pause_job)
         self.cancel_button = QPushButton("取消任务")
-        self.cancel_button.clicked.connect(
-            lambda: self.api.send("control", "POST", "/jobs/cancel", {})
-        )
-        row.addWidget(self.start_button)
-        row.addWidget(self.pause_button)
-        row.addWidget(self.cancel_button)
+        self.cancel_button.clicked.connect(lambda: self.api.send("control", "POST", "/jobs/cancel", {}))
+        for button in [self.start_button, self.pause_button, self.cancel_button]:
+            row.addWidget(button)
         layout.addLayout(row)
         self.errors = QTextEdit()
         self.errors.setReadOnly(True)
-        self.errors.setMaximumHeight(85)
-        self.errors.setPlaceholderText("异常摘要将显示在这里；详细逐图报告保存在开发机。")
+        self.errors.setMaximumHeight(65)
         layout.addWidget(self.errors)
         self.api.done.connect(self.result)
+        self.mode_changed()
         self.update_state(state)
+
+    def tab_changed(self):
+        self.start_button.setText("开始单张去除水印" if self.tabs.currentIndex() else "开始批量去除水印")
+
+    def mode_changed(self):
+        custom = self.preset.currentData() == "custom"
+        self.region_controls.setEnabled(custom)
+        self.canvas.set_selectable(custom and bool(self.preview_path))
+
+    def boxes_changed(self, boxes):
+        self.boxes.setText("; ".join(",".join(f"{v:.6f}" for v in box) for box in boxes))
+
+    def parsed_regions(self):
+        return [Region(box=tuple(float(v.strip()) for v in box.split(",")))
+                for box in self.boxes.text().split(";") if box.strip()]
+
+    def apply_boxes(self):
+        try:
+            regions = self.parsed_regions()
+            if len(regions) > 8:
+                raise ValueError("最多选择 8 个区域")
+            self.canvas.boxes = [r.box for r in regions]
+            self.canvas.update()
+        except ValueError as error:
+            self.preview_status.setText("区域坐标无效：" + str(error)[:160])
+
+    def undo_region(self):
+        self.canvas.boxes = self.canvas.boxes[:-1]
+        self.boxes_changed(self.canvas.boxes)
+        self.canvas.update()
+
+    def invalidate_preview(self):
+        self.preview_request = ""
+        self.open_button.setEnabled(True)
+        self.preview_path = self.preview_token = ""
+        self.canvas.pixmap = QPixmap()
+        self.canvas.clear()
+        self.mode_changed()
+
+    def browse_image(self):
+        dialog = DirectoryDialog(self.api, "", self.roots, self, files=True)
+        if dialog.exec():
+            self.input_file.setText(dialog.selected)
+            self.open_preview()
+
+    def open_preview(self):
+        from urllib.parse import urlencode
+        if not self.input_file.text().strip():
+            return
+        self.invalidate_preview()
+        self.preview_request = "preview-" + str(time.monotonic_ns())
+        self.open_button.setEnabled(False)
+        self.preview_status.setText("正在读取开发机压缩预览…")
+        self.api.send(self.preview_request, "GET", "/preview?" + urlencode({"path": self.input_file.text().strip()}))
 
     def browse(self, field):
         dialog = DirectoryDialog(self.api, field.text(), self.roots, self)
@@ -311,38 +402,35 @@ class MainWindow(QMainWindow):
 
     def start_job(self):
         try:
-            regions = []
-            if self.preset.currentData() == "custom":
-                regions = [
-                    Region(box=tuple(float(v.strip()) for v in box.split(",")))
-                    for box in self.boxes.text().split(";")
-                    if box.strip()
-                ]
+            single = self.tabs.currentIndex() == 1
+            custom = single and self.preset.currentData() == "custom"
+            if custom and not self.preview_path:
+                raise ValueError("请先打开图像预览，再选择或指定区域")
             options = ProcessingConfig(
-                concurrency=self.concurrency.value(),
+                scope="regions" if single else "full_image",
+                concurrency=1 if single else self.concurrency.value(),
                 resolution=self.resolution.currentData(),
-                preset=self.preset.currentData(),
-                regions=regions,
-                detection_resolution=self.detection_resolution.currentData(),
-                remove_logo=self.logo.isChecked(),
+                preset=self.preset.currentData() if single else "auto",
+                regions=self.parsed_regions() if custom else [],
+                remove_logo=True,
                 overwrite=self.overwrite.isChecked(),
-                context=self.context.value(),
-                feather=self.feather.value(),
+                output_width=self.output_width.value() if self.output_mode.currentIndex() else 0,
+                output_height=self.output_height.value() if self.output_mode.currentIndex() else 0,
                 extra_prompt=self.extra_prompt.text(),
             )
-            if not self.input_dir.text().strip() or not self.output_dir.text().strip():
-                raise ValueError("请选择输入和输出目录")
+            source = self.input_file.text().strip() if single else self.input_dir.text().strip()
+            destination = self.single_output.text().strip() if single else self.output_dir.text().strip()
+            if not source or not destination:
+                raise ValueError("请选择输入和输出路径")
             self.start_button.setEnabled(False)
-            self.api.send(
-                "submit",
-                "POST",
-                "/jobs",
-                {
-                    "input_dir": self.input_dir.text().strip(),
-                    "output_dir": self.output_dir.text().strip(),
-                    "options": options.model_dump(),
-                },
-            )
+            self.api.send("submit", "POST", "/jobs", {
+                "mode": "single" if single else "batch",
+                "input_dir": source,
+                "input_file": self.preview_path or source if single else "",
+                "preview_token": self.preview_token if single else "",
+                "output_dir": destination,
+                "options": options.model_dump(),
+            })
         except ValueError as error:
             QMessageBox.warning(self, "参数有误", str(error))
 
@@ -352,6 +440,18 @@ class MainWindow(QMainWindow):
         )
 
     def result(self, name, data, error):
+        if name == self.preview_request:
+            self.open_button.setEnabled(True)
+            if error:
+                self.preview_status.setText(error)
+            else:
+                self.preview_path, self.preview_token = data["path"], data["token"]
+                self.canvas.set_image(base64.b64decode(data["jpeg"]))
+                self.preview_status.setText(
+                    f"原图 {data['size'][0]} × {data['size'][1]} · 预览 {data['bytes'] // 1024} KiB · 最多 8 个区域"
+                )
+                self.mode_changed()
+            return
         if name in {"submit", "control"} and error:
             QMessageBox.warning(self, "操作失败", error)
             self.start_button.setEnabled(True)
@@ -406,7 +506,7 @@ class Startup(QWidget):
         self.setWindowTitle("Watermark Studio · 模型部署")
         self.resize(620, 210)
         layout = QVBoxLayout(self)
-        title = QLabel("正在准备图像修复服务")
+        title = QLabel("正在准备图像去水印服务")
         title.setObjectName("title")
         layout.addWidget(title)
         self.label = QLabel("正在连接服务…")
@@ -426,7 +526,7 @@ def main():
         "--url", help="Connect to an existing API instead of starting a local service"
     )
     parser.add_argument("--config", default="config/deployment.toml")
-    parser.add_argument("--ssh-host", help="Open metadata-only tunnel and start the remote service")
+    parser.add_argument("--ssh-host", help="Open status and bounded-preview tunnel and start the remote service")
     parser.add_argument("--remote-dir", default="~/project/inference/remove-watermark")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--remote-port", type=int, default=8765)

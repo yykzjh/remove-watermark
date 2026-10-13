@@ -1,16 +1,12 @@
 {
+  "mode": "batch",
   "input_dir": "/home/zjh/images",
   "output_dir": "/home/zjh/images-clean",
   "options": {
     "concurrency": 32,
-    "preset": "auto",
-    "regions": [],
-    "detection_resolution": 1280,
-    "remove_logo": true,
     "resolution": 1024,
-    "context": 0.6,
-    "feather": 12,
-    "seed": 42,
+    "output_width": 0,
+    "output_height": 0,
     "overwrite": false,
     "extra_prompt": ""
   }

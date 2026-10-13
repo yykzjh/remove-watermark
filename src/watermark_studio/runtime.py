@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .config import DeploymentConfig, JobRequest
-from .images import scan_images, validate_directories
+from .images import EXTENSIONS, scan_images, validate_directories
 from .worker import worker_main
 
 
@@ -207,9 +207,32 @@ class Runtime:
                 raise ValueError("已有任务正在处理")
             if request.options.concurrency > self.config.capacity:
                 raise ValueError(f"在途图片数不能超过工作进程缓冲容量 {self.config.capacity}")
-            source, target = validate_directories(
-                str(self.safe_path(request.input_dir)), str(self.safe_path(request.output_dir))
-            )
+            single = None
+            if request.mode == "single":
+                from PIL import Image
+                single = self.safe_path(request.input_file)
+                if not single.is_file() or single.suffix.lower() not in EXTENSIONS:
+                    raise ValueError("请选择支持的单张图像")
+                with Image.open(single) as image:
+                    if getattr(image, "n_frames", 1) != 1:
+                        raise ValueError("不支持多帧图像")
+                    image.verify()
+                stat = single.stat()
+                if request.preview_token and request.preview_token != f"{stat.st_size}:{stat.st_mtime_ns}":
+                    raise ValueError("图像在预览后已改变，请重新打开并框选")
+                source, target = single.parent, self.safe_path(request.output_dir)
+                destination = target / single.name
+                if destination.resolve() == single or destination.is_symlink():
+                    raise ValueError("输出不能覆盖输入原图或符号链接")
+                request.options.scope = "regions"
+            else:
+                source, target = validate_directories(
+                    str(self.safe_path(request.input_dir)), str(self.safe_path(request.output_dir))
+                )
+                request.options.scope = "full_image"
+                request.options.preset = "auto"
+                request.options.regions = []
+            request.options.remove_logo = True
             self.cancel_scan.clear()
             self.job = {
                 "id": uuid.uuid4().hex,
@@ -233,16 +256,24 @@ class Runtime:
                 "model_source": self.config.model_source,
             }
             self._persist()
-            thread = threading.Thread(target=self._scan, args=(source, target), daemon=True)
+            thread = threading.Thread(target=self._scan, args=(source, target, single), daemon=True)
             self.threads.append(thread)
             thread.start()
             return self.job["id"]
 
-    def _scan(self, source, target):
+    def _scan(self, source, target, single=None):
         try:
-            tasks, skipped, invalid = scan_images(
-                source, target, self.job["options"]["overwrite"], self.cancel_scan
-            )
+            if single is None:
+                tasks, skipped, invalid = scan_images(
+                    source, target, self.job["options"]["overwrite"], self.cancel_scan
+                )
+            else:
+                from .images import ImageTask
+                target.mkdir(parents=True, exist_ok=True)
+                destination = target / single.name
+                skipped = int(destination.exists() and not self.job["options"]["overwrite"])
+                tasks = [] if skipped else [ImageTask(str(single), str(destination), single.name)]
+                invalid = []
             with self.lock:
                 self.pending = deque(asdict(t) for t in tasks)
                 self.job.update(

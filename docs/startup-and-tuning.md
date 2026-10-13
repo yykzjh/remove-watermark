@@ -1,3 +1,5 @@
+> 当前界面与分辨率语义见 [工作流说明](workflows.md)。下文区域批量测试属于历史路径。
+
 # 服务启动、动态凑批与调优
 
 在 Linux 开发机 ~/project/inference/remove-watermark 执行，使用 uv。
@@ -112,8 +114,7 @@ API 请求还需 input_dir、output_dir，均为开发机目录，不能相同�
 
 ```bash
 uv run --no-sync watermark-batch /home/zjh/images /home/zjh/images-clean \
-  --concurrency 32 --preset auto --remove-logo \
-  --detection-resolution 1280 --resolution 1024
+  --concurrency 32 --input-resolution 1024
 ```
 
 ## 调优与复现
@@ -148,10 +149,10 @@ peak_allocated_mib、peak_reserved_mib、oom_retries、output_size。
 uv run --no-sync watermark-studio --ssh-host cdu_dev
 ```
 桌面在 WSLg 运行，窗口显示在 Windows 桌面。图像和模型均在开发机处理；
-SSH 隧道只传目录/状态/参数。更改 GPU/batch 容量后重开客户端。
+SSH 隧道以目录/状态/参数为主；单张打开预览时可按需返回最多 64 KiB JPEG。更改 GPU/batch 容量后重开客户端。
 自定义端口用 --remote-port 和 --port；IPv6 需要相应 IPv6 转发。
 
 代码必须本地 Linux 环境开发、git commit/push，开发机 git pull --ff-only。
-不通过 SSH 传源码包、图片或模型；用户自行准备开发机图像。
+不通过 SSH 传源码包或模型；用户允许偶尔少量测试图片，批量图像由用户在开发机准备。
 
 参考：[官方 QwenImage21Pipeline](https://huggingface.co/docs/diffusers/main/api/pipelines/qwenimage21)。

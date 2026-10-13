@@ -1,3 +1,7 @@
+# 新版批量 / 单张界面
+
+见 [工作流与分辨率说明](docs/workflows.md)。
+
 > 动态凑批版本：默认 GPU 0–7，每卡一个模型。concurrency 现为全局在途图片数；
 > 每卡 batch_size 独立配置。所有 bool 未指定为 false。完整启动、参数和实测见
 > [启动调优指南](docs/startup-and-tuning.md) 与 [实测记录](docs/batch-tuning-results.md)。

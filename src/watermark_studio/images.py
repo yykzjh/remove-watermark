@@ -185,3 +185,20 @@ def atomic_copy(source, destination, overwrite=False):
             os.link(temp, path)
     finally:
         temp.unlink(missing_ok=True)
+
+def save_output(image, source, destination, exif, icc, options):
+    """Resize only the completed display-oriented image, never an individual patch."""
+    if options.output_width:
+        image = image.resize(
+            (options.output_width, options.output_height), Image.Resampling.LANCZOS
+        )
+        metadata = Image.Exif()
+        metadata.load(exif)
+        metadata.pop(274, None)
+        for key in (256, 257, 40962, 40963):
+            metadata.pop(key, None)
+        exif = metadata.tobytes()
+    else:
+        image, exif = restore_storage_orientation(image, source)
+    atomic_save(image, destination, exif, icc, options.overwrite)
+    return list(image.size)

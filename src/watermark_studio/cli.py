@@ -23,10 +23,9 @@ def main():
     parser.add_argument("output_dir")
     parser.add_argument("--url", default="http://127.0.0.1:8765")
     parser.add_argument("--concurrency", type=int, default=32)
-    parser.add_argument("--preset", choices=["auto", "gray", "blue"], default="auto")
-    parser.add_argument("--resolution", type=int, default=1024)
-    parser.add_argument("--detection-resolution", type=int, default=1280)
-    parser.add_argument("--remove-logo", action="store_true")
+    parser.add_argument("--input-resolution", "--resolution", dest="resolution", type=int, choices=[512, 768, 1024, 1280, 1536, 2048], default=1024)
+    parser.add_argument("--output-width", type=int, default=0)
+    parser.add_argument("--output-height", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     request(
@@ -37,11 +36,11 @@ def main():
             "output_dir": args.output_dir,
             "options": {
                 "concurrency": args.concurrency,
-                "preset": args.preset,
                 "resolution": args.resolution,
-                "detection_resolution": args.detection_resolution,
+                "output_width": args.output_width,
+                "output_height": args.output_height,
                 "overwrite": args.overwrite,
-                "remove_logo": args.remove_logo,
+
             },
         },
     )

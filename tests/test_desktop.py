@@ -57,3 +57,54 @@ def test_gui_builds_valid_remote_job_and_tracks_progress(tmp_path):
     app.processEvents()
     assert window.grab().save(str(tmp_path / "desktop.png"))
     window.close()
+
+def test_navigation_and_multi_region_selection(tmp_path):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtTest import QTest
+    app = QApplication.instance() or QApplication([])
+    api = FakeApi()
+    window = MainWindow(api, {"capacity": 64, "roots": ["/home/zjh"], "backend": "mock",
+                              "stage": "ready", "job": None})
+    window.show()
+    window.tabs.setCurrentIndex(1)
+    app.processEvents()
+    assert window.preset.count() == 2
+    assert not window.region_controls.isEnabled()
+    assert not window.canvas.selectable
+    window.input_file.setText("/home/zjh/image.png")
+    window.preview_path = "/home/zjh/image.png"
+    window.preview_token = "token"
+    pixmap = QPixmap(800, 400)
+    pixmap.fill(Qt.GlobalColor.white)
+    window.canvas.pixmap = pixmap
+    window.preset.setCurrentIndex(1)
+    app.processEvents()
+    assert window.canvas.selectable
+    rect = window.canvas.image_rect()
+    for left in [.1, .6]:
+        start = QPoint(int(rect.x() + left * rect.width()), int(rect.y() + .2 * rect.height()))
+        end = QPoint(int(rect.x() + (left + .2) * rect.width()), int(rect.y() + .5 * rect.height()))
+        QTest.mousePress(window.canvas, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(window.canvas, end)
+        QTest.mouseRelease(window.canvas, Qt.MouseButton.LeftButton, pos=end)
+    assert len(window.parsed_regions()) == 2
+    assert abs(window.parsed_regions()[0].box[0] - .1) < .01
+    window.single_output.setText("/home/zjh/out")
+    window.output_mode.setCurrentIndex(1)
+    window.start_job()
+    payload = api.calls[-1][3]
+    assert payload["mode"] == "single"
+    assert len(payload["options"]["regions"]) == 2
+    assert payload["options"]["output_width"] == 1920
+    window.preset.setCurrentIndex(0)
+    assert not window.canvas.selectable
+    assert not window.boxes.isEnabled()
+    window.start_job()
+    assert api.calls[-1][3]["options"]["regions"] == []
+    window.tabs.setCurrentIndex(0)
+    window.input_dir.setText("/home/zjh/batch")
+    window.output_dir.setText("/home/zjh/batch-out")
+    window.start_job()
+    assert api.calls[-1][3]["options"]["scope"] == "full_image"
+    window.close()

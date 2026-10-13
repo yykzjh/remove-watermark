@@ -54,3 +54,17 @@ def build_prompt(
     return prompt + (
         "\nAdditional scene-specific instruction: " + extra.strip() if extra.strip() else ""
     )
+
+def build_full_prompt(extra=""):
+    targets = TARGETS["panel"] + "; and " + TARGETS["logo"]
+    prompt = BASE_PROMPT.format(
+        target=targets,
+        location="anywhere in the complete photograph, possibly in several separate places",
+    ).replace("in this crop", "in this full photograph")
+    return (
+        "Find and remove ALL digitally overlaid watermarks anywhere in this full image. "
+        "Their positions and sizes vary between photographs. Do not remove physical "
+        "signs, real printed text or construction markings in the scene. "
+        "If there is no digital watermark, preserve the photograph unchanged.\n"
+        + prompt + ("\nAdditional scene instruction: " + extra.strip() if extra.strip() else "")
+    )
