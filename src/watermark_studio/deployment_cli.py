@@ -33,6 +33,7 @@ HELP = {
     "quantization": "none, transformer FP8 dynamic activation/weight, or INT8 weight-only; requires quantization extra",
     "vae_tile_size": "VAE square tile edge in pixels; only active with --vae-tiling",
     "vae_tile_stride": "VAE tile stride in pixels, <= tile size; overlap = size - stride",
+    "expandable_segments": "PyTorch expandable CUDA allocator segments; set before CUDA initialization to reduce fragmentation",
     "shape_sort": "Sort scanned images by inference shape to improve homogeneous batching",
     "scan_workers": "CPU workers for image verification, 1..16",
     "report_interval": "Persist summary every N completed images; final/control state always flushed",

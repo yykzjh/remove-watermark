@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--expandable-segments", action="store_true")
 parser.add_argument("--gpu", type=int)
 parser.add_argument("--lane", type=int, required=True)
 parser.add_argument("--case", default="")
@@ -15,6 +16,8 @@ args = parser.parse_args()
 gpu = args.lane if args.gpu is None else args.gpu
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+if args.expandable_segments:
+    os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import numpy as np
 import torch
 from PIL import Image
@@ -31,7 +34,7 @@ samples = sorted(Path(".run/user-samples/input").glob("*.jpg"))
 assert len(samples) == 2
 items = [{"image": Image.open(samples[i % 2]).convert("RGB"), "prompt": build_full_prompt(),
           "seed": 42 + i} for i in range(8)]
-base = {"gpus": [gpu], "kv_cache": True, "vae_tiling": True, "vae_slicing": True, "tf32": True,
+base = {"gpus": [gpu], "expandable_segments": args.expandable_segments, "kv_cache": True, "vae_tiling": True, "vae_slicing": True, "tf32": True,
             "prompt_encoder": "lean", "encoder_batch_size": 2, "vae_tile_size": 384, "vae_tile_stride": 288}
 # label, configuration overrides, inference batch, resolution
 matrices = {
@@ -79,6 +82,13 @@ matrices = {
 }
 matrices[8] = [(f"kernel-{backend}", {"attention_backend": backend}, 2, 1024)
                for backend in ["native", "native_flash", "native_cudnn", "native_efficient", "flash_hub", "sage_hub"]]
+matrices[9] = [
+    ("allocator-b4", {}, 4, 1024),
+    ("allocator-compile-full", {"compile": True}, 2, 1024),
+    ("allocator-fp8-b4", {"quantization": "float8"}, 4, 1024),
+    ("allocator-compile-b1", {"compile": True, "compile_scope": "blocks"}, 1, 1024),
+    ("allocator-compile-b3", {"compile": True, "compile_scope": "blocks"}, 3, 1024),
+]
 model = Path.home() / ".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 for label, overrides, batch, resolution in matrices[args.lane]:
     if args.case and label != args.case:

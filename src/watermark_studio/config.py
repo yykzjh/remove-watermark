@@ -106,6 +106,7 @@ class DeploymentConfig(BaseModel):
     quantization: Literal["none", "float8", "int8"] = "none"
     vae_tile_size: int = Field(default=256, ge=128, le=1024, multiple_of=32)
     vae_tile_stride: int = Field(default=192, ge=64, le=1024, multiple_of=32)
+    expandable_segments: bool = False
     shape_sort: bool = False
     scan_workers: int = Field(default=1, ge=1, le=16)
     report_interval: int = Field(default=1, ge=1, le=1024)

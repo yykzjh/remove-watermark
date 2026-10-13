@@ -246,6 +246,8 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     config = DeploymentConfig.model_validate(settings)
+    if config.expandable_segments:
+        os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
     try:
         with load_gate:
             pipe = None if config.backend == "mock" else load_pipeline(config, model_path)
