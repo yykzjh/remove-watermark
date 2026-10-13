@@ -77,3 +77,37 @@ def test_bad_output_dimensions():
         ProcessingConfig(output_width=100)
     with pytest.raises(ValueError):
         ProcessingConfig(output_width=16384, output_height=16384)
+
+def test_parallel_scan_and_shape_sort_metadata(tmp_path):
+    from watermark_studio.images import inference_shape, scan_images
+    source = tmp_path / "source"
+    source.mkdir()
+    for name, orientation in [("a.jpg", 1), ("b.jpg", 6)]:
+        exif = Image.Exif()
+        exif[274] = orientation
+        Image.new("RGB", (400, 300)).save(source / name, exif=exif)
+    (source / "bad.png").write_bytes(b"invalid")
+    (source / "ignore.txt").write_text("text")
+    serial = scan_images(source, tmp_path / "out", False, workers=1)
+    parallel = scan_images(source, tmp_path / "out", False, workers=4)
+    assert serial == parallel
+    assert inference_shape(source / "a.jpg", 1024) == (1184, 896)
+    assert inference_shape(source / "b.jpg", 1024) == (896, 1184)
+
+
+def test_summary_checkpoint_interval_keeps_final_progress(tmp_path):
+    import json
+
+    from watermark_studio.runtime import Runtime
+    runtime = Runtime(DeploymentConfig(backend="mock", state_dir=str(tmp_path), report_interval=3))
+    runtime.job = {"id": "checkpoint", "completed": 0, "succeeded": 0, "failed": 0,
+                   "errors": [], "no_watermark": 0}
+    runtime._persist()
+    for i in range(2):
+        runtime._record({"file": str(i), "ok": True})
+    summary = tmp_path / "checkpoint/summary.json"
+    assert json.loads(summary.read_text())["completed"] == 0
+    assert runtime.job["completed"] == 2
+    runtime._finish()
+    assert json.loads(summary.read_text())["completed"] == 2
+    assert len((tmp_path / "checkpoint/results.jsonl").read_text().splitlines()) == 2

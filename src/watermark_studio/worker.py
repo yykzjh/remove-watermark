@@ -47,7 +47,10 @@ def load_pipeline(config, model_path):
         pipe.to("cuda:0")
     if config.attention == "sdpa":
         from .attention import IndependentSDPAProcessor
-        pipe.transformer.set_attn_processor(IndependentSDPAProcessor())
+        backend = config.attention_backend
+        if backend.startswith("native_"):
+            backend = "_" + backend
+        pipe.transformer.set_attn_processor(IndependentSDPAProcessor(backend))
     if config.attention == "flex":
         from diffusers.models.transformers.transformer_qwenimage21 import (
             QwenImage21FlexAttnProcessor,

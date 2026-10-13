@@ -95,6 +95,7 @@ class DeploymentConfig(BaseModel):
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
     dtype: Literal["bfloat16", "float16"] = "bfloat16"
     attention: Literal["sdpa", "flex"] = "sdpa"
+    attention_backend: Literal["native", "native_flash", "native_cudnn", "native_efficient", "flash_hub", "sage_hub"] = "native"
     compile: bool = False
     compile_mode: Literal["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"] = "default"
     compile_scope: Literal["full", "blocks"] = "full"

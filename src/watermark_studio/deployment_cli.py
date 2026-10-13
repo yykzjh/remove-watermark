@@ -22,6 +22,7 @@ HELP = {
     "replicas_per_gpu": "Full model copies per GPU, 1..4; multiplies VRAM use",
     "dtype": "Model weight and inference dtype",
     "attention": "sdpa; flex is rejected on the pinned stack after measured compiler failures",
+    "attention_backend": "Unmasked/image attention kernel; text causal masks keep native. Hub kernels require kernels extra",
     "compile": "Compile transformer; first inference and new shapes can take longer",
     "compile_mode": "default or max-autotune-no-cudagraphs; CUDA graph modes remain rejected",
     "compile_scope": "full transformer or repeated transformer blocks",

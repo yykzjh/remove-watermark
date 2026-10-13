@@ -12,7 +12,7 @@ from diffusers.models.transformers.transformer_qwenimage21 import (
 )
 
 
-def attention(query, key, value, mask=None):
+def attention(query, key, value, mask=None, backend=None):
     if mask is not None and mask.ndim == 4 and mask.shape[-2] == 1:
         outputs = []
         for index in range(query.shape[0]):
@@ -21,14 +21,18 @@ def attention(query, key, value, mask=None):
                 query[index:index+1],
                 key[index:index+1].index_select(1, valid),
                 value[index:index+1].index_select(1, valid),
-                attn_mask=None, dropout_p=0.0, backend=None,
+                attn_mask=None, dropout_p=0.0, backend=backend,
             ))
         return torch.cat(outputs)
     return dispatch_attention_fn(query, key, value, attn_mask=mask,
-                                 dropout_p=0.0, backend=None)
+                                 dropout_p=0.0, backend=backend if mask is None else None)
 
 
 class IndependentSDPAProcessor(QwenImage21AttnProcessor):
+    def __init__(self, backend=None):
+        self._attention_backend = backend
+
+
     def __call__(self, attn, hidden_states, attention_mask=None, rotary_emb=None,
                  layer_cache=None, kv_cache_mode=None, cache_write_slice=None,
                  segments=None, key_valid=None):
@@ -37,7 +41,7 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
             attn, hidden_states, rotary_emb, layer_cache, kv_cache_mode, cache_write_slice
         )
         if segments is None:
-            output = attention(query, key, value, attention_mask)
+            output = attention(query, key, value, attention_mask, self._attention_backend)
         else:
             outputs = []
             for start, end, is_text in segments:
@@ -51,10 +55,10 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
                 if key_valid is not None:
                     valid = key_valid[:,None,None,:end]
                     mask = valid if mask is None else mask & valid
-                outputs.append(attention(query[:,start:end],key[:,:end],value[:,:end],mask))
+                outputs.append(attention(query[:,start:end],key[:,:end],value[:,:end],mask,self._attention_backend))
             prefix = segments[-1][1] if segments else 0
             mask = None if key_valid is None else key_valid[:,None,None,:]
-            outputs.append(attention(query[:,prefix:],key,value,mask))
+            outputs.append(attention(query[:,prefix:],key,value,mask,self._attention_backend))
             output = torch.cat(outputs,dim=1)
         output = output[:,:seq_len_q].flatten(2,3).type_as(query)
         return attn.to_out[1](attn.to_out[0](output))

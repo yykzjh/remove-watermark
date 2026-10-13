@@ -7,10 +7,13 @@ import time
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--gpu", type=int)
 parser.add_argument("--lane", type=int, required=True)
+parser.add_argument("--case", default="")
 parser.add_argument("--repeats", type=int, default=2)
 args = parser.parse_args()
-os.environ["CUDA_VISIBLE_DEVICES"] = str(args.lane)
+gpu = args.lane if args.gpu is None else args.gpu
+os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import numpy as np
 import torch
@@ -28,7 +31,7 @@ samples = sorted(Path(".run/user-samples/input").glob("*.jpg"))
 assert len(samples) == 2
 items = [{"image": Image.open(samples[i % 2]).convert("RGB"), "prompt": build_full_prompt(),
           "seed": 42 + i} for i in range(8)]
-base = {"gpus": [args.lane], "kv_cache": True, "vae_tiling": True, "vae_slicing": True, "tf32": True,
+base = {"gpus": [gpu], "kv_cache": True, "vae_tiling": True, "vae_slicing": True, "tf32": True,
             "prompt_encoder": "lean", "encoder_batch_size": 2, "vae_tile_size": 384, "vae_tile_stride": 288}
 # label, configuration overrides, inference batch, resolution
 matrices = {
@@ -74,11 +77,15 @@ matrices = {
         ("no-slicing", {"vae_slicing": False}, 2, 1024),
     ],
 }
+matrices[8] = [(f"kernel-{backend}", {"attention_backend": backend}, 2, 1024)
+               for backend in ["native", "native_flash", "native_cudnn", "native_efficient", "flash_hub", "sage_hub"]]
 model = Path.home() / ".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 for label, overrides, batch, resolution in matrices[args.lane]:
+    if args.case and label != args.case:
+        continue
     config = DeploymentConfig(**(base | overrides))
     pipe = None
-    result = {"label": label, "gpu": args.lane, "batch": batch, "resolution": resolution,
+    result = {"label": label, "gpu": gpu, "batch": batch, "resolution": resolution,
               "config": config.model_dump()}
     try:
         torch.cuda.empty_cache()
@@ -91,7 +98,10 @@ for label, overrides, batch, resolution in matrices[args.lane]:
                 expected = pipe.encode_prompt(prompt=items[0]["prompt"], image=[resized])
                 actual = lean_encode(pipe, [{"prompt": items[0]["prompt"], "image": resized}])[0]
                 torch.testing.assert_close(actual[0], expected[0], atol=0, rtol=0)
-                torch.testing.assert_close(actual[1], expected[1])
+                if expected[1] is None:
+                    assert actual[1].all()
+                else:
+                    torch.testing.assert_close(actual[1], expected[1])
                 torch.testing.assert_close(actual[2], expected[2])
                 paired = lean_encode(pipe, [{"prompt": items[0]["prompt"], "image": resized}] * 2)
                 result["lean_single_embedding_exact"] = True
