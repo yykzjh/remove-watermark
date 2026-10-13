@@ -28,50 +28,50 @@ samples = sorted(Path(".run/user-samples/input").glob("*.jpg"))
 assert len(samples) == 2
 items = [{"image": Image.open(samples[i % 2]).convert("RGB"), "prompt": build_full_prompt(),
           "seed": 42 + i} for i in range(8)]
-base = dict(gpus=[args.lane], kv_cache=True, vae_tiling=True, vae_slicing=True, tf32=True,
-            prompt_encoder="lean", encoder_batch_size=2, vae_tile_size=384, vae_tile_stride=288)
+base = {"gpus": [args.lane], "kv_cache": True, "vae_tiling": True, "vae_slicing": True, "tf32": True,
+            "prompt_encoder": "lean", "encoder_batch_size": 2, "vae_tile_size": 384, "vae_tile_stride": 288}
 # label, configuration overrides, inference batch, resolution
 matrices = {
     0: [
-        ("stock-b1", dict(prompt_encoder="stock", vae_tile_size=256, vae_tile_stride=192), 1, 1024),
-        ("stock-b2", dict(prompt_encoder="stock", vae_tile_size=256, vae_tile_stride=192), 2, 1024),
-        ("lean-serial-b1", dict(encoder_batch_size=1, vae_tile_size=256, vae_tile_stride=192), 1, 1024),
-        ("lean-serial-b2", dict(encoder_batch_size=1, vae_tile_size=256, vae_tile_stride=192), 2, 1024),
-        ("lean-batched-b2", dict(vae_tile_size=256, vae_tile_stride=192), 2, 1024),
-        ("lean-batched-b4", dict(encoder_batch_size=4, vae_tile_size=256, vae_tile_stride=192), 4, 1024),
+        ("stock-b1", {"prompt_encoder": "stock", "vae_tile_size": 256, "vae_tile_stride": 192}, 1, 1024),
+        ("stock-b2", {"prompt_encoder": "stock", "vae_tile_size": 256, "vae_tile_stride": 192}, 2, 1024),
+        ("lean-serial-b1", {"encoder_batch_size": 1, "vae_tile_size": 256, "vae_tile_stride": 192}, 1, 1024),
+        ("lean-serial-b2", {"encoder_batch_size": 1, "vae_tile_size": 256, "vae_tile_stride": 192}, 2, 1024),
+        ("lean-batched-b2", {"vae_tile_size": 256, "vae_tile_stride": 192}, 2, 1024),
+        ("lean-batched-b4", {"encoder_batch_size": 4, "vae_tile_size": 256, "vae_tile_stride": 192}, 4, 1024),
     ],
     1: [
-        ("tile256", dict(vae_tile_size=256, vae_tile_stride=192), 2, 1024),
+        ("tile256", {"vae_tile_size": 256, "vae_tile_stride": 192}, 2, 1024),
         ("tile384", {}, 2, 1024),
-        ("tile512", dict(vae_tile_size=512, vae_tile_stride=384), 2, 1024),
-        ("tile768", dict(vae_tile_size=768, vae_tile_stride=576), 2, 1024),
-        ("no-tiling-b2", dict(vae_tiling=False), 2, 1024),
-        ("no-tiling-b1", dict(vae_tiling=False), 1, 1024),
+        ("tile512", {"vae_tile_size": 512, "vae_tile_stride": 384}, 2, 1024),
+        ("tile768", {"vae_tile_size": 768, "vae_tile_stride": 576}, 2, 1024),
+        ("no-tiling-b2", {"vae_tiling": False}, 2, 1024),
+        ("no-tiling-b1", {"vae_tiling": False}, 1, 1024),
     ],
     2: [(f"batch{n}", {}, n, 1024) for n in [1, 2, 3, 4, 6, 8]],
     3: [
         ("unfused", {}, 2, 1024),
-        ("fused-b2", dict(fuse_qkv=True), 2, 1024),
-        ("fused-b3", dict(fuse_qkv=True), 3, 1024),
-        ("fused-b4", dict(fuse_qkv=True), 4, 1024),
+        ("fused-b2", {"fuse_qkv": True}, 2, 1024),
+        ("fused-b3", {"fuse_qkv": True}, 3, 1024),
+        ("fused-b4", {"fuse_qkv": True}, 4, 1024),
     ],
     4: [
-        ("compile-full", dict(compile=True), 2, 1024),
-        ("compile-blocks", dict(compile=True, compile_scope="blocks"), 2, 1024),
-        ("compile-blocks-dynamic", dict(compile=True, compile_scope="blocks", compile_dynamic=True), 2, 1024),
-        ("compile-blocks-autotune", dict(compile=True, compile_scope="blocks",
-                                         compile_mode="max-autotune-no-cudagraphs"), 2, 1024),
+        ("compile-full", {"compile": True}, 2, 1024),
+        ("compile-blocks", {"compile": True, "compile_scope": "blocks"}, 2, 1024),
+        ("compile-blocks-dynamic", {"compile": True, "compile_scope": "blocks", "compile_dynamic": True}, 2, 1024),
+        ("compile-blocks-autotune", {"compile": True, "compile_scope": "blocks",
+                                         "compile_mode": "max-autotune-no-cudagraphs"}, 2, 1024),
     ],
     5: [
-        ("fp8-b2", dict(quantization="float8"), 2, 1024),
-        ("int8-b2", dict(quantization="int8"), 2, 1024),
-        ("fp8-b4", dict(quantization="float8"), 4, 1024),
-        ("fp8-compile", dict(quantization="float8", compile=True, compile_scope="blocks"), 2, 1024),
+        ("fp8-b2", {"quantization": "float8"}, 2, 1024),
+        ("int8-b2", {"quantization": "int8"}, 2, 1024),
+        ("fp8-b4", {"quantization": "float8"}, 4, 1024),
+        ("fp8-compile", {"quantization": "float8", "compile": True, "compile_scope": "blocks"}, 2, 1024),
     ],
     6: [(f"resolution{n}", {}, 2, n) for n in [512, 768, 1024, 1280, 1536, 2048]],
-    7: [(f"threads{n}", dict(cpu_threads=n), 2, 1024) for n in [1, 2, 4, 8]] + [
-        ("tile384-stride320", dict(vae_tile_stride=320), 2, 1024),
-        ("no-slicing", dict(vae_slicing=False), 2, 1024),
+    7: [(f"threads{n}", {"cpu_threads": n}, 2, 1024) for n in [1, 2, 4, 8]] + [
+        ("tile384-stride320", {"vae_tile_stride": 320}, 2, 1024),
+        ("no-slicing", {"vae_slicing": False}, 2, 1024),
     ],
 }
 model = Path.home() / ".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
@@ -113,7 +113,7 @@ for label, overrides, batch, resolution in matrices[args.lane]:
                       reserved_mib=round(torch.cuda.max_memory_reserved() / 2**20),
                       steps=len(pipe.config.sample_sigmas))
         del outputs
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - record unsupported/OOM configurations
         result["error"] = f"{type(error).__name__}: {error}"[:1200]
     with (root / f"lane-{args.lane}.jsonl").open("a") as stream:
         stream.write(json.dumps(result) + "\n")
