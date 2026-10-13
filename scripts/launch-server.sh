@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Complete eight-L40 deployment example. Trailing CLI options override values below.
+# Boolean switches omitted below (compile) remain false.
+# To disable an enabled boolean, remove its line or call start-server.sh directly.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 exec bash scripts/start-server.sh \
@@ -18,7 +20,7 @@ exec bash scripts/start-server.sh \
   --batch-bucketing \
   --oom-split-batch \
   --replicas-per-gpu 1 \
-  --load-parallelism 1 \
+  --load-parallelism 8 \
   --dtype bfloat16 \
   --attention sdpa \
   --compile-mode default \

@@ -34,7 +34,7 @@ PRESETS = {
 
 class ProcessingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    concurrency: int = Field(default=16, ge=1, le=1024)
+    concurrency: int = Field(default=32, ge=1, le=1024)
     preset: Literal["gray", "blue", "auto", "custom"] = "auto"
     regions: list[Region] = Field(default_factory=list, max_length=8)
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
@@ -84,8 +84,8 @@ class DeploymentConfig(BaseModel):
     vae_slicing: bool = False
     kv_cache: bool = False
     tf32: bool = False
-    cpu_threads: int = Field(default=4, ge=1, le=64)
-    load_parallelism: int = Field(default=1, ge=1, le=16)
+    cpu_threads: int = Field(default=1, ge=1, le=64)
+    load_parallelism: int = Field(default=8, ge=1, le=16)
     allowed_roots: list[str] = Field(default_factory=lambda: ["~", "/mnt"])
     state_dir: str = "~/.local/state/watermark-studio"
     backend: Literal["qwen", "mock"] = "qwen"

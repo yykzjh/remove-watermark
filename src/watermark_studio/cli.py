@@ -22,7 +22,7 @@ def main():
     parser.add_argument("input_dir")
     parser.add_argument("output_dir")
     parser.add_argument("--url", default="http://127.0.0.1:8765")
-    parser.add_argument("--concurrency", type=int, default=16)
+    parser.add_argument("--concurrency", type=int, default=32)
     parser.add_argument("--preset", choices=["auto", "gray", "blue"], default="auto")
     parser.add_argument("--resolution", type=int, default=1024)
     parser.add_argument("--detection-resolution", type=int, default=1280)

@@ -77,3 +77,28 @@ def test_batch_oom_isolation_and_original_dimensions(tmp_path, monkeypatch, spli
                 assert original.size == output.size
                 assert np.array_equal(np.asarray(original)[:,:,3], np.asarray(output)[:,:,3])
                 assert original.getpixel((0,0)) == output.getpixel((0,0))
+
+def test_preparation_failure_never_writes_partial_repair(tmp_path, monkeypatch):
+    cuda = SimpleNamespace(
+        reset_peak_memory_stats=lambda: None, synchronize=lambda: None,
+        max_memory_allocated=lambda: 0, max_memory_reserved=lambda: 0,
+    )
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=cuda))
+    calls = []
+    def dimensions(image, resolution):
+        calls.append(image.size)
+        if len(calls) == 2:
+            raise ValueError("invalid second crop")
+        return (64,64)
+    monkeypatch.setattr("watermark_studio.batching.dimensions", dimensions)
+    source, target = tmp_path/"source.png", tmp_path/"output.png"
+    Image.new("RGB",(200,150)).save(source)
+    options = ProcessingConfig(
+        preset="custom", regions=[Region(box=(.1,.1,.2,.2)),Region(box=(.7,.7,.9,.9))],
+    )
+    results = process_batch(
+        [{"source":str(source),"destination":str(target),"relative":"source.png"}],
+        options, DeploymentConfig(), object(),
+    )
+    assert not results[0]["ok"] and "invalid second crop" in results[0]["error"]
+    assert not target.exists()

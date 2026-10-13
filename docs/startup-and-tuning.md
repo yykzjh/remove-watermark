@@ -43,7 +43,7 @@ starting 仅表示进程创建，/health stage=ready 才表示所有模型加载
 | --batch-window | 默认 4，范围 1–8；每 worker 候选图片上限=batch_size×batch_window |
 | --batch-bucketing | bool，按相同推理宽高分桶；完整脚本显式启用 |
 | --oom-split-batch | bool，CUDA OOM 递归拆批；单图仍失败则报告且不写半成品 |
-| --load-parallelism | 默认 1，1–16；仅控制同时加载模型的进程数，不控制推理并发 |
+| --load-parallelism | 默认 8，1–16；仅控制同时加载模型的进程数，不控制推理并发 |
 | --dtype | bfloat16 / float16；BF16 为默认，精度变更需重新验收画面 |
 | --attention | sdpa / flex；当前固定依赖 Flex 实测编译失败，启动校验会拒绝，使用 sdpa |
 | --compile | bool，编译 transformer；首次和新形状有额外编译开销 |
@@ -53,7 +53,7 @@ starting 仅表示进程创建，/health stage=ready 才表示所有模型加载
 | --vae-slicing | bool，VAE 分片降低 batch 解码峰值；去噪仍批量执行 |
 | --kv-cache | bool，同一批去噪步骤复用前缀 KV，不跨照片共享内容 |
 | --tf32 | bool，允许符合条件的 FP32 矩阵乘使用 TF32；BF16 权重不改变 |
-| --cpu-threads | 每 worker 的 PyTorch CPU 线程，默认 4，1–64 |
+| --cpu-threads | 每 worker 的 PyTorch CPU 线程，默认 1，1–64 |
 | --allowed-roots | 允许输入/输出目录根，默认家目录和 /mnt，空格分隔 |
 | --state-dir | 任务结果、错误和参数记录，默认 ~/.local/state/watermark-studio |
 | --backend | qwen 真实模型 / mock 测试复制，默认 qwen |
@@ -98,7 +98,7 @@ API 请求还需 input_dir、output_dir，均为开发机目录，不能相同�
 
 | options 字段 | 默认与作用 |
 | --- | --- |
-| concurrency | 16，1–1024 且不超过缓冲容量；GUI 推荐 W×batch_size |
+| concurrency | 32，1–1024 且不超过缓冲容量；GUI 推荐 W×batch_size×min(2,batch_window) |
 | preset | auto；gray/blue 为固定样例模板，custom 使用 regions；常规批量用 auto |
 | regions | []，custom 必填，最多 8 个；kind=panel/logo/custom，box 为 0..1 坐标 |
 | detection_resolution | 1280，512–2048，32 倍数；检测预览长边，不改变输出大小 |
@@ -112,7 +112,7 @@ API 请求还需 input_dir、output_dir，均为开发机目录，不能相同�
 
 ```bash
 uv run --no-sync watermark-batch /home/zjh/images /home/zjh/images-clean \
-  --concurrency 16 --preset auto --remove-logo \
+  --concurrency 32 --preset auto --remove-logo \
   --detection-resolution 1280 --resolution 1024
 ```
 

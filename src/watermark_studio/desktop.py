@@ -223,7 +223,7 @@ class MainWindow(QMainWindow):
         form = QFormLayout(controls)
         self.concurrency = QSpinBox()
         self.concurrency.setRange(1, self.capacity)
-        self.concurrency.setValue(min(self.capacity, state.get("recommended_concurrency", 16)))
+        self.concurrency.setValue(min(self.capacity, state.get("recommended_concurrency", 32)))
         self.concurrency.setToolTip("全服务已领取的原图数上限，包含检测、等待凑批、推理和写入；不是 GPU 数或每卡 batch 大小。")
         form.addRow("全局在途图片数", self.concurrency)
         self.resolution = QComboBox()

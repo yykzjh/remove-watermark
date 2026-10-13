@@ -287,7 +287,7 @@ class Runtime:
                 "inflight_images": sum(len(w["task"]) for w in self.workers if w["state"] == "busy"),
                 "pending_images": len(self.pending),
                 "worker_count": self.config.worker_count,
-                "recommended_concurrency": self.config.worker_count * self.config.batch_size,
+                "recommended_concurrency": self.config.worker_count * self.config.batch_size * min(2, self.config.batch_window),
                 "batch_size": self.config.batch_size,
                 "batch_window": self.config.batch_window,
                 "model": self.config.model,

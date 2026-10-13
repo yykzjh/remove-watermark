@@ -72,7 +72,7 @@ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
 命令行：
 ```bash
 uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
-  --concurrency 16 --remove-logo --preset auto --resolution 1024
+  --concurrency 32 --remove-logo --preset auto --resolution 1024
 ```
 
 每次任务在 ~/.local/state/watermark-studio/<job-id>/ 记录 summary.json、results.jsonl 和 invalid.json。summary 包含模型 revision、参数、计数与时间。进程重启后不自动恢复队列；使用同一目录且不勾选覆盖重新提交，已成功输出会跳过。
@@ -85,7 +85,7 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 | --- | --- |
 | gpus | 物理 GPU 编号列表；每张卡独立处理图像，实现数据并行 |
 | replicas_per_gpu | 每卡完整模型副本数；默认 1，增加会成倍占显存 |
-| load_parallelism | 同时加载的副本数；默认 1，限制 CPU 内存与磁盘峰值 |
+| load_parallelism | 同时加载的副本数；本机实测采用 8，限制 CPU 内存与磁盘峰值 |
 | attention | sdpa 或 flex；flex 必须配合 compile |
 | compile / compile_mode | 编译 transformer；第一张和新形状可能重新编译 |
 | kv_cache | 重用当前图像各去噪步的前缀 KV；不是跨图片复用 |
@@ -96,7 +96,7 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 | allowed_roots | 桌面可访问的目录根，默认用户家目录与 /mnt |
 
 默认启用全部 8 张 GPU，每卡一个模型。独立图片由适配层分别编码，再按相同推理尺寸动态凑批；
-不会把不同照片误当作共享参考图。concurrency 表示全局在途原图数，推荐 16 起测，
+不会把不同照片误当作共享参考图。concurrency 表示全局在途原图数，本机推荐 32，
 单卡 batch_size 默认 2。OOM 拆批、候选窗口和尺寸分桶详见完整指南。
 当前未接入 TP/Ulysses/Ring 等单图计算并行。Flex 在当前固定版本实测编译失败，
 不能作为生产启动方案；SDPA 编译的速度、显存与动态形状代价见实测记录。
