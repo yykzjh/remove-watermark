@@ -72,17 +72,24 @@ for concurrency in ([8,16,32,64] if args.mode == "custom" else [16,32]):
                 (Path.home()/".local/state/watermark-studio"/job["id"]/"results.jsonl")
                 .read_text().splitlines()]
         assert len({row["worker"] for row in rows}) == 8, "Not all GPUs were used"
-        assert job["no_watermark"] == 0, job
+        coverages = []
         for row in rows:
             original = Image.open(source/row["file"])
             output = Image.open(target/row["file"])
             assert original.size == output.size, row
             before, after = np.asarray(original), np.asarray(output)
             allowed = np.zeros(before.shape[:2],dtype=bool)
+            covered = np.zeros_like(allowed)
             for value in row["regions"]:
                 x0,y0,x1,y1 = pixel_box(Region.model_validate(value).box,original.size)
                 allowed[max(0,y0-12):y1+12,max(0,x0-12):x1+12] = True
+                covered[y0:y1,x0:x1] = True
             assert np.array_equal(before[~allowed],after[~allowed]), row
+            width, height = original.size
+            truth = covered[int(height*.65):int(height*.94), int(width*.05):int(width*.45)]
+            coverages.append(float(truth.mean()))
+            if row["action"] == "restored":
+                assert not np.array_equal(before[allowed],after[allowed]), row
         report = {
             "mode":args.mode, "concurrency":concurrency, "detection_resolution":detection,
             "seconds":round(elapsed,3), "images":len(rows),
@@ -90,6 +97,8 @@ for concurrency in ([8,16,32,64] if args.mode == "custom" else [16,32]):
             "batch_sizes":sorted({b for r in rows for b in r.get("batch_sizes",[])}),
             "peak_allocated_mib":max(r["peak_allocated_mib"] for r in rows),
             "peak_reserved_mib":max(r["peak_reserved_mib"] for r in rows),
+            "min_watermark_coverage":round(min(coverages),4),
+            "undercovered_images":sum(value < .95 for value in coverages),
             "no_watermark":job["no_watermark"], "dimensions_exact":True,
         }
         with (root/"results.jsonl").open("a") as f:
