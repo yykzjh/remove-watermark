@@ -160,7 +160,7 @@ uv run --no-sync python scripts/check-health.py --url http://127.0.0.1:8877
 ```bash
 uv run --no-sync watermark-studio --ssh-host cdu_dev --remote-port 8877 --port 8877
 ```
-先在开发机用指定参数启动服务；桌面客户端只连接该服务，不负责修改已启动实例的部署参数。
+先在开发机用指定参数启动服务；桌面客户端只连接该服务，不负责修改已启动实例的部署参数。修改 GPU 数或每卡副本数后，重新打开桌面客户端，以刷新并发数上限。
 
 ## 4. 每批图像的全部处理参数
 
@@ -184,7 +184,7 @@ uv run --no-sync watermark-studio --ssh-host cdu_dev --remote-port 8877 --port 8
 
 ```bash
 # 在开发机编辑示例中的输入/输出路径，再提交小型 JSON 请求
-curl --fail-with-body -H 'Content-Type: application/json' \
+curl --fail -H 'Content-Type: application/json' \
   --data-binary @config/job.example.json http://127.0.0.1:8765/jobs
 
 # 常用参数也可由批处理命令指定
