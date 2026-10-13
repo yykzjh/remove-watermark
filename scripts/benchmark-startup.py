@@ -1,4 +1,5 @@
 """Compare startup load parallelism; only run with an idle stopped service."""
+import argparse
 import json
 import subprocess
 import time
@@ -6,6 +7,9 @@ from pathlib import Path
 
 from watermark_studio.cli import request
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--parallelism", nargs="+", type=int, default=[1,2,4,8])
+args = parser.parse_args()
 root = Path(".run/tuning")
 root.mkdir(parents=True, exist_ok=True)
 try:
@@ -14,7 +18,7 @@ except OSError:
     existing = None
 if existing:
     raise SystemExit("Stop the existing service after its jobs finish before measuring startup")
-for parallel in (1, 2):
+for parallel in args.parallelism:
     start = time.monotonic()
     subprocess.run(["bash", "scripts/launch-server.sh", "--load-parallelism", str(parallel)],
                    check=True)
@@ -37,5 +41,5 @@ for parallel in (1, 2):
     with (root/"startup.jsonl").open("a") as stream:
         stream.write(json.dumps(report)+"\n")
     print(json.dumps(report),flush=True)
-    if parallel == 1:
+    if parallel != args.parallelism[-1]:
         subprocess.run(["bash","scripts/stop-server.sh"],check=True)

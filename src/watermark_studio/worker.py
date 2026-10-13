@@ -71,6 +71,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         import torch
         torch.cuda.reset_peak_memory_stats()
     for task in tasks:
+        state = None
         try:
             source, exif, icc, alpha = load_photo(task["source"])
             detection_start = time.monotonic()
@@ -109,6 +110,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     "size": dimensions(reference, options.resolution),
                 })
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
+            if state is not None:
+                state["failed"] = f"{type(error).__name__}: {error}"[:800]
             results[task["relative"]] = {
                 "file": task["relative"], "ok": False,
                 "error": f"{type(error).__name__}: {error}"[:800],
@@ -118,6 +121,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     # Disable bucketing => adjacent compatible edits only; never mix different layouts.
     run, previous = 0, None
     for edit in edits:
+        if edit["state"]["failed"]:
+            continue
         if edit["size"] != previous:
             run += 1
         previous = edit["size"]

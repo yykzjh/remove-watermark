@@ -40,7 +40,7 @@ base.save(source/"unmarked.png")
 url = "http://127.0.0.1:8765"
 response = request(url, "/jobs", {
     "input_dir": str(source), "output_dir": str(target),
-    "options": {"preset": "auto", "concurrency": 7, "resolution": 768, "overwrite": True},
+    "options": {"preset": "auto", "concurrency": 16, "remove_logo": True, "resolution": 768, "overwrite": True},
 })
 start = time.monotonic()
 while time.monotonic()-start < 600:
@@ -52,7 +52,7 @@ while time.monotonic()-start < 600:
             (Path.home()/".local/state/watermark-studio"/job["id"]/"results.jsonl")
             .read_text().splitlines()
         ]
-        assert len({r["worker"] for r in results}) == 7, results
+        assert len({r["worker"] for r in results}) == 8, results
         for result in results:
             name = result["file"]
             if name == "unmarked.png":
