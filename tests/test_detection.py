@@ -11,7 +11,7 @@ from watermark_studio.worker import process_image
 
 def test_detection_schema_padding_and_invalid_results():
     boxes = parse_detection('{"watermarks":[{"kind":"logo","box":[800,0,1000,100]}]}')
-    assert boxes[0].box == (0.792, 0, 1, 0.10800000000000001)
+    assert boxes[0].box == pytest.approx((0.792, 0, 1, 0.108))
     assert parse_detection('{"watermarks":[]}') == []
     for box in [[900, 100, 100, 200], [0, 0, 1001, 10], [0, 0, 1000, 1000]]:
         with pytest.raises(ValueError):
@@ -31,3 +31,13 @@ def test_no_detection_copies_original_bytes_without_claiming_restoration(tmp_pat
     )
     assert result["action"] == "no_watermark_detected"
     assert source.read_bytes() == target.read_bytes()
+
+def test_overlapping_detection_groups_are_merged():
+    regions = parse_detection(json.dumps({"watermarks": [
+        {"kind": "panel", "box": [100, 100, 300, 300]},
+        {"kind": "logo", "box": [200, 200, 400, 400]},
+        {"kind": "logo", "box": [350, 350, 500, 500]},
+    ]}), padding=0)
+    assert len(regions) == 1
+    assert regions[0].kind == "panel"
+    assert regions[0].box == (0.1, 0.1, 0.5, 0.5)

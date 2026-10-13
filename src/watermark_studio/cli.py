@@ -25,6 +25,7 @@ def main():
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--preset", choices=["auto", "gray", "blue"], default="auto")
     parser.add_argument("--resolution", type=int, default=1024)
+    parser.add_argument("--detection-resolution", type=int, default=1280)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     request(
@@ -37,6 +38,7 @@ def main():
                 "concurrency": args.concurrency,
                 "preset": args.preset,
                 "resolution": args.resolution,
+                "detection_resolution": args.detection_resolution,
                 "overwrite": args.overwrite,
             },
         },
@@ -48,7 +50,8 @@ def main():
         if update != previous:
             print(
                 f"{job['state']}: {job['completed']}/{job['total']}; "
-                f"success={job['succeeded']}, failed={job['failed']}",
+                f"success={job['succeeded']}, no_watermark={job.get('no_watermark', 0)}, "
+                f"failed={job['failed']}",
                 flush=True,
             )
             previous = update

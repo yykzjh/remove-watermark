@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from watermark_studio.cli import request
 from watermark_studio.config import Region
@@ -23,6 +23,15 @@ for name, position in [("upper_right", (420, 12)), ("center", (210, 230))]:
     image.save(source/f"{name}.png")
     x, y = position
     truth[f"{name}.png"] = (x, y, x+336, y+141)
+multiple = base.copy()
+multiple.paste(panel, (12, 12))
+draw = ImageDraw.Draw(multiple)
+font = ImageFont.load_default(size=18)
+draw.text((530, 500), "TODAY WATERMARK", fill="white", font=font)
+draw.text((530, 525), "CAMERA TRUE TIME", fill="white", font=font)
+draw.text((530, 550), "CODE A123456", fill="white", font=font)
+multiple.save(source/"multiple.png")
+truth["multiple.png"] = (12, 12, 348, 153)
 base.save(source/"unmarked.png")
 url = "http://127.0.0.1:8765"
 response = request(url, "/jobs", {
@@ -33,7 +42,7 @@ start = time.monotonic()
 while time.monotonic()-start < 600:
     job = request(url, "/health")["job"]
     if job["state"] in {"completed", "failed", "cancelled"}:
-        assert job["succeeded"] == 3, job
+        assert job["succeeded"] == 4, job
         results = [
             json.loads(line) for line in
             (Path.home()/".local/state/watermark-studio"/job["id"]/"results.jsonl")
@@ -46,6 +55,9 @@ while time.monotonic()-start < 600:
                 assert (source/name).read_bytes() == (target/name).read_bytes()
                 continue
             assert result["action"] == "restored", result
+            if name == "multiple.png":
+                assert len(result["regions"]) == 2, result
+                assert any(r["kind"] == "logo" for r in result["regions"]), result
             original = np.asarray(Image.open(source/name))
             output = np.asarray(Image.open(target/name))
             allowed = np.zeros(original.shape[:2], dtype=bool)

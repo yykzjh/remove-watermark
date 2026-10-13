@@ -48,24 +48,32 @@ def parse_detection(text: str, padding: float = 0.008) -> list[Region]:
             min(1, x1+padding), min(1, y1+padding),
         )))
     # Merge overlapping detections so a later repair cannot restore an earlier overlay.
-    merged = []
-    while regions:
-        region = regions.pop(0)
-        x0, y0, x1, y1 = region.box
-        for index, other in enumerate(regions):
-            a0, b0, a1, b1 = other.box
-            if max(x0, a0) < min(x1, a1) and max(y0, b0) < min(y1, b1):
-                regions.pop(index)
-                regions.insert(0, Region(
-                    kind="panel" if "panel" in {region.kind, other.kind} else "logo",
-                    box=(min(x0, a0), min(y0, b0), max(x1, a1), max(y1, b1)),
-                ))
+    while True:
+        pair = None
+        for i, first in enumerate(regions):
+            for j in range(i + 1, len(regions)):
+                x0, y0, x1, y1 = first.box
+                a0, b0, a1, b1 = regions[j].box
+                if max(x0, a0) < min(x1, a1) and max(y0, b0) < min(y1, b1):
+                    pair = (i, j)
+                    break
+            if pair:
                 break
-        else:
-            if (x1-x0)*(y1-y0) > 0.8:
-                raise ValueError("合并后的检测范围过大，已避免整图重绘")
-            merged.append(region)
-    return merged
+        if pair is None:
+            break
+        i, j = pair
+        first, other = regions[i], regions.pop(j)
+        x0, y0, x1, y1 = first.box
+        a0, b0, a1, b1 = other.box
+        regions[i] = Region(
+            kind="panel" if "panel" in {first.kind, other.kind} else "logo",
+            box=(min(x0, a0), min(y0, b0), max(x1, a1), max(y1, b1)),
+        )
+    for region in regions:
+        x0, y0, x1, y1 = region.box
+        if (x1-x0)*(y1-y0) > 0.8:
+            raise ValueError("合并后的检测范围过大，已避免整图重绘")
+    return regions
 
 
 def locate_watermarks(image, encoder, processor, device, resolution=1280):
