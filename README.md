@@ -17,7 +17,7 @@ mkdir -p ~/project/inference
 cd ~/project/inference
 git clone https://github.com/yykzjh/remove-watermark.git
 cd remove-watermark
-uv sync --frozen --extra server --no-dev
+UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --no-dev
 bash scripts/start-server.sh
 uv run --no-sync python scripts/check-health.py
 ```
@@ -48,7 +48,9 @@ uv run --no-sync watermark-studio --ssh-host cdu_dev
 
 GUI 需要 Linux Qt 系统库；Ubuntu 常用依赖：
 ```bash
-sudo apt-get install libegl1 libgl1 libxkbcommon0 libxcb-cursor0 libxcb-xinerama0 fonts-noto-cjk
+sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
+  libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
+  libxcb-shape0 libxcb-xkb1 fonts-noto-cjk
 ```
 
 ## 批处理
@@ -108,6 +110,6 @@ uv run --no-sync pytest
 uv run --no-sync ruff check src tests
 ```
 
-代码更新统一使用本地 git commit、git push，随后开发机在 ~/project/inference/remove-watermark 执行 git pull --ff-only，再 uv sync --frozen --extra server --no-dev 并重启服务。不得通过 SSH 传输源码包或图像大数据。
+代码更新统一使用本地 git commit、git push，随后开发机在 ~/project/inference/remove-watermark 执行 git pull --ff-only，再 UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --no-dev 并重启服务。不得通过 SSH 传输源码包或图像大数据。
 
 测试使用明确标记的 mock 后端，它只复制图像来验证队列、目录、UI 和错误处理，不代表模型推理效果。
