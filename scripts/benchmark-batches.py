@@ -6,8 +6,9 @@ import time
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--compile-mode", choices=["default","reduce-overhead","max-autotune"], default="default")
 parser.add_argument("--gpu", type=int, default=0)
-parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized", "flex", "precision"], default="base")
+parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized", "flex", "precision", "compile-single", "sequential"], default="base")
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 import numpy as np
@@ -112,10 +113,12 @@ if args.profile in {"base", "optimized"}:
     run("tf32")
     for resolution in (768,1280):
         run(f"b2-{resolution}", resolution=resolution)
-elif args.profile in {"compile", "flex"}:
-    if args.profile == "compile":
-        pipe.transformer.compile(mode="default")
-        run("compile-sdpa", repeats=2)
+elif args.profile in {"compile", "flex", "compile-single"}:
+    if args.profile in {"compile", "compile-single"}:
+        pipe.transformer.compile(mode=args.compile_mode)
+        run("compile-sdpa-" + args.compile_mode, batch=1 if args.profile == "compile-single" else 2, repeats=2)
+    if args.profile == "compile-single":
+        raise SystemExit(0)
     pipe.transformer._compiled_call_impl = None
     torch._dynamo.reset()
     from diffusers.models.transformers.transformer_qwenimage21 import QwenImage21FlexAttnProcessor
@@ -125,6 +128,11 @@ elif args.profile in {"compile", "flex"}:
 elif args.profile == "precision":
     pipe.to(dtype=torch.float16)
     run("float16", repeats=2)
+elif args.profile == "sequential":
+    pipe.to("cpu")
+    torch.cuda.empty_cache()
+    pipe.enable_sequential_cpu_offload(gpu_id=0)
+    run("sequential-offload", repeats=1)
 else:
     pipe.enable_model_cpu_offload(gpu_id=0)
     run("model-offload", repeats=2)
