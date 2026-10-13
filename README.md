@@ -72,14 +72,14 @@ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
 命令行：
 ```bash
 uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
-  --concurrency 7 --preset auto --resolution 1024
+  --concurrency 16 --remove-logo --preset auto --resolution 1024
 ```
 
 每次任务在 ~/.local/state/watermark-studio/<job-id>/ 记录 summary.json、results.jsonl 和 invalid.json。summary 包含模型 revision、参数、计数与时间。进程重启后不自动恢复队列；使用同一目录且不勾选覆盖重新提交，已成功输出会跳过。
 
 ## 模型部署与吞吐参数
 
-编辑 config/deployment.toml 后重启服务。默认使用 GPU 0–7，BF16，每卡一个完整副本，CFG=1，官方 Turbo 8 步调度，启用 KV cache、VAE tiling/slicing 和 TF32。
+非布尔值可修改 TOML，bool 必须在启动命令显式传入。完整 launch-server.sh 使用 GPU 0–7，BF16，每卡一个完整副本，CFG=1，官方 Turbo 8 步调度，启用 KV cache、VAE tiling/slicing 和 TF32。
 
 | 参数 | 作用与限制 |
 | --- | --- |
@@ -95,13 +95,17 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 | cpu_threads | 每个工作进程的 PyTorch CPU 线程数 |
 | allowed_roots | 桌面可访问的目录根，默认用户家目录与 /mnt |
 
-默认 config/deployment.toml 已启用 GPU 0–7 的七副本数据并行，GUI 默认并发为 7。GPU 0 保留给已有进程。config/deployment-throughput.toml 为可选的 flex/compile 配置，编译方案尚未完成实测，首次编译会增加等待时间。并发数受已部署副本数限制。官方 Diffusers 的 image 列表代表多参考输入，因此本项目不会把不同图片误传为一个图像批次。此实现通过独立 GPU 进程与动态任务队列实现数据并行，一张图的检测及所有修复区域由同一副本处理。Diffusers 也提供模型分片等多卡机制；对于本机单卡能容纳的模型，多副本更适合独立图片的吞吐目标。此项目尚未接入 TP/Ulysses/Ring 等单图计算并行。
+默认启用全部 8 张 GPU，每卡一个模型。独立图片由适配层分别编码，再按相同推理尺寸动态凑批；
+不会把不同照片误当作共享参考图。concurrency 表示全局在途原图数，推荐 16 起测，
+单卡 batch_size 默认 2。OOM 拆批、候选窗口和尺寸分桶详见完整指南。
+当前未接入 TP/Ulysses/Ring 等单图计算并行。Flex 在当前固定版本实测编译失败，
+不能作为生产启动方案；SDPA 编译的速度、显存与动态形状代价见实测记录。
 
 服务默认沿用 checkpoint 中的 8 步 sample_sigmas。没有提供会被该调度忽略的 num_inference_steps 滑块，也不默认打开 CFG 或额外负向提示词。
 
 ```bash
 bash scripts/stop-server.sh
-bash scripts/launch-server.sh --attention flex --compile
+bash scripts/launch-server.sh
 ```
 
 ## 质量与提示词

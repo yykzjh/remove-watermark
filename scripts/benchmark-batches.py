@@ -8,7 +8,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("--compile-mode", choices=["default","reduce-overhead","max-autotune"], default="default")
 parser.add_argument("--gpu", type=int, default=0)
-parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized", "flex", "precision", "compile-single", "sequential"], default="base")
+parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized", "flex", "precision", "compile-single", "sequential", "vae", "tf32", "resolutions", "threads"], default="base")
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 import numpy as np
@@ -125,6 +125,20 @@ elif args.profile in {"compile", "flex", "compile-single"}:
     pipe.transformer.set_attn_processor(QwenImage21FlexAttnProcessor())
     pipe.transformer.compile(mode="default")
     run("compile-flex", repeats=2)
+elif args.profile == "vae":
+    pipe.vae.disable_tiling()
+    run("no-vae-tiling")
+    pipe.vae.disable_slicing()
+    run("no-vae-slicing-tiling")
+elif args.profile == "tf32":
+    torch.backends.cuda.matmul.allow_tf32 = True
+    run("tf32")
+elif args.profile == "resolutions":
+    for resolution in (768,1280):
+        run(f"b2-{resolution}", resolution=resolution)
+elif args.profile == "threads":
+    torch.set_num_threads(8)
+    run("threads-8")
 elif args.profile == "precision":
     pipe.to(dtype=torch.float16)
     run("float16", repeats=2)

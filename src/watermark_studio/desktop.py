@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
         self.concurrency = QSpinBox()
         self.concurrency.setRange(1, self.capacity)
         self.concurrency.setValue(min(self.capacity, state.get("recommended_concurrency", 16)))
+        self.concurrency.setToolTip("全服务已领取的原图数上限，包含检测、等待凑批、推理和写入；不是 GPU 数或每卡 batch 大小。")
         form.addRow("全局在途图片数", self.concurrency)
         self.resolution = QComboBox()
         for size in [512, 768, 1024, 1280, 1536, 2048]:
@@ -378,7 +379,7 @@ class MainWindow(QMainWindow):
             "scanning": "扫描目录",
             "running": "处理中",
             "paused": "已暂停",
-            "cancelling": "等待当前图片完成后取消",
+            "cancelling": "等待当前凑批窗口完成后取消",
             "cancelled": "已取消",
             "completed": "处理结束",
             "failed": "失败",
@@ -390,7 +391,8 @@ class MainWindow(QMainWindow):
         self.metrics.setText(
             f"{names.get(self.job_state, self.job_state)}  ·  {job['completed']}/{total}  "
             f"成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
-            f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}"
+            f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}  "
+            f"在途 {state.get('inflight_images', 0)}"
         )
         self.current.setText(job.get("current", ""))
         self.errors.setPlainText(
@@ -444,7 +446,12 @@ def main():
         remote = (
             '"$HOME"/' + shlex.quote(remote[2:]) if remote.startswith("~/") else shlex.quote(remote)
         )
-        command = f"cd {remote} && bash scripts/start-server.sh {shlex.quote(args.config)}"
+        command = (
+            f"cd {remote} && (.venv/bin/python scripts/check-health.py "
+            f"--url http://127.0.0.1:{args.remote_port} >/dev/null 2>&1 || "
+            f"bash scripts/launch-server.sh --config {shlex.quote(args.config)} "
+            f"--port {args.remote_port})"
+        )
         processes.append(
             subprocess.Popen(
                 ["ssh", "-o", "BatchMode=yes", args.ssh_host, command], stdout=log, stderr=log
