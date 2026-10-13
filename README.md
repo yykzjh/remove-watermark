@@ -62,7 +62,7 @@ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
 命令行：
 ```bash
 uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
-  --concurrency 1 --preset auto --resolution 1024
+  --concurrency 7 --preset auto --resolution 1024
 ```
 
 每次任务在 ~/.local/state/watermark-studio/<job-id>/ 记录 summary.json、results.jsonl 和 invalid.json。summary 包含模型 revision、参数、计数与时间。进程重启后不自动恢复队列；使用同一目录且不勾选覆盖重新提交，已成功输出会跳过。
@@ -113,3 +113,5 @@ uv run --no-sync ruff check src tests
 代码更新统一使用本地 git commit、git push，随后开发机在 ~/project/inference/remove-watermark 执行 git pull --ff-only，再 UV_HTTP_TIMEOUT=600 uv sync --frozen --extra server --no-dev 并重启服务。不得通过 SSH 传输源码包或图像大数据。
 
 测试使用明确标记的 mock 后端，它只复制图像来验证队列、目录、UI 和错误处理，不代表模型推理效果。
+
+部署实测、七卡并发验收及当前限制见 [docs/deployment-validation.md](docs/deployment-validation.md)。
