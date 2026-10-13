@@ -1,0 +1,1903 @@
+{
+  "date": "2026-10-14",
+  "hardware": "8 x NVIDIA L40 46068 MiB; GPU0 has an unrelated ~1.1 GiB process",
+  "software": {
+    "torch": "2.14.1+cu130",
+    "diffusers": "916a5791ed5f29d966200d2eee53f06862ec4434",
+    "transformers": "5.19.0",
+    "torchao": "0.18.0"
+  },
+  "workload": {
+    "source_photos": 2,
+    "mixed_fixtures": 8,
+    "model_input_budget": 1024,
+    "denoising_steps": 8,
+    "output": "original dimensions",
+    "repeated_inputs": true,
+    "cold": "new process first call; existing disk compilation cache retained",
+    "oom_retries": "maximum per-window value, not a sum of duplicated row metrics"
+  },
+  "micro": [
+    {
+      "label": "stock-b1",
+      "gpu": 0,
+      "batch": 1,
+      "resolution": 1024,
+      "error": "AssertionError: None mismatch: tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,\n         1, 1, 1, 1, 1, 1, 1"
+    },
+    {
+      "label": "stock-b2",
+      "gpu": 0,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.483,
+      "hot_s": [
+        17.538,
+        17.897
+      ],
+      "images_per_s": 0.1129,
+      "allocated_mib": 38324
+    },
+    {
+      "label": "lean-serial-b1",
+      "gpu": 0,
+      "batch": 1,
+      "resolution": 1024,
+      "cold_s": 8.791,
+      "hot_s": [
+        8.826,
+        8.961
+      ],
+      "images_per_s": 0.1124,
+      "allocated_mib": 34658
+    },
+    {
+      "label": "lean-serial-b2",
+      "gpu": 0,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.976,
+      "hot_s": [
+        18.228,
+        18.353
+      ],
+      "images_per_s": 0.1093,
+      "allocated_mib": 38324
+    },
+    {
+      "label": "lean-batched-b2",
+      "gpu": 0,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 18.297,
+      "hot_s": [
+        18.292,
+        18.252
+      ],
+      "images_per_s": 0.1095,
+      "allocated_mib": 38324
+    },
+    {
+      "label": "lean-batched-b4",
+      "gpu": 0,
+      "batch": 4,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 834.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 769.19 MiB is free. Pro"
+    },
+    {
+      "label": "stock-b1",
+      "gpu": 0,
+      "batch": 1,
+      "resolution": 1024,
+      "cold_s": 8.649,
+      "hot_s": [
+        8.601,
+        8.68
+      ],
+      "images_per_s": 0.1157,
+      "allocated_mib": 34639
+    },
+    {
+      "label": "tile256",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.854,
+      "hot_s": [
+        17.382,
+        17.591
+      ],
+      "images_per_s": 0.1144,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "tile384",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.595,
+      "hot_s": [
+        17.638,
+        17.95
+      ],
+      "images_per_s": 0.1124,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "tile512",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.719,
+      "hot_s": [
+        17.925,
+        17.976
+      ],
+      "images_per_s": 0.1114,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "tile768",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.466,
+      "hot_s": [
+        17.504,
+        17.625
+      ],
+      "images_per_s": 0.1139,
+      "allocated_mib": 39579
+    },
+    {
+      "label": "no-tiling-b2",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 584.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 289.88 MiB is free. Inc"
+    },
+    {
+      "label": "no-tiling-b1",
+      "gpu": 1,
+      "batch": 1,
+      "resolution": 1024,
+      "cold_s": 8.38,
+      "hot_s": [
+        8.403,
+        8.394
+      ],
+      "images_per_s": 0.1191,
+      "allocated_mib": 40177
+    },
+    {
+      "label": "fp8-compiled-b1",
+      "gpu": 2,
+      "batch": 1,
+      "resolution": 1024,
+      "cold_s": 624.749,
+      "hot_s": [
+        5.712,
+        5.676
+      ],
+      "images_per_s": 0.1756,
+      "allocated_mib": 29730
+    },
+    {
+      "label": "fp8-projections",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 56.938,
+      "hot_s": [
+        12.624,
+        12.716
+      ],
+      "images_per_s": 0.1579,
+      "allocated_mib": 31425
+    },
+    {
+      "label": "fp8-projections-dynamic",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 33.433,
+      "hot_s": [
+        12.974,
+        13.093
+      ],
+      "images_per_s": 0.1534,
+      "allocated_mib": 31425
+    },
+    {
+      "label": "batch1",
+      "gpu": 2,
+      "batch": 1,
+      "resolution": 1024,
+      "cold_s": 9.082,
+      "hot_s": [
+        8.457,
+        8.476
+      ],
+      "images_per_s": 0.1181,
+      "allocated_mib": 34641
+    },
+    {
+      "label": "batch2",
+      "gpu": 2,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.38,
+      "hot_s": [
+        17.44,
+        17.595
+      ],
+      "images_per_s": 0.1142,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "batch3",
+      "gpu": 2,
+      "batch": 3,
+      "resolution": 1024,
+      "cold_s": 26.922,
+      "hot_s": [
+        27.075,
+        27.414
+      ],
+      "images_per_s": 0.1101,
+      "allocated_mib": 41978
+    },
+    {
+      "label": "batch4",
+      "gpu": 2,
+      "batch": 4,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 834.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 701.88 MiB is free. Inc"
+    },
+    {
+      "label": "batch6",
+      "gpu": 2,
+      "batch": 6,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 1.22 GiB. GPU 0 has a total capacity of 44.39 GiB of which 77.88 MiB is free. Includ"
+    },
+    {
+      "label": "batch8",
+      "gpu": 2,
+      "batch": 8,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 1.63 GiB. GPU 0 has a total capacity of 44.39 GiB of which 933.88 MiB is free. Inclu"
+    },
+    {
+      "label": "unfused",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.791,
+      "hot_s": [
+        16.886,
+        17.295
+      ],
+      "images_per_s": 0.117,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "fused-b2",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.598,
+      "hot_s": [
+        17.808,
+        17.992
+      ],
+      "images_per_s": 0.1117,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "fused-b3",
+      "gpu": 3,
+      "batch": 3,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 626.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 443.81 MiB is free. Inc"
+    },
+    {
+      "label": "fused-b4",
+      "gpu": 3,
+      "batch": 4,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 834.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 347.81 MiB is free. Inc"
+    },
+    {
+      "label": "compile-full",
+      "gpu": 4,
+      "batch": 2,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 418.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 411.81 MiB is free. Inc"
+    },
+    {
+      "label": "compile-blocks",
+      "gpu": 4,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 21.709,
+      "hot_s": [
+        16.174,
+        16.181
+      ],
+      "images_per_s": 0.1236,
+      "allocated_mib": 37347
+    },
+    {
+      "label": "compile-blocks-dynamic",
+      "gpu": 4,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 41.462,
+      "hot_s": [
+        16.128,
+        16.083
+      ],
+      "images_per_s": 0.1242,
+      "allocated_mib": 37199
+    },
+    {
+      "label": "compile-blocks-autotune",
+      "gpu": 4,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 147.66,
+      "hot_s": [
+        15.592,
+        15.719
+      ],
+      "images_per_s": 0.1278,
+      "allocated_mib": 37199
+    },
+    {
+      "label": "fp8-b2",
+      "gpu": 5,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 16.862,
+      "hot_s": [
+        16.354,
+        16.292
+      ],
+      "images_per_s": 0.1225,
+      "allocated_mib": 33526
+    },
+    {
+      "label": "int8-b2",
+      "gpu": 5,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 18.424,
+      "hot_s": [
+        18.335,
+        18.723
+      ],
+      "images_per_s": 0.1079,
+      "allocated_mib": 31654
+    },
+    {
+      "label": "fp8-b4",
+      "gpu": 5,
+      "batch": 4,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 418.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 329.81 MiB is free. Inc"
+    },
+    {
+      "label": "fp8-compile",
+      "gpu": 5,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 338.581,
+      "hot_s": [
+        11.604,
+        11.77
+      ],
+      "images_per_s": 0.1711,
+      "allocated_mib": 30606
+    },
+    {
+      "label": "resolution512",
+      "gpu": 6,
+      "batch": 2,
+      "resolution": 512,
+      "cold_s": 5.476,
+      "hot_s": [
+        4.499,
+        4.471
+      ],
+      "images_per_s": 0.4459,
+      "allocated_mib": 33568
+    },
+    {
+      "label": "resolution768",
+      "gpu": 6,
+      "batch": 2,
+      "resolution": 768,
+      "cold_s": 9.859,
+      "hot_s": [
+        9.872,
+        9.961
+      ],
+      "images_per_s": 0.2017,
+      "allocated_mib": 35477
+    },
+    {
+      "label": "resolution1024",
+      "gpu": 6,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.79,
+      "hot_s": [
+        18.052,
+        18.286
+      ],
+      "images_per_s": 0.1101,
+      "allocated_mib": 38310
+    },
+    {
+      "label": "resolution1280",
+      "gpu": 6,
+      "batch": 2,
+      "resolution": 1280,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 632.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 455.81 MiB is free. Inc"
+    },
+    {
+      "label": "resolution1536",
+      "gpu": 6,
+      "batch": 2,
+      "resolution": 1536,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 896.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 871.81 MiB is free. Inc"
+    },
+    {
+      "label": "resolution2048",
+      "gpu": 6,
+      "batch": 2,
+      "resolution": 2048,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 1.52 GiB. GPU 0 has a total capacity of 44.39 GiB of which 847.81 MiB is free. Inclu"
+    },
+    {
+      "label": "threads1",
+      "gpu": 7,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.797,
+      "hot_s": [
+        17.292,
+        17.587
+      ],
+      "images_per_s": 0.1147,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "threads2",
+      "gpu": 7,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.582,
+      "hot_s": [
+        17.966,
+        18.028
+      ],
+      "images_per_s": 0.1111,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "threads4",
+      "gpu": 7,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 18.263,
+      "hot_s": [
+        18.098,
+        18.201
+      ],
+      "images_per_s": 0.1102,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "threads8",
+      "gpu": 7,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.895,
+      "hot_s": [
+        17.877,
+        17.934
+      ],
+      "images_per_s": 0.1117,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "tile384-stride320",
+      "gpu": 7,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.262,
+      "hot_s": [
+        17.198,
+        17.43
+      ],
+      "images_per_s": 0.1155,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "no-slicing",
+      "gpu": 7,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.51,
+      "hot_s": [
+        17.969,
+        18.235
+      ],
+      "images_per_s": 0.1105,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "kernel-native",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.212,
+      "hot_s": [
+        16.796,
+        17.01
+      ],
+      "images_per_s": 0.1183,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "kernel-native_flash",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 17.144,
+      "hot_s": [
+        17.5,
+        17.697
+      ],
+      "images_per_s": 0.1136,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "kernel-native_cudnn",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 18.352,
+      "hot_s": [
+        18.162,
+        18.133
+      ],
+      "images_per_s": 0.1102,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "kernel-native_efficient",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 18.871,
+      "hot_s": [
+        19.118,
+        18.881
+      ],
+      "images_per_s": 0.1053,
+      "allocated_mib": 38309
+    },
+    {
+      "label": "kernel-flash_hub",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "error": "TypeError: 'NoneType' object is not callable"
+    },
+    {
+      "label": "kernel-sage_hub",
+      "gpu": 3,
+      "batch": 2,
+      "resolution": 1024,
+      "error": "TypeError: 'NoneType' object is not callable"
+    },
+    {
+      "label": "kernel-sage_hub",
+      "gpu": 4,
+      "batch": 2,
+      "resolution": 1024,
+      "error": "ConnectError: [Errno 101] Network is unreachable"
+    },
+    {
+      "label": "allocator-b4",
+      "gpu": 1,
+      "batch": 4,
+      "resolution": 1024,
+      "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 834.00 MiB. GPU 0 has a total capacity of 44.39 GiB of which 589.88 MiB is free. Inc"
+    },
+    {
+      "label": "allocator-compile-full",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "cold_s": 34.519,
+      "hot_s": [
+        15.677,
+        15.938
+      ],
+      "images_per_s": 0.1265,
+      "allocated_mib": 42029
+    },
+    {
+      "label": "allocator-fp8-b4",
+      "gpu": 1,
+      "batch": 4,
+      "resolution": 1024,
+      "cold_s": 35.442,
+      "hot_s": [
+        35.675,
+        35.699
+      ],
+      "images_per_s": 0.1121,
+      "allocated_mib": 42715
+    },
+    {
+      "label": "allocator-compile-b1",
+      "gpu": 1,
+      "batch": 1,
+      "resolution": 1024,
+      "cold_s": 408.497,
+      "hot_s": [
+        7.896,
+        7.907
+      ],
+      "images_per_s": 0.1266,
+      "allocated_mib": 36386
+    },
+    {
+      "label": "allocator-compile-b3",
+      "gpu": 1,
+      "batch": 3,
+      "resolution": 1024,
+      "cold_s": 217.633,
+      "hot_s": [
+        24.199,
+        24.465
+      ],
+      "images_per_s": 0.1233,
+      "allocated_mib": 40291
+    }
+  ],
+  "service": [
+    {
+      "profile": "baseline",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 0,
+      "job": "fa92ec5a35d44d6fb7061ffc89891153",
+      "boot_s": 39.223,
+      "seconds": 154.272,
+      "images_per_s": 0.8297,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 38309,
+      "memory_by_worker": {
+        "4": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        },
+        "1": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        },
+        "7": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        },
+        "5": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        },
+        "3": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        },
+        "0": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        },
+        "2": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        },
+        "6": {
+          "first": 38309,
+          "last": 38308,
+          "peak": 38309
+        }
+      }
+    },
+    {
+      "profile": "baseline",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 1,
+      "job": "68d3a876765142849737e6307d1ecd1c",
+      "boot_s": 39.223,
+      "seconds": 154.237,
+      "images_per_s": 0.8299,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 38308,
+      "memory_by_worker": {
+        "3": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "5": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "2": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "4": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "1": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "0": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "7": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "6": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        }
+      }
+    },
+    {
+      "profile": "compiled",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 0,
+      "job": "b7ecf30445b244678b3f94106107f704",
+      "boot_s": 37.198,
+      "seconds": 159.404,
+      "images_per_s": 0.803,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 37327,
+      "memory_by_worker": {
+        "3": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "4": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "7": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "1": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "5": {
+          "first": 37327,
+          "last": 37327,
+          "peak": 37327
+        },
+        "0": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "2": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "6": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        }
+      }
+    },
+    {
+      "profile": "compiled",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 1,
+      "job": "46d4c16957ab4a2eaa7cabbd97bb6cc3",
+      "boot_s": 37.198,
+      "seconds": 143.568,
+      "images_per_s": 0.8916,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 37327,
+      "memory_by_worker": {
+        "3": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "4": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "0": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "1": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "5": {
+          "first": 37327,
+          "last": 37327,
+          "peak": 37327
+        },
+        "2": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "7": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        },
+        "6": {
+          "first": 37178,
+          "last": 37178,
+          "peak": 37178
+        }
+      }
+    },
+    {
+      "profile": "fp8",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 0,
+      "job": "2b955768a85b40cbab5b36a4a1dce6ec",
+      "boot_s": 37.191,
+      "seconds": 122.81,
+      "images_per_s": 1.0423,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 30740,
+      "memory_by_worker": {
+        "2": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "0": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "5": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "4": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "1": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "3": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "7": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "6": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        }
+      }
+    },
+    {
+      "profile": "fp8",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 1,
+      "job": "db18376608144e48adfc2780e5707829",
+      "boot_s": 37.191,
+      "seconds": 108.778,
+      "images_per_s": 1.1767,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 30740,
+      "memory_by_worker": {
+        "3": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "1": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "0": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "2": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "7": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "4": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "5": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "6": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 0,
+      "job": "28f291cd460741edbe3518f58190a478",
+      "boot_s": 38.208,
+      "seconds": 119.982,
+      "images_per_s": 1.0668,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections",
+      "pattern": "uniform",
+      "images": 128,
+      "repeat": 1,
+      "job": "497be5d9a7584ee09ce845a6f2015548",
+      "boot_s": 38.208,
+      "seconds": 116.724,
+      "images_per_s": 1.0966,
+      "success": 128,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "4": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "profile": "baseline",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "fa0317cdd5774c579302e07f42e64d1b",
+      "boot_s": 37.205,
+      "seconds": 155.613,
+      "images_per_s": 0.829,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 38309,
+      "memory_by_worker": {
+        "2": {
+          "first": 38283,
+          "last": 38308,
+          "peak": 38308
+        },
+        "0": {
+          "first": 38283,
+          "last": 38308,
+          "peak": 38308
+        },
+        "7": {
+          "first": 38283,
+          "last": 38233,
+          "peak": 38283
+        },
+        "5": {
+          "first": 38283,
+          "last": 38308,
+          "peak": 38308
+        },
+        "4": {
+          "first": 38309,
+          "last": 34602,
+          "peak": 38309
+        },
+        "3": {
+          "first": 38307,
+          "last": 38307,
+          "peak": 38307
+        },
+        "1": {
+          "first": 38307,
+          "last": 38307,
+          "peak": 38307
+        },
+        "6": {
+          "first": 38307,
+          "last": 38307,
+          "peak": 38307
+        }
+      }
+    },
+    {
+      "profile": "baseline",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "7e8154e15fa24038ac2d2e0c0e4cfb9b",
+      "boot_s": 37.205,
+      "seconds": 154.447,
+      "images_per_s": 0.8352,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 38308,
+      "memory_by_worker": {
+        "2": {
+          "first": 38283,
+          "last": 38308,
+          "peak": 38308
+        },
+        "0": {
+          "first": 38283,
+          "last": 38308,
+          "peak": 38308
+        },
+        "7": {
+          "first": 38283,
+          "last": 38283,
+          "peak": 38308
+        },
+        "5": {
+          "first": 38283,
+          "last": 38308,
+          "peak": 38308
+        },
+        "3": {
+          "first": 38307,
+          "last": 34601,
+          "peak": 38307
+        },
+        "4": {
+          "first": 38308,
+          "last": 38308,
+          "peak": 38308
+        },
+        "1": {
+          "first": 38307,
+          "last": 38307,
+          "peak": 38307
+        },
+        "6": {
+          "first": 38307,
+          "last": 38307,
+          "peak": 38307
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "64a2f93beb594471986596f434a081c9",
+      "boot_s": 38.213,
+      "seconds": 136.259,
+      "images_per_s": 0.9467,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 16,
+      "repeat": 1,
+      "job": "20fb4b08f64941909186f29898104ab9",
+      "boot_s": 38.213,
+      "seconds": 116.296,
+      "images_per_s": 1.1092,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 16,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 32,
+      "repeat": 2,
+      "job": "02f07566855740daa251c667d092291d",
+      "boot_s": 38.213,
+      "seconds": 116.23,
+      "images_per_s": 1.1099,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 64,
+      "repeat": 3,
+      "job": "b99f41f63d6f4b1ab6e2caa348d0dd38",
+      "boot_s": 38.213,
+      "seconds": 116.259,
+      "images_per_s": 1.1096,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 64,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31351,
+          "last": 27849,
+          "peak": 31400
+        },
+        "5": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "7": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "6": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 1025,
+      "concurrency": 32,
+      "repeat": 4,
+      "job": "9a612e182c904af395fe3cec2504198e",
+      "boot_s": 38.213,
+      "seconds": 898.373,
+      "images_per_s": 1.141,
+      "success": 1025,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections-b4",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 64,
+      "repeat": 0,
+      "job": "815dafe5b9d7423e9a417acb2e7154d6",
+      "boot_s": 38.202,
+      "seconds": 126.827,
+      "images_per_s": 1.0171,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 64,
+      "batch_sizes": [
+        1,
+        3,
+        4
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 38551,
+      "memory_by_worker": {
+        "3": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "1": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "2": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "0": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "4": {
+          "first": 38404,
+          "last": 27849,
+          "peak": 38502
+        },
+        "5": {
+          "first": 38404,
+          "last": 38502,
+          "peak": 38502
+        },
+        "7": {
+          "first": 38404,
+          "last": 38502,
+          "peak": 38502
+        },
+        "6": {
+          "first": 38404,
+          "last": 38502,
+          "peak": 38502
+        }
+      }
+    },
+    {
+      "profile": "fp8-projections-b4",
+      "pattern": "mixed",
+      "images": 129,
+      "concurrency": 64,
+      "repeat": 1,
+      "job": "d3e4d5175c3f41aa811c8a67dd5b667c",
+      "boot_s": 38.202,
+      "seconds": 123.466,
+      "images_per_s": 1.0448,
+      "success": 129,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 64,
+      "batch_sizes": [
+        1,
+        3,
+        4
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 38551,
+      "memory_by_worker": {
+        "1": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "3": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "2": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "0": {
+          "first": 38551,
+          "last": 38551,
+          "peak": 38551
+        },
+        "4": {
+          "first": 38404,
+          "last": 27849,
+          "peak": 38502
+        },
+        "5": {
+          "first": 38404,
+          "last": 38502,
+          "peak": 38502
+        },
+        "7": {
+          "first": 38404,
+          "last": 38502,
+          "peak": 38502
+        },
+        "6": {
+          "first": 38404,
+          "last": 38502,
+          "peak": 38502
+        }
+      }
+    }
+  ]
+}

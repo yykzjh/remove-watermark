@@ -8,6 +8,12 @@
 
 ## 启动
 
+吞吐优先可选 [launch-throughput.sh](../scripts/launch-throughput.sh)（FP8动态投影编译），
+固定形状大任务可选 [launch-throughput-fixed.sh](../scripts/launch-throughput-fixed.sh)（FP8分块编译）。
+以下 launch-server.sh 为保守BF16配方；两种FP8脚本复用完整参数清单。
+实测、质量取舍与万张估算见[深度调优报告](deep-tuning.md)。
+
+
 ```bash
 uv sync --frozen --extra server --extra quantization --no-dev
 bash scripts/launch-server.sh --print-config

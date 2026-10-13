@@ -18,6 +18,20 @@
 
 完整参数脚本：[scripts/launch-server.sh](scripts/launch-server.sh)。支持通过启动命令选择 single/data 并行、GPU 列表及全部部署选项；先用 --print-config 查看最终设置。详细参数表、完整脚本、任务配置和调优顺序见 [启动与调优指南](docs/startup-and-tuning.md)。
 
+### 已实测的吞吐配方
+
+本机8张L40、输入1024、输出原尺寸，128张相同输入的热任务：
+原BF16配置154.2秒，FP8分块编译108.8秒（耗时减少29.5%）；
+FP8动态投影编译116.7秒。混合形状1025张连续测试全部成功，约14分58秒，输出尺寸全部正确。
+
+- 混合宽高比配方：`bash scripts/launch-throughput.sh`
+- 固定形状、大量连续任务：`bash scripts/launch-throughput-fixed.sh`
+- 保留BF16：`bash scripts/launch-server.sh --compile --compile-dynamic --prompt-encoder lean`
+
+切换前先等任务结束并执行bash scripts/stop-server.sh。所有配方默认8卡，布尔开关仍须显式指定。
+FP8会改变生成细节；首次编译和新形状可能额外耗时。测试使用两张实拍样例及其形状变体重复构造，
+不等同于一万张不同实拍图的质量验收。完整参数、数据、限制和复现命令见[深度调优报告](docs/deep-tuning.md)。
+
 ## 环境与安装
 
 需要 Linux、Python 3.12、NVIDIA CUDA 驱动；权重和依赖由开发机直接下载。项目的 uv.lock 固定依赖版本及 Diffusers 源码归档提交，Python 包使用已验证可达的阿里云 PyPI 镜像并校验下载哈希。模型是新发布的 Turbo 版本，需要包含 sample_sigmas 支持的 Diffusers 与 transformers>=5.17。
