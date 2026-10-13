@@ -58,11 +58,13 @@ def test_atomic_save_does_not_overwrite_or_leave_temporary_files(tmp_path):
     assert len(list(tmp_path.iterdir())) == 1
 
 
-def test_known_style_classifier_and_parameter_validation():
+def test_explicit_templates_and_parameter_validation():
     image = Image.new("RGB", (256, 192), (70, 80, 50))
-    assert regions_for(image, ProcessingConfig())[0].box[1] == 0.727
+    assert regions_for(image, ProcessingConfig(preset="gray"))[0].box[1] == 0.727
     image.paste((50, 130, 220), (0, 150, 100, 170))
-    assert regions_for(image, ProcessingConfig())[0].box[1] == 0.781
+    assert regions_for(image, ProcessingConfig(preset="blue"))[0].box[1] == 0.781
+    with pytest.raises(ValueError):
+        regions_for(image, ProcessingConfig())
     with pytest.raises(ValueError):
         DeploymentConfig(attention="flex", compile=False)
     with pytest.raises(ValueError):

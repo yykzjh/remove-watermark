@@ -55,7 +55,7 @@ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
 
 ## 批处理
 
-窗口可设置输入/输出目录、并发图片数、修复区域分辨率、蓝/灰水印预设、自定义区域、上下文扩展比例、过渡边缘和补充提示词。支持暂停、继续与取消；已提交的 GPU 推理会完成后停止派发新图。关闭远程客户端不会取消开发机任务，重新连接可查看当前任务。
+窗口默认自动逐图定位水印，位置和大小不需要一致，也不需要人工框选。复用已部署的 Qwen3-VL 文本/视觉编码器，先识别完整信息栏及相机标识，再局部修复。可设置输入/输出目录、并发图片数、检测与修复分辨率、上下文扩展比例、过渡边缘和补充提示词。固定模板和自定义区域仅为可选的高级模式。支持暂停、继续与取消；已提交的 GPU 推理会完成后停止派发新图。关闭远程客户端不会取消开发机任务，重新连接可查看当前任务。
 
 输入/输出必须互不包含；不跟随目录/文件符号链接。默认跳过已有输出，实现重启后继续处理；需要重新修复已有结果时勾选覆盖。逐图错误互不影响，输出采用原子写入。保存格式、名字和目录结构与输入对应，非图像不复制，空目录保留。
 
@@ -96,7 +96,7 @@ bash scripts/start-server.sh config/deployment-throughput.toml
 
 ## 质量与提示词
 
-见 [docs/prompts-and-quality.md](docs/prompts-and-quality.md)。实际提示词在 src/watermark_studio/prompts.py，专门约束蓝底白字、灰底黑字、户外地表、人物衣物与道路边线的局部修补。auto 是两种样例的模板分类器，不能保证检测任意水印。请先用代表样本确认区域和修复效果。
+见 [docs/prompts-and-quality.md](docs/prompts-and-quality.md)。实际提示词在 src/watermark_studio/prompts.py，专门约束蓝底白字、灰底黑字、户外地表、人物衣物与道路边线的局部修补。auto 逐图进行视觉检测，不依赖固定角落坐标。没有检出水印时原字节复制并单独计数；检测 JSON 异常时记录该图失败，不回退到固定模板。results.jsonl 保存每张图的检测范围、检测耗时和处理动作。自动识别仍可能漏检或将场景中的文字误判为叠加水印，真实样本需抽样验收。
 
 模型依照 [Qwen Research License](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) 发布；项目代码许可证不替代模型许可证。
 

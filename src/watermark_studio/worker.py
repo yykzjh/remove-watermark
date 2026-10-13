@@ -6,7 +6,16 @@ import time
 import traceback
 
 from .config import DeploymentConfig, ProcessingConfig
-from .images import atomic_save, blend_patch, context_box, load_photo, pixel_box, regions_for
+from .detection import locate_watermarks
+from .images import (
+    atomic_copy,
+    atomic_save,
+    blend_patch,
+    context_box,
+    load_photo,
+    pixel_box,
+    regions_for,
+)
 from .prompts import build_prompt
 
 
@@ -49,7 +58,27 @@ def process_image(task, options, config, pipe):
     source, exif, icc, alpha = load_photo(task["source"])
     result = source.copy()
     stable_seed = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
-    for index, region in enumerate(regions_for(source, options)):
+    detection_start = time.monotonic()
+    if config.backend == "mock":
+        regions = []
+    elif options.preset == "auto":
+        regions, _ = locate_watermarks(
+            source, pipe.text_encoder, pipe.processor, pipe._execution_device,
+            options.detection_resolution,
+        )
+        regions = [r for r in regions if options.remove_logo or r.kind != "logo"]
+    else:
+        regions = regions_for(source, options)
+    detection_seconds = round(time.monotonic() - detection_start, 3)
+    if not regions:
+        atomic_copy(task["source"], task["destination"], options.overwrite)
+        return {
+            "file": task["relative"], "ok": True,
+            "action": "mock_copy" if config.backend == "mock" else "no_watermark_detected",
+            "regions": [], "detection_seconds": detection_seconds,
+            "seconds": round(time.monotonic() - start, 3),
+        }
+    for index, region in enumerate(regions):
         box = pixel_box(region.box, source.size)
         crop = context_box(box, source.size, options.context)
         reference = source.crop(crop)
@@ -74,7 +103,11 @@ def process_image(task, options, config, pipe):
     if alpha is not None:
         result.putalpha(alpha)
     atomic_save(result, task["destination"], exif, icc, options.overwrite)
-    return {"file": task["relative"], "ok": True, "seconds": round(time.monotonic() - start, 3)}
+    return {
+        "file": task["relative"], "ok": True, "action": "restored",
+        "regions": [r.model_dump() for r in regions], "detection_seconds": detection_seconds,
+        "seconds": round(time.monotonic() - start, 3),
+    }
 
 
 def worker_main(index, gpu, settings, model_path, requests, events, load_gate):

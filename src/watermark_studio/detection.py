@@ -47,7 +47,25 @@ def parse_detection(text: str, padding: float = 0.008) -> list[Region]:
             max(0, x0-padding), max(0, y0-padding),
             min(1, x1+padding), min(1, y1+padding),
         )))
-    return regions
+    # Merge overlapping detections so a later repair cannot restore an earlier overlay.
+    merged = []
+    while regions:
+        region = regions.pop(0)
+        x0, y0, x1, y1 = region.box
+        for index, other in enumerate(regions):
+            a0, b0, a1, b1 = other.box
+            if max(x0, a0) < min(x1, a1) and max(y0, b0) < min(y1, b1):
+                regions.pop(index)
+                regions.insert(0, Region(
+                    kind="panel" if "panel" in {region.kind, other.kind} else "logo",
+                    box=(min(x0, a0), min(y0, b0), max(x1, a1), max(y1, b1)),
+                ))
+                break
+        else:
+            if (x1-x0)*(y1-y0) > 0.8:
+                raise ValueError("合并后的检测范围过大，已避免整图重绘")
+            merged.append(region)
+    return merged
 
 
 def locate_watermarks(image, encoder, processor, device, resolution=1280):

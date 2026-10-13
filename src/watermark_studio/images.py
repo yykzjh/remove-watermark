@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,11 +73,7 @@ def scan_images(source: Path, target: Path, overwrite: bool, stop=None):
 def regions_for(image: Image.Image, options: ProcessingConfig):
     preset = options.preset
     if preset == "auto":
-        # Template classifier only: it is NOT a general watermark detector.
-        sample = np.asarray(image.resize((256, 192)).convert("RGB"), dtype=np.int16)
-        corner = sample[135:185, :120]
-        blue = (corner[..., 2] > corner[..., 0] + 35) & (corner[..., 1] > corner[..., 0] + 10)
-        preset = "blue" if float(blue.mean()) > 0.06 else "gray"
+        raise ValueError("auto 模式必须逐图执行视觉检测，不能使用固定模板")
     regions = options.regions if preset == "custom" else PRESETS[preset]
     return [r for r in regions if options.remove_logo or r.kind != "logo"]
 
@@ -153,5 +150,19 @@ def atomic_save(image, destination, exif=b"", icc=None, overwrite=False):
             # Atomic no-overwrite even if another process creates the target meanwhile.
             os.link(temp, path)
             temp.unlink()
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def atomic_copy(source, destination, overwrite=False):
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name("." + path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        shutil.copyfile(source, temp)
+        if overwrite:
+            os.replace(temp, path)
+        else:
+            os.link(temp, path)
     finally:
         temp.unlink(missing_ok=True)

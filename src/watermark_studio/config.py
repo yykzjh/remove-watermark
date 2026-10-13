@@ -37,6 +37,7 @@ class ProcessingConfig(BaseModel):
     concurrency: int = Field(default=1, ge=1, le=64)
     preset: Literal["gray", "blue", "auto", "custom"] = "auto"
     regions: list[Region] = Field(default_factory=list, max_length=8)
+    detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
     remove_logo: bool = True
     resolution: int = Field(default=1024, ge=256, le=2048, multiple_of=32)
     context: float = Field(default=0.6, ge=0.1, le=2)

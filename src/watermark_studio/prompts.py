@@ -26,14 +26,14 @@ The result must look like the same ordinary outdoor site photograph without the
 digital overlay, with natural texture and no rectangular patch, smear or repeated pattern."""
 
 TARGETS = {
-    "panel": "lower-left site-information panel (blue header with white Chinese text and/or translucent pale-gray body with black Chinese text)",
+    "panel": "detected site-information panel (blue header with white Chinese text and/or translucent pale-gray body with black Chinese text)",
     "logo": (
-        "entire lower-right camera-app watermark cluster: the large white Chinese "
+        "entire detected camera-app watermark cluster: the large white Chinese "
         'characters "今日水印" on the top line, every line and tag beneath them, '
         'including "相机", "真实时间", "防伪码", any timestamp or alphanumeric '
         "verification code, short horizontal separator dashes, small icons, "
         "outlines, shadows, and gray, black or translucent label backgrounds. "
-        "Remove the complete cluster down to the bottom and right image edges "
+        "Remove the complete cluster, including any portions at image edges "
         "where it extends there; do not stop after removing only the top title"
     ),
     "custom": "specified digital text or information-panel overlay",

@@ -133,6 +133,8 @@ class Runtime:
         job = self.job
         job["completed"] += 1
         job["succeeded" if result["ok"] else "failed"] += 1
+        if result.get("action") == "no_watermark_detected":
+            job["no_watermark"] += 1
         job["current"] = result["file"]
         if not result["ok"]:
             job["errors"] = (job["errors"] + [{"file": result["file"], "error": result["error"]}])[
@@ -207,6 +209,7 @@ class Runtime:
                 "total": 0,
                 "completed": 0,
                 "succeeded": 0,
+                "no_watermark": 0,
                 "failed": 0,
                 "skipped": 0,
                 "invalid": 0,

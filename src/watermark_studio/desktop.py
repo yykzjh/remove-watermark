@@ -232,13 +232,13 @@ class MainWindow(QMainWindow):
         form.addRow("修复区域推理分辨率", self.resolution)
         self.preset = QComboBox()
         for title, value in [
-            ("示例样式自适应（蓝 / 灰）", "auto"),
+            ("自动识别水印位置（逐张检测，无需框选）", "auto"),
             ("灰底黑字（样例 1）", "gray"),
             ("蓝底白字 + 灰底正文（样例 2）", "blue"),
             ("自定义区域", "custom"),
         ]:
             self.preset.addItem(title, value)
-        form.addRow("水印区域预设", self.preset)
+        form.addRow("水印定位方式", self.preset)
         self.boxes = QLineEdit("0.012,0.727,0.45,0.988; 0.864,0.89,1,1")
         self.boxes.setToolTip("每个区域为 x0,y0,x1,y1，范围 0..1；分号分隔多个区域")
         self.boxes.setEnabled(False)
@@ -246,11 +246,16 @@ class MainWindow(QMainWindow):
             lambda: self.boxes.setEnabled(self.preset.currentData() == "custom")
         )
         form.addRow("自定义区域", self.boxes)
-        note = QLabel("自适应仅区分两种样例模板，不保证检测任意水印。位置不同请调整区域。")
+        note = QLabel("默认逐图识别任意位置的数字水印；未检测到则原样复制并单独计数。固定模板仅供已知布局使用。")
         note.setObjectName("muted")
         note.setWordWrap(True)
         form.addRow(note)
-        self.logo = QCheckBox("同时去除右下角相机水印")
+        self.detection_resolution = QComboBox()
+        for size in [768, 1024, 1280, 1536, 2048]:
+            self.detection_resolution.addItem(str(size), size)
+        self.detection_resolution.setCurrentIndex(2)
+        form.addRow("自动检测分辨率（长边）", self.detection_resolution)
+        self.logo = QCheckBox("同时去除相机标识及附属小字（任意位置）")
         self.logo.setChecked(True)
         self.overwrite = QCheckBox("覆盖输出目录中已有同名文件")
         row = QHBoxLayout()
@@ -317,6 +322,7 @@ class MainWindow(QMainWindow):
                 resolution=self.resolution.currentData(),
                 preset=self.preset.currentData(),
                 regions=regions,
+                detection_resolution=self.detection_resolution.currentData(),
                 remove_logo=self.logo.isChecked(),
                 overwrite=self.overwrite.isChecked(),
                 context=self.context.value(),
@@ -383,7 +389,7 @@ class MainWindow(QMainWindow):
         self.progress.setValue(job["completed"])
         self.metrics.setText(
             f"{names.get(self.job_state, self.job_state)}  ·  {job['completed']}/{total}  "
-            f"成功 {job['succeeded']}  失败 {job['failed']}  "
+            f"成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
             f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}"
         )
         self.current.setText(job.get("current", ""))
