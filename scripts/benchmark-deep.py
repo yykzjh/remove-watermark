@@ -89,6 +89,7 @@ matrices[9] = [
     ("allocator-compile-b1", {"compile": True, "compile_scope": "blocks"}, 1, 1024),
     ("allocator-compile-b3", {"compile": True, "compile_scope": "blocks"}, 3, 1024),
 ]
+matrices[10] = [(f"fp8-compiled-b{n}", {"quantization": "float8", "compile": True, "compile_scope": "blocks"}, n, 1024) for n in [1, 3, 4]]
 model = Path.home() / ".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 for label, overrides, batch, resolution in matrices[args.lane]:
     if args.case and label != args.case:
