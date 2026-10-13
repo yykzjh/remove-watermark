@@ -102,6 +102,7 @@ def test_navigation_and_multi_region_selection(tmp_path):
     assert not window.boxes.isEnabled()
     window.start_job()
     assert api.calls[-1][3]["options"]["regions"] == []
+    assert api.calls[-1][3]["options"]["scope"] == "full_image"
     window.tabs.setCurrentIndex(0)
     window.input_dir.setText("/home/zjh/batch")
     window.output_dir.setText("/home/zjh/batch-out")

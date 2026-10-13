@@ -224,7 +224,7 @@ class Runtime:
                 destination = target / single.name
                 if destination.resolve() == single or destination.is_symlink():
                     raise ValueError("输出不能覆盖输入原图或符号链接")
-                request.options.scope = "regions"
+                request.options.scope = "regions" if request.options.preset == "custom" else "full_image"
             else:
                 source, target = validate_directories(
                     str(self.safe_path(request.input_dir)), str(self.safe_path(request.output_dir))

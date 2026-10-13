@@ -14,7 +14,7 @@
 浏览开发机图像或填写路径后点“打开预览”。预览最长边不超过 1024，
 JPEG 不超过 64 KiB（JSON base64 约增加三分之一）。不预取、不传原图、不自动下载结果。
 这是用户允许的偶尔少量图像通信；批量处理仍只返回状态。
-- 自动识别水印位置：自动检测并精修，手动框选和坐标输入明确禁用。
+- 自动识别水印位置：模型对整图识别并去水印，手动框选和坐标输入明确禁用。
 - 自定义区域：拖动鼠标添加最多 8 个矩形；可删除最后一框、清空或编辑坐标。
   坐标为完整图像 EXIF 显示方向上的 0..1 比例，用分号分隔。
 - 打开另一张图像会清空旧框。提交检查文件大小/修改时间标记，
@@ -29,7 +29,7 @@ JPEG 不超过 64 KiB（JSON base64 约增加三分之一）。不预取、不�
 
 输入档位表示约 N² 像素预算，按送入模型的图像宽高比及模型网格计算实际尺寸，
 不是强制输入正方形，也不是官方只允许这六个尺寸的声明。
-单张精修时送入模型的是带上下文的裁剪图，输出设置始终针对合成后的完整图像。
+单张自定义精修时送入模型的是带上下文的裁剪图，输出设置始终针对合成后的完整图像。
 低输入档位通常减少显存需求，但不会自动改变服务的每卡 batch 上限；
 可在服务启动时调 --batch-size 和 --batch-window，客户端 concurrency 控制全局在途原图。
 较高档位可能 OOM；启用 --oom-split-batch 仅可拆批，单张仍超显存时会报告失败。
@@ -50,9 +50,39 @@ uv run --no-sync watermark-batch /home/zjh/images /home/zjh/images-clean \
 ```
 --resolution 保留为 --input-resolution 的兼容别名。批量 CLI 不再提供区域参数。
 POST /jobs 默认 mode=batch，服务强制整图处理；单张指定 mode=single、input_file、
-output_dir、options.preset=auto/custom。input_dir 保留为兼容字段。
+output_dir、options.preset=auto/custom。单张不需要 input_dir。
 options.output_width/output_height 均为 0 时保留原图；否则必须同时为正数。
 /directories?files=true 可列图像文件，/preview?path=... 只返回有上限的缩略图。
 
 旧版区域批量性能数据是历史记录，不等同于当前整图路径的吞吐或质量。
 当前工作流实测用 scripts/smoke-workflows.py，结果在开发机 .run/user-samples/verification.json。
+
+## 开发机真实图片验证（2026-10-14）
+使用用户提供的两张照片，上传后 SHA256 与本地一致。开发机本地复制成 16 张，
+未重复传输原图。8 × L40，batch=2，window=4，concurrency=32，模型输入 1024。
+
+| 场景 | 成功数 | 用时 | 实际 batch | 输出尺寸 |
+|---|---:|---:|---|---|
+| 整图批量，全部 8 卡 | 16 | 22.05 秒 | 2 | 1706×1279 / 4000×3000，各自保持原图 |
+| 单张自定义两个区域 | 1 | 18.04 秒 | 1 | 合成后调整为 1920×1440 |
+| 单张自动识别（旧定位后精修路径） | 1 | 22.05 秒 | 1 | 原图 4000×3000 |
+
+这是两张图片的功能冒烟测试（轮询计时），不是全数据集吞吐或画质保证。
+报告与输出均在开发机 .run/user-samples/，源码脚本可重复执行。
+WSL 下 44 项自动测试通过，包括多框坐标、自动模式禁用、预览大小、
+原图保护、8 种 EXIF 方向、输出尺寸与透明通道。
+
+模型按条件图宽高比计算推理尺寸的机制见
+[官方 QwenImage21Pipeline 文档](https://huggingface.co/docs/diffusers/main/api/pipelines/qwenimage21)。
+
+### 实测画质与连接修正
+缩略预览确认：两张整图结果均移除了信息板和右下角完整相机标识；
+自定义两区域结果也移除了两处水印。旧单张自动定位后精修结果残留相机字样，
+因此当前单张 auto 与批量统一采用整图推理，custom 才执行局部合成。
+整图模式可能改变人物/树木等细节；以上为压缩预览检查，不代替原图画质验收。
+
+当前机器 WSL 自带 SSH 的大一些响应会超时，而宿主 OpenSSH 的相同预览正常。
+WSL 客户端自动优先调用 /mnt/c/Windows/System32/OpenSSH/ssh.exe 建立隧道；
+只使用现有 SSH 工具传输，界面、开发、uv 环境和图像处理全部仍在 Linux。
+此时读取 Windows ~/.ssh/config 中的 cdu_dev。纯 Linux 默认使用 ssh；
+可用 --ssh-program ssh 或其他可执行文件路径覆盖。只监听本地 127.0.0.1。

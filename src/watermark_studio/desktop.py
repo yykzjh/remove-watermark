@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import httpx
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -182,6 +183,10 @@ class DirectoryDialog(QDialog):
         self.status.setText(f"已显示 {self.list.count()} 个子目录")
 
     def choose(self):
+        item = self.list.currentItem()
+        if self.files and item and not item.text().endswith("/"):
+            self.activate_item(item.text())
+            return
         self.selected = self.path.text().strip()
         if self.selected:
             self.accept()
@@ -201,7 +206,10 @@ class MainWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(body)
-        self.setCentralWidget(scroll)
+        shell = QWidget()
+        outer_layout = QVBoxLayout(shell)
+        outer_layout.addWidget(scroll)
+        self.setCentralWidget(shell)
         layout = QVBoxLayout(body)
         title = QLabel("图像去水印")
         title.setObjectName("title")
@@ -315,6 +323,7 @@ class MainWindow(QMainWindow):
         form.addRow("补充提示词", self.extra_prompt)
         layout.addWidget(controls)
         self.controls = controls
+        layout = outer_layout
         self.progress = QProgressBar()
         layout.addWidget(self.progress)
         self.metrics = QLabel("请选择开发机上的输入与输出路径。")
@@ -407,7 +416,7 @@ class MainWindow(QMainWindow):
             if custom and not self.preview_path:
                 raise ValueError("请先打开图像预览，再选择或指定区域")
             options = ProcessingConfig(
-                scope="regions" if single else "full_image",
+                scope="regions" if custom else "full_image",
                 concurrency=1 if single else self.concurrency.value(),
                 resolution=self.resolution.currentData(),
                 preset=self.preset.currentData() if single else "auto",
@@ -518,6 +527,15 @@ class Startup(QWidget):
         layout.addWidget(QLabel("模型下载及加载完成后，批处理窗口将自动打开。"))
 
 
+def default_ssh_program():
+    # Use the host SSH transport in WSL; model, GUI and dependencies remain Linux.
+    native = Path("/mnt/c/Windows/System32/OpenSSH/ssh.exe")
+    release = Path("/proc/sys/kernel/osrelease")
+    if native.is_file() and release.exists() and "microsoft" in release.read_text().lower():
+        return str(native)
+    return "ssh"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Linux desktop; launch a local service or connect remotely"
@@ -526,6 +544,7 @@ def main():
         "--url", help="Connect to an existing API instead of starting a local service"
     )
     parser.add_argument("--config", default="config/deployment.toml")
+    parser.add_argument("--ssh-program", default=default_ssh_program(), help="SSH executable; WSL prefers host OpenSSH when available")
     parser.add_argument("--ssh-host", help="Open status and bounded-preview tunnel and start the remote service")
     parser.add_argument("--remote-dir", default="~/project/inference/remove-watermark")
     parser.add_argument("--port", type=int, default=8765)
@@ -554,20 +573,20 @@ def main():
         )
         processes.append(
             subprocess.Popen(
-                ["ssh", "-o", "BatchMode=yes", args.ssh_host, command], stdout=log, stderr=log
+                [args.ssh_program, "-o", "BatchMode=yes", args.ssh_host, command], stdout=log, stderr=log
             )
         )
         processes.append(
             subprocess.Popen(
                 [
-                    "ssh",
+                    args.ssh_program,
                     "-o",
                     "BatchMode=yes",
                     "-o",
                     "ExitOnForwardFailure=yes",
                     "-N",
                     "-L",
-                    f"{args.port}:127.0.0.1:{args.remote_port}",
+                    f"127.0.0.1:{args.port}:127.0.0.1:{args.remote_port}",
                     args.ssh_host,
                 ],
                 stdout=log,

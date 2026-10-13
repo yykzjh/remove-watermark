@@ -65,9 +65,17 @@ class JobRequest(BaseModel):
     mode: Literal["batch", "single"] = "batch"
     preview_token: str = Field(default="", max_length=100)
     input_file: str = Field(default="", max_length=4096)
-    input_dir: str = Field(min_length=1, max_length=4096)
+    input_dir: str = Field(default="", max_length=4096)
     output_dir: str = Field(min_length=1, max_length=4096)
     options: ProcessingConfig = Field(default_factory=ProcessingConfig)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.mode == "single" and not self.input_file.strip():
+            raise ValueError("单张任务必须指定 input_file")
+        if self.mode == "batch" and not self.input_dir.strip():
+            raise ValueError("批量任务必须指定 input_dir")
+        return self
 
 
 class DeploymentConfig(BaseModel):
