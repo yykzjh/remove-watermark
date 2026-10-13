@@ -7,7 +7,7 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gpu", type=int, default=0)
-parser.add_argument("--profile", choices=["base", "compile", "offload"], default="base")
+parser.add_argument("--profile", choices=["base", "compile", "offload", "optimized"], default="base")
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 import numpy as np
@@ -65,7 +65,17 @@ def run(label, batch=2, resolution=1024, kv=True, repeats=3):
     print(json.dumps(result), flush=True)
     return result
 
-if args.profile == "base":
+if args.profile in {"base", "optimized"}:
+    from watermark_studio.attention import attention
+    q = torch.randn(2,23,2,32,device="cuda",dtype=torch.bfloat16)
+    k = torch.randn(2,31,2,32,device="cuda",dtype=torch.bfloat16)
+    v = torch.randn_like(k)
+    mask = torch.ones(2,1,1,31,device="cuda",dtype=torch.bool)
+    mask[0,:,:,10:15] = False
+    reference = torch.nn.functional.scaled_dot_product_attention(
+        q.transpose(1,2),k.transpose(1,2),v.transpose(1,2),attn_mask=mask
+    ).transpose(1,2)
+    torch.testing.assert_close(attention(q,k,v,mask), reference, atol=.004, rtol=.02)
     # Verify singleton adapter agrees with the stock independent-image call.
     expected = pipe(image=items[0]["image"], prompt=items[0]["prompt"],
                     output_resolution=512, true_cfg_scale=1, use_kv_cache=True,
@@ -85,7 +95,7 @@ if args.profile == "base":
     assert all(a < b for a,b in zip(own,crossed)), (own,crossed)
     print(json.dumps({"verification":"independent_conditions","singleton_mae":difference,
                       "batch_single_mae":errors,"crossed_mae":crossed}), flush=True)
-    for batch in (1,2,4):
+    for batch in (1,2,3):
         run(f"b{batch}-1024", batch=batch)
     run("b2-no-kv", kv=False)
     for threads in (1,8):

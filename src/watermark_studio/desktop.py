@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         title = QLabel("批量图像去水印")
         title.setObjectName("title")
         layout.addWidget(title)
-        subtitle = QLabel(f"Qwen-Image-2.1-Turbo  ·  {state.get('worker_count', len(state['workers']))} 个 GPU 工作进程已就绪")
+        subtitle = QLabel(f"Qwen-Image-2.1-Turbo  ·  {state.get('worker_count', len(state.get('workers', [])))} 个 GPU 工作进程已就绪")
         subtitle.setObjectName("muted")
         layout.addWidget(subtitle)
         if state["backend"] == "mock":
@@ -522,7 +522,7 @@ def main():
                 "loading": "加载 GPU 工作进程",
             }
             ready = sum(w["state"] == "idle" for w in state["workers"])
-            splash.label.setText(f"{names.get(stage, stage)} · {ready}/{state.get('worker_count', len(state['workers']))} 已就绪")
+            splash.label.setText(f"{names.get(stage, stage)} · {ready}/{state.get('worker_count', len(state.get('workers', [])))} 已就绪")
 
     api.done.connect(receive)
     timer = QTimer()

@@ -40,6 +40,9 @@ def load_pipeline(config, model_path):
         pipe.enable_sequential_cpu_offload(gpu_id=0)
     else:
         pipe.to("cuda:0")
+    if config.attention == "sdpa":
+        from .attention import IndependentSDPAProcessor
+        pipe.transformer.set_attn_processor(IndependentSDPAProcessor())
     if config.attention == "flex":
         from diffusers.models.transformers.transformer_qwenimage21 import (
             QwenImage21FlexAttnProcessor,
