@@ -13,15 +13,17 @@ from watermark_studio.images import pixel_box
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["custom", "auto"], default="custom")
+parser.add_argument("--detection-resolution", nargs="+", type=int)
 parser.add_argument("--images", type=int)
 parser.add_argument("--concurrency", nargs="+", type=int)
 args = parser.parse_args()
 root = Path(".run/tuning/e2e").resolve()
-source = root/args.mode/"input"
+count = args.images or (64 if args.mode == "custom" else 32)
+source = root/args.mode/f"input-{count}"
 source.mkdir(parents=True, exist_ok=True)
 # Different dimensions, including non-multiples of 32, portrait and original 4K photos.
 sizes = [(800,600), (1600,1200), (4000,3000), (1707,1279)]
-for i in range(args.images or (64 if args.mode == "custom" else 32)):
+for i in range(count):
     width, height = sizes[i % len(sizes)]
     if args.mode == "auto" and i % 5 == 0:
         width, height = height, width
@@ -49,8 +51,8 @@ health = request(url,"/health")
 for concurrency in (args.concurrency or ([8,16,32,64] if args.mode == "custom" else [16,32])):
     if concurrency > health["capacity"]:
         continue
-    for detection in ([1280] if args.mode == "custom" else [768,1280]):
-        target = root/args.mode/f"output-c{concurrency}-d{detection}"
+    for detection in (args.detection_resolution or ([1280] if args.mode == "custom" else [768,1280])):
+        target = root/args.mode/f"output-n{count}-c{concurrency}-d{detection}"
         options = {
             "concurrency": concurrency, "preset":args.mode, "resolution":1024,
             "detection_resolution":detection, "remove_logo":True, "overwrite":True,
@@ -73,6 +75,7 @@ for concurrency in (args.concurrency or ([8,16,32,64] if args.mode == "custom" e
                 break
             time.sleep(.25)
         assert job["state"] == "completed" and job["failed"] == 0, job
+        assert job["total"] == count, job
         elapsed = time.monotonic()-start
         rows = [json.loads(line) for line in
                 (Path.home()/".local/state/watermark-studio"/job["id"]/"results.jsonl")
