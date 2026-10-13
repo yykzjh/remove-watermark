@@ -1350,6 +1350,15 @@ wheels = [
 ]
 
 [[package]]
+name = "torchao"
+version = "0.18.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/19/55/ed9ad98f0f09d5a1124d09830043d13a39e63539f9590d2bdb6d71cbc4a4/torchao-0.18.0-cp310-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6540b148e40ba81cbd4de86392225a076a1591146e9cebb099b3b234ba9feebe" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/c4/4d/485477bb8f05bd501016059c6d8abd742f830cb1b24ab7704e086c7cc35a/torchao-0.18.0-py3-none-any.whl", hash = "sha256:5c2b4485341bf28b7fed2c4fc95b9f298e209f41685350f067de85527a05585e" },
+]
+
+[[package]]
 name = "torchvision"
 version = "0.29.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -1493,6 +1502,9 @@ desktop = [
     { name = "httpx", marker = "sys_platform == 'linux'" },
     { name = "pyside6", marker = "sys_platform == 'linux'" },
 ]
+quantization = [
+    { name = "torchao", marker = "sys_platform == 'linux'" },
+]
 server = [
     { name = "accelerate", marker = "sys_platform == 'linux'" },
     { name = "diffusers", marker = "sys_platform == 'linux'" },
@@ -1529,11 +1541,12 @@ requires-dist = [
     { name = "pyside6", marker = "extra == 'desktop'", specifier = ">=6.8" },
     { name = "safetensors", marker = "extra == 'server'", specifier = ">=0.5" },
     { name = "torch", marker = "extra == 'server'", specifier = ">=2.6" },
+    { name = "torchao", marker = "extra == 'quantization'", specifier = ">=0.18.0" },
     { name = "torchvision", marker = "extra == 'server'", specifier = ">=0.21" },
     { name = "transformers", marker = "extra == 'server'", specifier = ">=5.17.0" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34" },
 ]
-provides-extras = ["server", "desktop"]
+provides-extras = ["server", "desktop", "quantization"]
 
 [package.metadata.requires-dev]
 dev = [

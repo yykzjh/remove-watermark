@@ -31,7 +31,12 @@ def load_pipeline(config, model_path):
     pipe = QwenImage21Pipeline.from_pretrained(model_path, dtype=dtype, local_files_only=True)
     pipe.set_progress_bar_config(disable=True)
     if config.vae_tiling:
-        pipe.vae.enable_tiling()
+        pipe.vae.enable_tiling(
+            tile_sample_min_height=config.vae_tile_size,
+            tile_sample_min_width=config.vae_tile_size,
+            tile_sample_stride_height=config.vae_tile_stride,
+            tile_sample_stride_width=config.vae_tile_stride,
+        )
     if config.vae_slicing:
         pipe.vae.enable_slicing()
     if config.offload == "model":
@@ -49,8 +54,18 @@ def load_pipeline(config, model_path):
         )
 
         pipe.transformer.set_attn_processor(QwenImage21FlexAttnProcessor())
+    if config.fuse_qkv:
+        from .optimizations import fuse_projections
+        fuse_projections(pipe.transformer)
+    if config.quantization != "none":
+        from .optimizations import quantize_transformer
+        quantize_transformer(pipe.transformer, config.quantization)
+    pipe._watermark_prompt_encoder = config.prompt_encoder
+    pipe._watermark_encoder_batch_size = config.encoder_batch_size
     if config.compile:
-        pipe.transformer.compile(mode=config.compile_mode)
+        compile_fn = (pipe.transformer.compile_repeated_blocks if config.compile_scope == "blocks"
+                      else pipe.transformer.compile)
+        compile_fn(mode=config.compile_mode, dynamic=config.compile_dynamic)
     if not getattr(pipe.config, "sample_sigmas", None):
         raise RuntimeError("模型缺少 Turbo sample_sigmas；请检查模型及 Diffusers 版本")
     return pipe

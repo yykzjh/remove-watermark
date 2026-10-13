@@ -1,0 +1,124 @@
+"""Research matrix on one GPU per process. Never reuse image-conditioned embeddings."""
+import argparse
+import gc
+import json
+import os
+import time
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--lane", type=int, required=True)
+parser.add_argument("--repeats", type=int, default=2)
+args = parser.parse_args()
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.lane)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import numpy as np
+import torch
+from PIL import Image
+
+from watermark_studio.batching import independent_batch
+from watermark_studio.config import DeploymentConfig
+from watermark_studio.optimizations import lean_encode
+from watermark_studio.prompts import build_full_prompt
+from watermark_studio.worker import load_pipeline
+
+root = Path(".run/deep-tuning")
+root.mkdir(exist_ok=True)
+samples = sorted(Path(".run/user-samples/input").glob("*.jpg"))
+assert len(samples) == 2
+items = [{"image": Image.open(samples[i % 2]).convert("RGB"), "prompt": build_full_prompt(),
+          "seed": 42 + i} for i in range(8)]
+base = dict(gpus=[args.lane], kv_cache=True, vae_tiling=True, vae_slicing=True, tf32=True,
+            prompt_encoder="lean", encoder_batch_size=2, vae_tile_size=384, vae_tile_stride=288)
+# label, configuration overrides, inference batch, resolution
+matrices = {
+    0: [
+        ("stock-b1", dict(prompt_encoder="stock", vae_tile_size=256, vae_tile_stride=192), 1, 1024),
+        ("stock-b2", dict(prompt_encoder="stock", vae_tile_size=256, vae_tile_stride=192), 2, 1024),
+        ("lean-serial-b1", dict(encoder_batch_size=1, vae_tile_size=256, vae_tile_stride=192), 1, 1024),
+        ("lean-serial-b2", dict(encoder_batch_size=1, vae_tile_size=256, vae_tile_stride=192), 2, 1024),
+        ("lean-batched-b2", dict(vae_tile_size=256, vae_tile_stride=192), 2, 1024),
+        ("lean-batched-b4", dict(encoder_batch_size=4, vae_tile_size=256, vae_tile_stride=192), 4, 1024),
+    ],
+    1: [
+        ("tile256", dict(vae_tile_size=256, vae_tile_stride=192), 2, 1024),
+        ("tile384", {}, 2, 1024),
+        ("tile512", dict(vae_tile_size=512, vae_tile_stride=384), 2, 1024),
+        ("tile768", dict(vae_tile_size=768, vae_tile_stride=576), 2, 1024),
+        ("no-tiling-b2", dict(vae_tiling=False), 2, 1024),
+        ("no-tiling-b1", dict(vae_tiling=False), 1, 1024),
+    ],
+    2: [(f"batch{n}", {}, n, 1024) for n in [1, 2, 3, 4, 6, 8]],
+    3: [
+        ("unfused", {}, 2, 1024),
+        ("fused-b2", dict(fuse_qkv=True), 2, 1024),
+        ("fused-b3", dict(fuse_qkv=True), 3, 1024),
+        ("fused-b4", dict(fuse_qkv=True), 4, 1024),
+    ],
+    4: [
+        ("compile-full", dict(compile=True), 2, 1024),
+        ("compile-blocks", dict(compile=True, compile_scope="blocks"), 2, 1024),
+        ("compile-blocks-dynamic", dict(compile=True, compile_scope="blocks", compile_dynamic=True), 2, 1024),
+        ("compile-blocks-autotune", dict(compile=True, compile_scope="blocks",
+                                         compile_mode="max-autotune-no-cudagraphs"), 2, 1024),
+    ],
+    5: [
+        ("fp8-b2", dict(quantization="float8"), 2, 1024),
+        ("int8-b2", dict(quantization="int8"), 2, 1024),
+        ("fp8-b4", dict(quantization="float8"), 4, 1024),
+        ("fp8-compile", dict(quantization="float8", compile=True, compile_scope="blocks"), 2, 1024),
+    ],
+    6: [(f"resolution{n}", {}, 2, n) for n in [512, 768, 1024, 1280, 1536, 2048]],
+    7: [(f"threads{n}", dict(cpu_threads=n), 2, 1024) for n in [1, 2, 4, 8]] + [
+        ("tile384-stride320", dict(vae_tile_stride=320), 2, 1024),
+        ("no-slicing", dict(vae_slicing=False), 2, 1024),
+    ],
+}
+model = Path.home() / ".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
+for label, overrides, batch, resolution in matrices[args.lane]:
+    config = DeploymentConfig(**(base | overrides))
+    pipe = None
+    result = {"label": label, "gpu": args.lane, "batch": batch, "resolution": resolution,
+              "config": config.model_dump()}
+    try:
+        torch.cuda.empty_cache()
+        started = time.monotonic()
+        pipe = load_pipeline(config, str(model))
+        result["load_s"] = round(time.monotonic() - started, 3)
+        if args.lane == 0 and label == "stock-b1":
+            resized = pipe.image_processor.resize(items[0]["image"].convert("RGBA"), width=576, height=448)
+            with torch.inference_mode():
+                expected = pipe.encode_prompt(prompt=items[0]["prompt"], image=[resized])
+                actual = lean_encode(pipe, [{"prompt": items[0]["prompt"], "image": resized}])[0]
+                torch.testing.assert_close(actual[0], expected[0], atol=0, rtol=0)
+                torch.testing.assert_close(actual[1], expected[1])
+                torch.testing.assert_close(actual[2], expected[2])
+                paired = lean_encode(pipe, [{"prompt": items[0]["prompt"], "image": resized}] * 2)
+                result["lean_single_embedding_exact"] = True
+                result["lean_batched_embedding_maxdiff"] = float((paired[0][0] - expected[0]).abs().max())
+                del expected, actual, paired
+        times = []
+        torch.cuda.reset_peak_memory_stats()
+        for iteration in range(args.repeats + 1):
+            torch.cuda.synchronize()
+            started = time.monotonic()
+            outputs = independent_batch(pipe, items[:batch], resolution, config.kv_cache)
+            torch.cuda.synchronize()
+            times.append(time.monotonic() - started)
+        for index, image in enumerate(outputs[:2]):
+            image.save(root / f"{label}-{index}.png")
+        result.update(cold_s=round(times[0], 3), hot_s=[round(s, 3) for s in times[1:]],
+                      images_per_s=round(batch / float(np.median(times[1:])), 4),
+                      allocated_mib=round(torch.cuda.max_memory_allocated() / 2**20),
+                      reserved_mib=round(torch.cuda.max_memory_reserved() / 2**20),
+                      steps=len(pipe.config.sample_sigmas))
+        del outputs
+    except Exception as error:
+        result["error"] = f"{type(error).__name__}: {error}"[:1200]
+    with (root / f"lane-{args.lane}.jsonl").open("a") as stream:
+        stream.write(json.dumps(result) + "\n")
+    print(json.dumps({k: v for k, v in result.items() if k != "config"}), flush=True)
+    del pipe
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch._dynamo.reset()

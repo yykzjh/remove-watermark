@@ -12,6 +12,9 @@ server = [
   "huggingface-hub>=0.34", "safetensors>=0.5", "modelscope-hub>=0.4",
 ]
 desktop = ["PySide6>=6.8", "httpx>=0.28"]
+quantization = [
+    "torchao>=0.18.0",
+]
 
 [project.scripts]
 watermark-server = "watermark_studio.server:main"

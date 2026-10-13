@@ -34,15 +34,22 @@ def independent_batch(pipe, items, resolution, kv_cache):
         raise ValueError("Independent editing batch requires identical inference dimensions")
     width, height = sizes[0]
     original_prepare = pipe.prepare_latents
-    encoded, vae_images = [], []
+    encoded, vae_images, prepared = [], [], []
     with torch.inference_mode():
         for item in items:
             image = item["image"].convert("RGBA")
             resized = pipe.image_processor.resize(image, width=width, height=height)
-            encoded.append(pipe.encode_prompt(prompt=item["prompt"], image=[resized]))
+            prepared.append({"prompt": item["prompt"], "image": resized})
+            if getattr(pipe, "_watermark_prompt_encoder", "stock") == "stock":
+                encoded.append(pipe.encode_prompt(prompt=item["prompt"], image=[resized]))
             vae_images.append(
                 pipe.image_processor.preprocess(image, width=width, height=height).unsqueeze(2)
             )
+        if getattr(pipe, "_watermark_prompt_encoder", "stock") == "lean":
+            from .optimizations import lean_encode
+            chunk = getattr(pipe, "_watermark_encoder_batch_size", 1)
+            for offset in range(0, len(prepared), chunk):
+                encoded.extend(lean_encode(pipe, prepared[offset:offset + chunk]))
         max_length = max(row[0].shape[1] for row in encoded)
         embeddings, masks, image_masks = [], [], []
         for embedding, mask, image_mask in encoded:

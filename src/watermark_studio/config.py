@@ -96,7 +96,18 @@ class DeploymentConfig(BaseModel):
     dtype: Literal["bfloat16", "float16"] = "bfloat16"
     attention: Literal["sdpa", "flex"] = "sdpa"
     compile: bool = False
-    compile_mode: Literal["default", "reduce-overhead", "max-autotune"] = "default"
+    compile_mode: Literal["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"] = "default"
+    compile_scope: Literal["full", "blocks"] = "full"
+    compile_dynamic: bool = False
+    prompt_encoder: Literal["stock", "lean"] = "stock"
+    encoder_batch_size: int = Field(default=1, ge=1, le=16)
+    fuse_qkv: bool = False
+    quantization: Literal["none", "float8", "int8"] = "none"
+    vae_tile_size: int = Field(default=256, ge=128, le=1024, multiple_of=32)
+    vae_tile_stride: int = Field(default=192, ge=64, le=1024, multiple_of=32)
+    shape_sort: bool = False
+    scan_workers: int = Field(default=1, ge=1, le=16)
+    report_interval: int = Field(default=1, ge=1, le=1024)
     offload: Literal["none", "model", "sequential"] = "none"
     vae_tiling: bool = False
     vae_slicing: bool = False
@@ -116,7 +127,9 @@ class DeploymentConfig(BaseModel):
             raise ValueError("single 模式要求一个 GPU 且 replicas_per_gpu=1")
         if self.attention == "flex" and not self.compile:
             raise ValueError("flex attention 必须启用 compile，否则可能造成显存溢出")
-        if self.compile and self.compile_mode != "default":
+        if self.vae_tile_stride > self.vae_tile_size:
+            raise ValueError("VAE stride 不得大于 tile size")
+        if self.compile and self.compile_mode not in {"default", "max-autotune-no-cudagraphs"}:
             raise ValueError("当前固定依赖的 reduce-overhead/max-autotune 实测 CUDA Graph 错误，请使用 default")
         if self.attention == "flex" and self.compile:
             raise ValueError("当前固定依赖的 Flex 实测 Inductor 编译失败，请使用 sdpa")

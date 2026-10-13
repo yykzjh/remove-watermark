@@ -32,8 +32,8 @@ def validate_directories(input_dir: str, output_dir: str) -> tuple[Path, Path]:
     return source, target
 
 
-def scan_images(source: Path, target: Path, overwrite: bool, stop=None):
-    tasks, skipped, invalid = [], 0, []
+def scan_images(source: Path, target: Path, overwrite: bool, stop=None, workers=1):
+    tasks, skipped, invalid, candidates = [], 0, [], []
     target.mkdir(parents=True, exist_ok=True)
 
     def scan_error(error):
@@ -59,14 +59,27 @@ def scan_images(source: Path, target: Path, overwrite: bool, stop=None):
             if destination.exists() and not overwrite:
                 skipped += 1
                 continue
-            try:
-                with Image.open(path) as image:
-                    if getattr(image, "n_frames", 1) != 1:
-                        raise ValueError("不支持多帧图片")
-                    image.verify()
-                tasks.append(ImageTask(str(path), str(destination), relative.as_posix()))
-            except (OSError, ValueError, Image.DecompressionBombError) as error:
-                invalid.append({"file": relative.as_posix(), "error": str(error)[:300]})
+            candidates.append(ImageTask(str(path), str(destination), relative.as_posix()))
+
+    def verify(task):
+        if stop and stop.is_set():
+            return None
+        try:
+            with Image.open(task.source) as image:
+                if getattr(image, "n_frames", 1) != 1:
+                    raise ValueError("不支持多帧图片")
+                image.verify()
+            return task
+        except (OSError, ValueError, Image.DecompressionBombError) as error:
+            return {"file": task.relative, "error": str(error)[:300]}
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for result in pool.map(verify, candidates):
+            if isinstance(result, ImageTask):
+                tasks.append(result)
+            elif result is not None:
+                invalid.append(result)
     return tasks, skipped, invalid
 
 
@@ -202,3 +215,14 @@ def save_output(image, source, destination, exif, icc, options):
         image, exif = restore_storage_orientation(image, source)
     atomic_save(image, destination, exif, icc, options.overwrite)
     return list(image.size)
+
+def inference_shape(path, resolution):
+    """Same 32-pixel rounding as the pinned pipeline, using display aspect ratio."""
+    with Image.open(path) as image:
+        width, height = image.size
+        if image.getexif().get(274, 1) in {5, 6, 7, 8}:
+            width, height = height, width
+    ratio = width / height
+    width = math.sqrt(resolution * resolution * ratio)
+    height = width / ratio
+    return round(width / 32) * 32, round(height / 32) * 32

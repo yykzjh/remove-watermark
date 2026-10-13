@@ -141,7 +141,8 @@ class Runtime:
             ]
         with (self.state_dir / job["id"] / "results.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(result, ensure_ascii=False) + "\n")
-        self._persist()
+        if job["completed"] % self.config.report_interval == 0:
+            self._persist()
 
     def _dispatch(self):
         job = self.job
@@ -265,7 +266,7 @@ class Runtime:
         try:
             if single is None:
                 tasks, skipped, invalid = scan_images(
-                    source, target, self.job["options"]["overwrite"], self.cancel_scan
+                    source, target, self.job["options"]["overwrite"], self.cancel_scan, self.config.scan_workers
                 )
             else:
                 from .images import ImageTask
@@ -274,6 +275,10 @@ class Runtime:
                 skipped = int(destination.exists() and not self.job["options"]["overwrite"])
                 tasks = [] if skipped else [ImageTask(str(single), str(destination), single.name)]
                 invalid = []
+            if self.config.shape_sort and self.job["options"]["scope"] == "full_image":
+                from .images import inference_shape
+                resolution = self.job["options"]["resolution"]
+                tasks.sort(key=lambda task: inference_shape(task.source, resolution))
             with self.lock:
                 self.pending = deque(asdict(t) for t in tasks)
                 self.job.update(

@@ -8,7 +8,6 @@ the stock implementation. This adapts the pinned Diffusers attention processor.
 import torch
 from diffusers.models.transformers.transformer_qwenimage21 import (
     QwenImage21AttnProcessor,
-    _qwenimage21_prepare_qkv,
     dispatch_attention_fn,
 )
 
@@ -33,7 +32,8 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
     def __call__(self, attn, hidden_states, attention_mask=None, rotary_emb=None,
                  layer_cache=None, kv_cache_mode=None, cache_write_slice=None,
                  segments=None, key_valid=None):
-        query, key, value, seq_len_q = _qwenimage21_prepare_qkv(
+        from .optimizations import prepare_qkv
+        query, key, value, seq_len_q = prepare_qkv(
             attn, hidden_states, rotary_emb, layer_cache, kv_cache_mode, cache_write_slice
         )
         if segments is None:
