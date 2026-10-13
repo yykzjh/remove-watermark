@@ -140,6 +140,28 @@ VLM 0.31 秒，VAE 编码 0.285 秒、解码 0.655 秒。事件测量用于定�
 单张 4000×3000 JPEG 解码约 0.15 秒；质量97保存约0.116秒，质量95约0.104秒，
 不足以支持为了几毫秒降低默认输出质量。
 
+## 八卡完整服务：固定形状对照
+
+128 张输入由两张原图重复构成；两图最终输出分别保持1706×1279和4000×3000。
+concurrency=32，batch=2，所有行均为128/128成功、8卡参与、0尺寸错误、0 OOM。
+下面“首任务”保留已有磁盘编译缓存；加载耗时单列，不包含在任务秒数内。
+
+| 配方 | 加载秒数 | 首任务秒数 | 热任务秒数 | 热吞吐(张/秒) | 峰值MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| stock BF16 eager 基线 | 39.22 | 154.27 | 154.24 | 0.8299 | 38309 |
+| lean BF16 dynamic blocks | 37.20 | 159.40 | 143.57 | 0.8916 | 37327 |
+| lean FP8 blocks | 37.19 | 122.81 | 108.78 | 1.1767 | 30740 |
+| lean FP8 dynamic projections | 38.21 | 119.98 | 116.72 | 1.0966 | 31425 |
+
+相对基线，FP8 blocks 的热任务耗时减少29.5%、吞吐提高41.8%；
+FP8 projections 的热任务耗时减少24.3%、吞吐提高32.1%。
+这是量化与编译等组合配方的实测收益，不能全部归因于某一个开关。
+四种配方各执行首/热两轮，共完成1024次整图输出校验。
+
+仅按这组热吞吐线性外推一万张：基线约3小时21分，FP8 blocks约2小时22分，
+FP8 projections约2小时32分，另加权重加载和未命中编译缓存的准备时间。
+**这是两张照片重复工作负载的估算，不是一万张不同实拍图的完成承诺。**
+
 ## 质量检查方法
 
 同 seed 与相同输入比较 stock、lean 和量化结果，查看两类水印残留以及人体/植被/道路结构。
@@ -164,3 +186,64 @@ scripts/benchmark-throughput.py 为八卡完整服务相同输入比较。
 每次服务任务还保留 ~/.local/state/watermark-studio/<job>/results.jsonl。
 输出图留在开发机，仅小型指标与受限预览返回本地。
 全部参数含义见 [启动参数说明](startup-and-tuning.md)。
+
+## 启动配方与万张任务建议
+
+所有配方默认 GPU 0–7，每卡一个模型、batch=2、window=4、输入建议1024、输出原尺寸。
+布尔开关仍然是“不传=false，传入=true”；脚本是显式组合这些开关，不修改该规则。
+启动前确认上一个任务已结束，再停止服务。不要在有任务时直接重启。
+
+```bash
+cd ~/project/inference/remove-watermark
+uv sync --frozen --extra server --extra quantization --no-dev
+
+# 混合宽高比：FP8 + 动态 projections 编译
+bash scripts/stop-server.sh
+bash scripts/launch-throughput.sh --print-config
+bash scripts/launch-throughput.sh
+
+# 输入形状/批大小固定的大任务：FP8 + blocks 编译
+# 首次及新形状/单张尾批可能更慢
+bash scripts/launch-throughput-fixed.sh --print-config
+
+# 不使用 FP8，保留 BF16 的配方
+bash scripts/launch-server.sh --compile --compile-dynamic --prompt-encoder lean --print-config
+
+# 提交开发机现有目录。不开 overwrite 时跳过已有完整输出。
+uv run --no-sync watermark-batch /home/zjh/input /home/zjh/output \
+  --concurrency 32 --input-resolution 1024
+```
+
+print-config 只检查配置，不加载模型。切换配方需要任务结束后 stop-server，再去掉 print-config 正式启动。
+launch-server.sh 为完整标量参数清单；默认保守 BF16，未显式指定 compile。
+launch-throughput.sh 和 launch-throughput-fixed.sh 复用完整清单并覆盖加速项。
+用户可追加标量覆盖值，例如 --batch-size 1、--gpus 0,1；要关闭脚本已开启的布尔项应删除对应行或直接使用 start-server.sh。
+
+- 先用真实目录抽样检查人体、枝叶、道路边缘和标识残留，再处理一万张。
+- concurrency 表示全服务在途原图数；它不会把每卡 batch=2 改成 batch=32。
+- 不要因为显存还有剩余就提高 batch；大矩阵计算已可能饱和，更大 batch 会增加尾部等待和 OOM 风险。
+- 不要在文件夹之间频繁重启模型；维持同一服务可复用编译与内存池。
+- 混合形状启用 shape-sort，输出仍保存原相对路径；排序不会改变随机种子的相对路径输入。
+- 首次编译等待期间没有已完成图片是正常情况；查看服务日志确认在编译而非重启循环。
+- 默认 report-interval=64 只减少 summary 写盘；逐图 results.jsonl 和最终状态仍保存。
+- 中断后重新提交同一输入/输出且不启用 overwrite，可跳过已原子保存的输出；这不是恢复旧进程的 GPU 状态。
+- 输入预算、宽高比分布、输出编码、实际磁盘和其它 GPU 负载都会改变一万张耗时，按真实样本测量后估算。
+
+### 复现实验命令
+
+以下命令要求两张样例已在开发机 .run/user-samples/input/，测试工具会在本机创建硬链接和形状测试图。
+不要与其它占用这些 GPU 的本项目服务一起执行。结果保留在开发机。
+
+```bash
+# 单卡筛选（每组参数详见脚本矩阵）
+uv run --no-sync python scripts/benchmark-deep.py --lane 5 --gpu 5
+uv run --no-sync python scripts/benchmark-deep.py --lane 11 --gpu 3 --expandable-segments
+
+# 固定输入：新进程首轮与同进程热轮
+uv run --no-sync python scripts/benchmark-throughput.py --images 128 --repeats 2
+
+# 混合形状、单张尾批与并发度；末尾不重启直接跑长任务
+uv run --no-sync python scripts/benchmark-throughput.py \
+  --profiles fp8-projections --pattern mixed --images 129 \
+  --concurrencies 32 16 32 64 --concurrency 32 --followup-images 1025
+```
