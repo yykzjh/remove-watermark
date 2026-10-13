@@ -1,11 +1,11 @@
-# Linux development machine: start with one idle L40; expand after measuring memory.
+# Seven independent L40 workers after single-GPU verification; GPU 0 has another process.
 host = "127.0.0.1"
 port = 8765
 model = "Qwen/Qwen-Image-2.1-Turbo"
 model_source = "modelscope"
 revision = "master"
 cache_dir = "~/.cache/watermark-models"
-gpus = [1]
+gpus = [1, 2, 3, 4, 5, 6, 7]
 replicas_per_gpu = 1
 load_parallelism = 1
 dtype = "bfloat16"

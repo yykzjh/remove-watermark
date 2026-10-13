@@ -69,7 +69,7 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 
 ## 模型部署与吞吐参数
 
-编辑 config/deployment.toml 后重启服务。默认使用 GPU 1，BF16，单副本，CFG=1，官方 Turbo 8 步调度，启用 KV cache、VAE tiling/slicing 和 TF32。
+编辑 config/deployment.toml 后重启服务。默认使用 GPU 1–7，BF16，每卡一个完整副本，CFG=1，官方 Turbo 8 步调度，启用 KV cache、VAE tiling/slicing 和 TF32。
 
 | 参数 | 作用与限制 |
 | --- | --- |
@@ -85,7 +85,7 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 | cpu_threads | 每个工作进程的 PyTorch CPU 线程数 |
 | allowed_roots | 桌面可访问的目录根，默认用户家目录与 /mnt |
 
-config/deployment-throughput.toml 提供 GPU 1..7 七副本 + flex/compile 的吞吐配置，需先在单卡测量显存。并发数受已部署副本数限制。官方 Diffusers 的 image 列表代表多参考输入，因此本项目不会把不同图片误传为一个图像批次。此实现提供独立 GPU 数据并行；没有声称实现 TP/Ulysses/Ring 等分布式单图并行。
+默认 config/deployment.toml 已启用 GPU 1–7 的七副本数据并行，GUI 默认并发为 7。GPU 0 保留给已有进程。config/deployment-throughput.toml 为可选的 flex/compile 配置，编译方案尚未完成实测，首次编译会增加等待时间。并发数受已部署副本数限制。官方 Diffusers 的 image 列表代表多参考输入，因此本项目不会把不同图片误传为一个图像批次。此实现通过独立 GPU 进程与动态任务队列实现数据并行，一张图的检测及所有修复区域由同一副本处理。Diffusers 也提供模型分片等多卡机制；对于本机单卡能容纳的模型，多副本更适合独立图片的吞吐目标。此项目尚未接入 TP/Ulysses/Ring 等单图计算并行。
 
 服务默认沿用 checkpoint 中的 8 步 sample_sigmas。没有提供会被该调度忽略的 num_inference_steps 滑块，也不默认打开 CFG 或额外负向提示词。
 

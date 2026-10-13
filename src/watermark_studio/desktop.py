@@ -179,13 +179,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.api, self.capacity, self.roots = api, state["capacity"], state["roots"]
         self.job_state = ""
-        self.setWindowTitle("Watermark Studio · Qwen Image")
+        self.setWindowTitle("批量图像去水印 · Qwen Image")
         self.resize(880, 870)
         body = QWidget()
         self.setCentralWidget(body)
         layout = QVBoxLayout(body)
         layout.setContentsMargins(24, 20, 24, 20)
-        title = QLabel("批量图像修复")
+        title = QLabel("批量图像去水印")
         title.setObjectName("title")
         layout.addWidget(title)
         subtitle = QLabel(f"Qwen-Image-2.1-Turbo  ·  {self.capacity} 个 GPU 工作进程已就绪")
