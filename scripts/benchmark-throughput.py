@@ -82,6 +82,8 @@ for profile in args.profiles:
                     if state["stage"] == "ready":
                         break
                 except (OSError, RuntimeError):
+                    if "state" in locals() and state.get("stage") == "failed":
+                        raise RuntimeError(state.get("error", "Deployment failed")) from None
                     if process.poll() is not None:
                         raise RuntimeError(f"Service exited; see {log_path}") from None
                 time.sleep(1)
@@ -132,6 +134,13 @@ for profile in args.profiles:
                     "oom_retries": max((row["oom_retries"] for row in rows), default=0),
                     "peak_allocated_mib": max((row["peak_allocated_mib"] for row in rows), default=0),
                     "progress_samples": samples,
+                }
+                by_worker = {}
+                for row in rows:
+                    by_worker.setdefault(row["worker"], []).append(row.get("peak_allocated_mib", 0))
+                record["memory_by_worker"] = {
+                    str(worker): {"first": values[0], "last": values[-1], "peak": max(values)}
+                    for worker, values in by_worker.items()
                 }
                 records.append(record)
                 with (root / "results.jsonl").open("a") as stream:

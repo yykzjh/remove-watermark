@@ -135,6 +135,8 @@ class DeploymentConfig(BaseModel):
             raise ValueError("当前固定依赖的 reduce-overhead/max-autotune 实测 CUDA Graph 错误，请使用 default")
         if self.attention == "flex" and self.compile:
             raise ValueError("当前固定依赖的 Flex 实测 Inductor 编译失败，请使用 sdpa")
+        if self.offload != "none" and (self.quantization != "none" or self.prompt_encoder == "lean" or self.fuse_qkv):
+            raise ValueError("CPU offload 尚未验证量化、lean 编码或 QKV 融合组合，请使用 stock/none 且关闭 fuse-qkv")
         if self.compile and self.offload != "none":
             raise ValueError("当前实现不组合 compile 与 CPU offload，请二选一")
         return self

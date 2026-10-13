@@ -24,3 +24,18 @@ batch_size = 2
 batch_window = 4
 batch_bucketing = false
 oom_split_batch = false
+
+# Advanced options are conservative here. CLI boolean flags are always opt-in.
+attention_backend = "native"
+compile_scope = "full"
+compile_dynamic = false
+prompt_encoder = "stock"
+encoder_batch_size = 1
+fuse_qkv = false
+quantization = "none"
+vae_tile_size = 256
+vae_tile_stride = 192
+expandable_segments = false
+shape_sort = false
+scan_workers = 1
+report_interval = 1
