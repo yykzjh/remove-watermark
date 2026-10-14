@@ -97,6 +97,8 @@ for label, extra in {
     "fp8-autotune": ["--compile-mode", "max-autotune-no-cudagraphs"],
 }.items():
     profiles[label] = profiles["fp8-projections"] + extra
+profiles["fp8-no-slicing"] = profiles["fp8-projections"]
+profiles["fp8-layout-no-slicing"] = profiles["fp8-layout"]
 profiles["fp8-projections-b1-no-tiling"] = profiles["fp8-projections-b1"]
 profiles["fp8-b1-no-tiling"] = profiles["fp8-b1"]
 profiles["fp8-replicas2"] = profiles["fp8-projections-b1"] + [
@@ -107,7 +109,12 @@ for profile in args.profiles:
     with socket.socket() as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", 18770))
-    active_common = [flag for flag in common if not (profile.endswith("-no-tiling") and flag == "--vae-tiling")]
+    omitted = set()
+    if profile.endswith("-no-tiling"):
+        omitted.add("--vae-tiling")
+    if profile.endswith("-no-slicing"):
+        omitted.add("--vae-slicing")
+    active_common = [flag for flag in common if flag not in omitted]
     command = [sys.executable, "-m", "watermark_studio.server", *active_common, *profiles[profile]]
     log_path = root / f"server-{profile}-{args.pattern}.log"
     with log_path.open("w") as log:

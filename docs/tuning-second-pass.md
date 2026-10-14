@@ -18,8 +18,9 @@ health 状态返回实际生效值。完整参数表见 [启动说明](startup-a
 
 ## 实验方法
 
-第一阶段：8 张 L40 分别运行 16 个候选配置，每配置首次调用 + 4 次热调用；
-覆盖 tensor/row、Conv 布局、cuDNN、batch 1/2/3、blocks/projections、autotune。
+第一阶段：8 张 L40 分别运行 20 个候选配置，每配置首次调用 + 4 次热调用；
+覆盖 tensor/row、Conv 布局、cuDNN、batch 1/2/3、blocks/projections、autotune，
+并追加量化后关闭 VAE tiling/slicing 和改变块大小的组合。
 微基准跨 GPU 同时运行，有 CPU/功耗竞争，只用于候选筛选。
 
 第二阶段：停止本项目空闲正式服务，独占其八个 GPU worker 做完整服务对照；
@@ -29,3 +30,23 @@ health 状态返回实际生效值。完整参数表见 [启动说明](startup-a
 仅有用户提供的两张实拍图。混合形状压力集由原图硬链接重复及填充变体构成，
 可以检验执行稳定性和调度，但不能替代上万张不同真实照片的画质验收。
 “冷”指新进程首次推理，保留已有磁盘编译缓存。热性能不代表首次部署总耗时。
+
+## 部署选项的作用阶段
+
+这里的部署调优指在启动服务时决定后续推理实现，而非只加快加载：
+
+| 部署选项 | 影响 |
+| --- | --- |
+| gpus / parallelism / replicas-per-gpu | GPU 拓扑与独立模型副本数量 |
+| quantization / float8-granularity / dtype | 计算精度、权重和激活显存、矩阵乘内核 |
+| compile / compile-scope / compile-dynamic / compile-mode | 编译边界、可复用形状、内核选择 |
+| attention-backend / kv-cache / fuse-qkv | Attention 执行与每张图片内部缓存 |
+| vae-tiling / vae-slicing / tile-size / tile-stride / vae-channels-last | 图像编解码计算和峰值显存 |
+| cudnn-benchmark | 卷积算法搜索及后续调用性能 |
+| batch-size / batch-window / batch-bucketing | 每卡一次推理数量、待凑批窗口与形状兼容性 |
+| prompt-encoder / encoder-batch-size | 图像条件编码路径和编码批大小 |
+| expandable-segments / cpu-threads / shape-sort / report-interval | allocator、CPU 工作、调度和记录开销 |
+
+运行时 concurrency 只决定全局在途图片上限，模型输入分辨率影响 token 数；
+它们与上面的部署选项分开记录。加载并发数不等于推理并发数。
+部署首调用所需的编译/算法搜索仍算成本；“ready”也不意味着所有形状已编译完毕。
