@@ -104,6 +104,9 @@ class DeploymentConfig(BaseModel):
     encoder_batch_size: int = Field(default=1, ge=1, le=16)
     fuse_qkv: bool = False
     quantization: Literal["none", "float8", "int8"] = "none"
+    float8_granularity: Literal["tensor", "row"] = "tensor"
+    cudnn_benchmark: bool = False
+    vae_channels_last: bool = False
     vae_tile_size: int = Field(default=256, ge=128, le=1024, multiple_of=32)
     vae_tile_stride: int = Field(default=192, ge=64, le=1024, multiple_of=32)
     expandable_segments: bool = False

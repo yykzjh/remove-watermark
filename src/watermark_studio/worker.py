@@ -25,6 +25,7 @@ def load_pipeline(config, model_path):
 
     torch.set_num_threads(config.cpu_threads)
     torch.backends.cuda.matmul.allow_tf32 = config.tf32
+    torch.backends.cudnn.benchmark = config.cudnn_benchmark
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA 不可用，请检查 NVIDIA 驱动及 PyTorch CUDA 环境")
     dtype = getattr(torch, config.dtype)
@@ -45,6 +46,10 @@ def load_pipeline(config, model_path):
         pipe.enable_sequential_cpu_offload(gpu_id=0)
     else:
         pipe.to("cuda:0")
+    if config.vae_channels_last:
+        # Convert convolution weights only, not unrelated temporal/linear tensors.
+        torch.nn.utils.convert_conv2d_weight_memory_format(pipe.vae, torch.channels_last)
+        torch.nn.utils.convert_conv3d_weight_memory_format(pipe.vae, torch.channels_last_3d)
     if config.attention == "sdpa":
         from .attention import IndependentSDPAProcessor
         backend = config.attention_backend
@@ -67,7 +72,7 @@ def load_pipeline(config, model_path):
         fuse_projections(pipe.transformer)
     if config.quantization != "none":
         from .optimizations import quantize_transformer
-        quantize_transformer(pipe.transformer, config.quantization)
+        quantize_transformer(pipe.transformer, config.quantization, config.float8_granularity)
     pipe._watermark_prompt_encoder = config.prompt_encoder
     pipe._watermark_encoder_batch_size = config.encoder_batch_size
     if config.compile:

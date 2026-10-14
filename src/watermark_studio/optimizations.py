@@ -42,16 +42,20 @@ def prepare_qkv(attn, hidden_states, rotary_emb, layer_cache, kv_cache_mode, cac
     return query, key, value, query.shape[1]
 
 
-def quantize_transformer(transformer, mode):
+def quantize_transformer(transformer, mode, granularity="tensor"):
     try:
         from torchao.quantization import (
             Float8DynamicActivationFloat8WeightConfig,
             Int8WeightOnlyConfig,
+            PerRow,
+            PerTensor,
             quantize_,
         )
     except ImportError as error:
         raise RuntimeError("Quantization requires uv sync --extra server --extra quantization") from error
-    config = Float8DynamicActivationFloat8WeightConfig() if mode == "float8" else Int8WeightOnlyConfig()
+    config = (Float8DynamicActivationFloat8WeightConfig(
+        granularity=PerRow() if granularity == "row" else PerTensor()
+    ) if mode == "float8" else Int8WeightOnlyConfig())
     # Leave input/output and modulation projections in the model's original precision.
     quantize_(transformer, config, filter_fn=lambda module, name:
               isinstance(module, torch.nn.Linear) and name.startswith("transformer_blocks."))

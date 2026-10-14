@@ -94,6 +94,27 @@ matrices[11] = [
     ("fp8-projections", {"quantization": "float8", "compile": True, "compile_scope": "projections"}, 2, 1024),
     ("fp8-projections-dynamic", {"quantization": "float8", "compile": True, "compile_scope": "projections", "compile_dynamic": True}, 2, 1024),
 ]
+# Second-pass candidates: compare on the deployed FP8 compiled recipe.
+second = {"vae_tile_size": 256, "vae_tile_stride": 192, "quantization": "float8",
+          "compile": True, "compile_scope": "projections", "compile_dynamic": True}
+matrices.update({
+    12: [("v2-control-b2", second, 2, 1024),
+         ("v2-row-b2", second | {"float8_granularity": "row"}, 2, 1024)],
+    13: [("v2-layout-b2", second | {"vae_channels_last": True}, 2, 1024),
+         ("v2-cudnn-b2", second | {"cudnn_benchmark": True}, 2, 1024)],
+    14: [("v2-layout-cudnn-b2", second | {"vae_channels_last": True, "cudnn_benchmark": True}, 2, 1024),
+         ("v2-row-layout-b2", second | {"float8_granularity": "row", "vae_channels_last": True}, 2, 1024)],
+    15: [("v2-projections-b1", second, 1, 1024),
+         ("v2-projections-b3", second, 3, 1024)],
+    16: [("v2-blocks-b1", second | {"compile_scope": "blocks", "compile_dynamic": False}, 1, 1024),
+         ("v2-blocks-b2", second | {"compile_scope": "blocks", "compile_dynamic": False}, 2, 1024)],
+    17: [("v2-row-blocks-b1", second | {"compile_scope": "blocks", "float8_granularity": "row"}, 1, 1024),
+         ("v2-row-blocks-b2", second | {"compile_scope": "blocks", "float8_granularity": "row"}, 2, 1024)],
+    18: [("v2-autotune-b1", second | {"compile_mode": "max-autotune-no-cudagraphs"}, 1, 1024),
+         ("v2-autotune-b2", second | {"compile_mode": "max-autotune-no-cudagraphs"}, 2, 1024)],
+    19: [("v2-row-b1", second | {"float8_granularity": "row"}, 1, 1024),
+         ("v2-row-b3", second | {"float8_granularity": "row"}, 3, 1024)],
+})
 model = Path.home() / ".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 for label, overrides, batch, resolution in matrices[args.lane]:
     if args.case and label != args.case:

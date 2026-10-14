@@ -84,6 +84,17 @@ profiles = {
                "--batch-size", "4", "--expandable-segments", "--shape-sort", "--report-interval", "64"],
     "eager-b1": ["--batch-size", "1", "--expandable-segments", "--shape-sort", "--report-interval", "64"],
 }
+for label, extra in {
+    "fp8-projections-b1": ["--batch-size", "1"],
+    "fp8-projections-b3": ["--batch-size", "3"],
+    "fp8-row": ["--float8-granularity", "row"],
+    "fp8-layout": ["--vae-channels-last"],
+    "fp8-cudnn": ["--cudnn-benchmark"],
+    "fp8-layout-cudnn": ["--vae-channels-last", "--cudnn-benchmark"],
+    "fp8-row-layout": ["--float8-granularity", "row", "--vae-channels-last"],
+    "fp8-autotune": ["--compile-mode", "max-autotune-no-cudagraphs"],
+}.items():
+    profiles[label] = profiles["fp8-projections"] + extra
 records = []
 for profile in args.profiles:
     # Never submit benchmark jobs to an existing service on this port.

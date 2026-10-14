@@ -29,6 +29,7 @@ exec bash scripts/start-server.sh \
   --prompt-encoder stock \
   --encoder-batch-size 1 \
   --quantization none \
+  --float8-granularity tensor \
   --offload none \
   --vae-tiling \
   --vae-tile-size 256 \
