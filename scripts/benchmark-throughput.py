@@ -15,6 +15,7 @@ from watermark_studio.cli import request
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--profiles", nargs="+", default=["baseline", "compiled", "fp8", "fp8-projections"])
+parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
 parser.add_argument("--tag", default="", help="Label this experiment for result filtering")
 parser.add_argument("--images", type=int, default=128)
 parser.add_argument("--pattern", choices=["uniform", "mixed"], default="uniform")
@@ -57,7 +58,7 @@ if args.followup_images:
 inputs = {count: make_input(count) for count, _ in trials}
 url = "http://127.0.0.1:18770"
 common = [
-    "--config", "config/deployment.toml", "--port", "18770", "--gpus", "0,1,2,3,4,5,6,7",
+    "--config", "config/deployment.toml", "--port", "18770", "--gpus", args.gpus,
     "--load-parallelism", "8", "--batch-size", "2", "--batch-window", "4",
     "--kv-cache", "--vae-tiling", "--vae-slicing", "--tf32", "--batch-bucketing",
     "--oom-split-batch", "--cpu-threads", "1",
@@ -96,13 +97,18 @@ for label, extra in {
     "fp8-autotune": ["--compile-mode", "max-autotune-no-cudagraphs"],
 }.items():
     profiles[label] = profiles["fp8-projections"] + extra
+profiles["fp8-projections-b1-no-tiling"] = profiles["fp8-projections-b1"]
+profiles["fp8-b1-no-tiling"] = profiles["fp8-b1"]
+profiles["fp8-replicas2"] = profiles["fp8-projections-b1"] + [
+    "--replicas-per-gpu", "2", "--load-parallelism", "1"]
 records = []
 for profile in args.profiles:
     # Never submit benchmark jobs to an existing service on this port.
     with socket.socket() as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", 18770))
-    command = [sys.executable, "-m", "watermark_studio.server", *common, *profiles[profile]]
+    active_common = [flag for flag in common if not (profile.endswith("-no-tiling") and flag == "--vae-tiling")]
+    command = [sys.executable, "-m", "watermark_studio.server", *active_common, *profiles[profile]]
     log_path = root / f"server-{profile}-{args.pattern}.log"
     with log_path.open("w") as log:
         process = subprocess.Popen(command, stdout=log, stderr=log, start_new_session=True)
