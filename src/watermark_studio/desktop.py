@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QSize, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QTextEdit,
@@ -192,6 +193,22 @@ class DirectoryDialog(QDialog):
             self.accept()
 
 
+class WorkflowTabs(QTabWidget):
+    """Size the form for the active workflow, without reserving a hidden preview."""
+
+    def sizeHint(self):
+        page = self.currentWidget()
+        if page is None:
+            return super().sizeHint()
+        content = page.layout().sizeHint().expandedTo(page.layout().minimumSize())
+        navigation = self.tabBar().sizeHint()
+        return QSize(max(content.width(), navigation.width()) + 8,
+                     content.height() + navigation.height() + 8)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, api, state):
         super().__init__()
@@ -223,7 +240,8 @@ class MainWindow(QMainWindow):
             layout.addWidget(QLabel("已启用模型编译；首次处理及新输入形状可能需要额外准备时间。"))
         if state["backend"] == "mock":
             layout.addWidget(QLabel("测试模式：不执行模型去水印。"))
-        self.tabs = QTabWidget()
+        self.tabs = WorkflowTabs()
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.tabs)
         batch = QWidget()
         self.tabs.addTab(batch, "批量去除水印")
@@ -267,6 +285,9 @@ class MainWindow(QMainWindow):
         self.preset.addItem("自动识别水印位置", "auto")
         self.preset.addItem("自定义区域", "custom")
         single_form.addRow("处理模式", self.preset)
+        self.mode_help = QLabel()
+        self.mode_help.setWordWrap(True)
+        single_form.addRow(self.mode_help)
         self.canvas = RegionCanvas()
         single_form.addRow(self.canvas)
         self.preview_status = QLabel("仅按需传输压缩预览；处理始终使用开发机原图。")
@@ -301,6 +322,10 @@ class MainWindow(QMainWindow):
         self.resolution.setCurrentIndex(2)
         self.resolution.setToolTip("保留送入模型的图像宽高比，并按模型网格对齐。较低档位省显存；更大 batch 需调整服务参数。")
         form.addRow("模型输入分辨率", self.resolution)
+        input_note = QLabel("输入档位影响效果、显存和可用 batch 大小；实际宽高保持输入比例并对齐模型网格，不决定最终整图尺寸。")
+        input_note.setWordWrap(True)
+        input_note.setObjectName("muted")
+        form.addRow(input_note)
         self.output_mode = QComboBox()
         self.output_mode.addItems(["每张图像的原始分辨率", "自定义完整图像分辨率"])
         form.addRow("输出图像分辨率", self.output_mode)
@@ -328,6 +353,7 @@ class MainWindow(QMainWindow):
         self.extra_prompt.setPlaceholderText("可选：补充地面、人物衣着、建筑线条等场景说明")
         form.addRow("补充提示词", self.extra_prompt)
         layout.addWidget(controls)
+        layout.addStretch()
         self.controls = controls
         layout = outer_layout
         self.progress = QProgressBar()
@@ -357,10 +383,15 @@ class MainWindow(QMainWindow):
         self.update_state(state)
 
     def tab_changed(self):
+        self.tabs.updateGeometry()
         self.start_button.setText("开始单张去除水印" if self.tabs.currentIndex() else "开始批量去除水印")
 
     def mode_changed(self):
         custom = self.preset.currentData() == "custom"
+        self.mode_help.setText(
+            "拖动鼠标添加多个水印框，或输入区域坐标；处理后合并回整图，再调整输出尺寸。"
+            if custom else "自动处理整张图像中的水印；手动框选、区域坐标和区域编辑按钮均已禁用。"
+        )
         self.region_controls.setEnabled(custom)
         self.canvas.set_selectable(custom and bool(self.preview_path))
 

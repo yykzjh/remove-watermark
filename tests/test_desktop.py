@@ -109,3 +109,30 @@ def test_navigation_and_multi_region_selection(tmp_path):
     window.start_job()
     assert api.calls[-1][3]["options"]["scope"] == "full_image"
     window.close()
+
+
+def test_batch_layout_does_not_reserve_single_preview_space():
+    from PySide6.QtTest import QTest
+    app = QApplication.instance() or QApplication([])
+    app.setStyleSheet(STYLE)
+    window = MainWindow(FakeApi(), {
+        "capacity": 64, "roots": ["/home/zjh"], "backend": "qwen",
+        "stage": "ready", "job": None,
+    })
+    window.show()
+    QTest.qWait(50)
+    batch_height = window.tabs.height()
+    assert not window.region_controls.isVisible()
+    assert window.controls.isVisible()
+    window.tabs.setCurrentIndex(1)
+    QTest.qWait(50)
+    assert window.tabs.height() > batch_height + 200
+    assert "已禁用" in window.mode_help.text()
+    assert not window.boxes.isEnabled()
+    window.preset.setCurrentIndex(1)
+    assert window.boxes.isEnabled()
+    window.tabs.setCurrentIndex(0)
+    QTest.qWait(50)
+    assert window.tabs.height() == batch_height
+    assert not window.region_controls.isVisible()
+    window.close()
