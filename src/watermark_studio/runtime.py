@@ -251,6 +251,7 @@ class Runtime:
                 "input_dir": str(source),
                 "output_dir": str(target),
                 "options": request.options.model_dump(),
+                "deployment": self.config.model_dump(),
                 "backend": self.config.backend,
                 "model": self.config.model,
                 "model_revision": self.model_revision,
@@ -330,7 +331,10 @@ class Runtime:
                 "inflight_images": sum(len(w["task"]) for w in self.workers if w["state"] == "busy"),
                 "pending_images": len(self.pending),
                 "worker_count": self.config.worker_count,
-                "recommended_concurrency": self.config.worker_count * self.config.batch_size * min(2, self.config.batch_window),
+                "recommended_concurrency": min(
+                    self.config.capacity,
+                    self.config.worker_count * max(4, self.config.batch_size * min(2, self.config.batch_window)),
+                ),
                 "batch_size": self.config.batch_size,
                 "batch_window": self.config.batch_window,
                 "optimization": {
@@ -350,7 +354,7 @@ class Runtime:
                         k: (v[-3:] if k == "errors" else v)
                         for k, v in self.job.items()
                         if k
-                        not in {"options", "input_dir", "output_dir", "model_revision", "model"}
+                        not in {"options", "deployment", "input_dir", "output_dir", "model_revision", "model"}
                     }
                     if self.job
                     else None

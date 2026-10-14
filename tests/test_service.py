@@ -1,3 +1,4 @@
+import json
 import time
 
 from fastapi.testclient import TestClient
@@ -47,6 +48,9 @@ def test_complete_remote_directory_batch_and_limits(tmp_path):
         assert response.status_code == 202, response.text
         state = wait_for(client, lambda s: s["job"] and s["job"]["state"] == "completed")
         assert state["job"]["succeeded"] == 4
+        assert "deployment" not in state["job"]
+        summary = json.loads((tmp_path / "state" / state["job"]["id"] / "summary.json").read_text())
+        assert summary["deployment"] == cfg.model_dump()
         assert state["job"]["invalid"] == 1
         assert len(list(target.rglob("*.png"))) == 4
         assert not (target / "irrelevant.txt").exists()
