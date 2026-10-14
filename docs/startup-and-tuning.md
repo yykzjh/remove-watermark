@@ -1,5 +1,7 @@
 > 当前界面见 [工作流说明](workflows.md)，新一轮整图吞吐实验见 [深度调优报告](deep-tuning.md)。
 
+追加部署组合实验见 [第二轮调优报告](tuning-second-pass.md)。
+
 # 服务启动、动态凑批与调优
 
 在 Linux 开发机 ~/project/inference/remove-watermark 执行，使用 uv。
@@ -7,6 +9,11 @@
 历史区域实验见 [batch-tuning-results.md](batch-tuning-results.md)，不可与当前整图吞吐直接比较。
 
 ## 启动
+
+1024输入预算的新增实测配方：[launch-throughput-untiled.sh](../scripts/launch-throughput-untiled.sh)；
+8卡、FP8、动态projections、batch1、不分块VAE，concurrency推荐32。
+257张同输入热任务比原FP8动态投影配方耗时降低7.7%，峰值分配33501 MiB。
+需要分块控制显存时可追加 --vae-tiling。完整对照和限制见第二轮报告。
 
 吞吐优先可选 [launch-throughput.sh](../scripts/launch-throughput.sh)（FP8动态投影编译），
 固定形状大任务可选 [launch-throughput-fixed.sh](../scripts/launch-throughput-fixed.sh)（FP8分块编译）。

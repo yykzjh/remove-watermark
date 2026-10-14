@@ -1,5 +1,6 @@
 """Controlled eight-GPU service experiments with fixed inputs and full output verification."""
 import argparse
+import itertools
 import json
 import os
 import signal
@@ -16,6 +17,7 @@ from watermark_studio.cli import request
 parser = argparse.ArgumentParser()
 parser.add_argument("--profiles", nargs="+", default=["baseline", "compiled", "fp8", "fp8-projections"])
 parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
+parser.add_argument("--job-timeout-seconds", type=float, default=21600, help="Wall-clock limit per benchmark job; default six hours")
 parser.add_argument("--tag", default="", help="Label this experiment for result filtering")
 parser.add_argument("--images", type=int, default=128)
 parser.add_argument("--pattern", choices=["uniform", "mixed"], default="uniform")
@@ -24,6 +26,8 @@ parser.add_argument("--concurrency", type=int, default=32)
 parser.add_argument("--concurrencies", type=int, nargs="+", help="Explicit per-trial concurrency sequence")
 parser.add_argument("--followup-images", type=int, default=0, help="Final sustained job without restarting workers")
 args = parser.parse_args()
+if args.job_timeout_seconds <= 0:
+    parser.error("--job-timeout-seconds must be positive")
 root = Path(".run/throughput").resolve()
 root.mkdir(exist_ok=True)
 fixtures = root / "fixtures"
@@ -148,7 +152,9 @@ for profile in args.profiles:
                 })["id"]
                 samples = []
                 max_inflight = 0
-                for tick in range(28800):
+                for tick in itertools.count():
+                    if time.monotonic() - start > args.job_timeout_seconds:
+                        raise TimeoutError(f"Job exceeded {args.job_timeout_seconds:g} seconds")
                     state = request(url, "/health")
                     job = state["job"]
                     if job["id"] != job_id:
@@ -160,8 +166,6 @@ for profile in args.profiles:
                     if state["stage"] == "failed" or job["state"] in {"completed", "failed", "cancelled"}:
                         break
                     time.sleep(.25)
-                else:
-                    raise TimeoutError("Job exceeded two hours")
                 elapsed = time.monotonic() - start
                 result_file = Path.home() / ".local/state/watermark-studio" / job_id / "results.jsonl"
                 rows = [json.loads(line) for line in result_file.read_text().splitlines()] if result_file.exists() else []

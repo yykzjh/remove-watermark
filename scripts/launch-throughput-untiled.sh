@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Eight-L40 throughput candidate measured at 1024 input budget, original-size output.
+# Eight-L40 throughput preset measured at 1024 input budget, original-size output.
 # VAE tiling is omitted intentionally. Use launch-throughput.sh when tiling is needed.
 # All booleans remain opt-in; scalar options at the end override this recipe.
 set -euo pipefail

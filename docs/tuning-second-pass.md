@@ -113,3 +113,105 @@ num_inference_steps 在 sample_sigmas 生效时不是一个有效的减步开关
 输出文件尺寸保持原图；推理输入预算、原始细节保留能力和最终输出尺寸是三个不同概念。
 
 每个新任务的 summary.json 保存完整 deployment 配置；/health 中的 job 摘要不重复传输该配置，保持 SSH 状态通信量小。
+
+## 八卡完整服务对照
+
+任务时间包含扫描、读取、推理、合成和保存，不包含模型加载。首轮与热轮分列；
+同一行在同一服务进程重复，所有输入、提示词、种子规则、输出编码与尺寸策略一致。
+
+### 混合形状，65 张
+
+| 配方 | 首轮秒 | 热轮 1 秒 | 热轮 2 秒 | 热中位秒 | 峰值 MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fp8-projections | 62.949 | 61.694 | 61.717 | 61.706 | 31425 |
+| fp8-layout-no-slicing | 63.015 | 61.657 | 60.135 | 60.896 | 31425 |
+| fp8-projections-b1 | 61.905 | 60.897 | 60.177 | 60.537 | 27862 |
+| fp8-projections-b1-no-tiling | 57.524 | 57.316 | 56.304 | 56.810 | 33501 |
+
+### 固定形状，64 张
+
+| 配方 | 首轮秒 | 热轮 1 秒 | 热轮 2 秒 | 热中位秒 | 峰值 MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fp8 | 63.947 | 55.078 | 54.743 | 54.910 | 30740 |
+| fp8-b1 | 90.686 | 55.597 | 55.296 | 55.447 | 29656 |
+
+混合形状基线为已有 FP8 tensor + dynamic projections + batch2 + VAE tiling/slicing。
+layout-no-slicing 只改 VAE 内存布局和切片；b1 只改 batch 上限；b1-no-tiling 再关闭 VAE 分块。
+四组共 780 张输出全部成功、8 卡参与、尺寸错误 0、OOM 0。
+热中位比较：layout-no-slicing 减少约 1.3%，b1 减少约 1.9%，b1-no-tiling 减少约 7.9%。
+前两者收益小，不能凭单轮差异认定稳定优势。
+
+固定形状两组共 384 张输出全部成功、8 卡参与、尺寸错误 0、OOM 0。
+FP8 blocks 的 batch1 热中位反而略慢于 batch2（55.447 对 54.911 秒），首轮更慢。
+因此保留 launch-throughput-fixed.sh 的 batch2；单卡微基准排名不能直接替代完整服务排名。
+
+## 使用实测吞吐配方
+
+完整参数脚本：[launch-throughput-untiled.sh](../scripts/launch-throughput-untiled.sh)。
+以 1024 输入预算为目标，默认全部八卡、每卡一实例、FP8 tensor、dynamic projections、
+batch1、window4、concurrency 建议32、原尺寸输出。量化/编译/VAE策略在服务部署时设置。
+
+~~~bash
+cd ~/project/inference/remove-watermark
+# 先预览全部生效参数，不启动模型
+bash scripts/launch-throughput-untiled.sh --print-config
+# 上一个任务结束后切换部署配方
+bash scripts/stop-server.sh
+bash scripts/launch-throughput-untiled.sh
+uv run --no-sync watermark-batch /home/zjh/input /home/zjh/output \
+  --concurrency 32 --input-resolution 1024
+~~~
+
+输入预算更高或需要 VAE 分块降低显存时，可在该脚本末尾追加 --vae-tiling，
+或使用原 launch-throughput.sh。输入预算改变后需重新测 batch 和显存。
+新的两个 bool 开关（cudnn-benchmark / vae-channels-last）均不默认启用；
+float8-granularity 默认保持 tensor。本机没有足够端到端证据支持默认叠加它们。
+动态凑批功能仍支持 batch2/3/4 等配置；b1 是当前 untiled 吞吐配方，不代表通用硬件上 b1 总是最快。
+
+## 复测命令
+
+完整服务测试使用同一输入集，先结束现有任务并停止本项目服务，避免占用相同 GPU。
+输出均留在开发机 .run/throughput/，精简指标见 [JSON 数据](tuning-second-pass.json)。
+测试脚本每任务默认上限 21600 秒（6 小时），可以通过 --job-timeout-seconds 修改；
+生产 watermark-batch CLI 没有任务总时限，HTTP 请求的 10 秒超时不是任务时限。
+
+~~~bash
+uv run --no-sync python scripts/benchmark-throughput.py \
+  --profiles fp8-projections fp8-projections-b1-no-tiling \
+  --images 257 --pattern mixed --repeats 2 --tag verify-257
+# 完整万张推理会长时间占用 GPU，以下仅是复测命令，并非本轮已执行的成绩：
+uv run --no-sync python scripts/benchmark-throughput.py \
+  --profiles fp8-projections-b1-no-tiling \
+  --images 10000 --pattern mixed --repeats 2 --job-timeout-seconds 21600 --tag verify-10k
+~~~
+
+脚本中的万张数据仍是样例重复/形状变体。真实数据集应通过 watermark-batch 提交实际目录，
+并结合任务 summary.json 的 started_at/finished_at、成功数和保存的 deployment 参数计算耗时。
+
+## 257 张相同输入复测与最终选择
+
+| 配方 | 首轮秒 | 热轮秒 | 热吞吐 张/秒 | 峰值分配 MiB |
+| --- | ---: | ---: | ---: | ---: |
+| 原 FP8 dynamic projections / batch2 / tiling | 230.844 | 227.745 | 1.1285 | 31425 |
+| FP8 dynamic projections / batch1 / untiled | 213.194 | 210.115 | 1.2231 | 33501 |
+
+四个任务均 257/257 成功，8 卡全部参与，尺寸错误 0、OOM 0。
+同输入热轮耗时减少 **7.74%**，吞吐提高 **8.39%**；
+峰值分配增加 2076 MiB（约6.6%）。所有逐窗口峰值均不超过各自表中上限。
+这不是任意输入/任意时长下的显存保证，峰值分配也不等于 nvidia-smi 的总占用。
+
+本轮累计 **26 个成功端到端任务、2336 次推理与输出保存**。
+另有 18 个完成微基准配置（合计165次图像推理）、1个首次调用超时主动终止、
+1个未执行配置，以及双实例加载 OOM。失败/未完成候选未被计入成功吞吐。
+采用 untiled 配方后，推荐 concurrency 在8卡、batch1/window4时为32；仍受服务 capacity 限制。
+固定形状 blocks 配方继续保持 batch2，VAE channels-last、cuDNN benchmark、FP8 row 均保留可选而非默认启用。
+
+仅按上述热吞吐线性外推一万张，原配方约 **147.7 分钟**，
+untiled 配方约 **136.3 分钟**，差约 **11.4 分钟**。
+另加模型加载、未命中的编译缓存和实际存储开销。
+这不是一万张真实独立照片的实测承诺：样例重复使文件系统缓存偏热，真实内容和宽高比分布可能改变结果。
+
+基准使用模型缓存中的 ModelScope master 快照，软件由 uv.lock 固定；
+master 是可变名称，严格重现实验时还需固定模型快照/权重。
+当前包元数据：PyTorch2.14.1、Diffusers0.41.0.dev0、Transformers5.19.0、TorchAO0.18.0；
+NVIDIA驱动580.105.08，8×L40，每卡46068 MiB。

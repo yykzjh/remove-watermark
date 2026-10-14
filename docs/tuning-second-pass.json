@@ -1,0 +1,2205 @@
+{
+  "environment": {
+    "packages": {
+      "torch": "2.14.1",
+      "diffusers": "0.41.0.dev0",
+      "transformers": "5.19.0",
+      "torchao": "0.18.0"
+    },
+    "model": "Qwen/Qwen-Image-2.1-Turbo",
+    "revision": "master",
+    "workers": 8,
+    "gpu": "8 x NVIDIA L40",
+    "driver": "580.105.08",
+    "gpu_total_mib": 46068,
+    "model_source": "modelscope",
+    "input_resolution": 1024,
+    "steps": 8,
+    "output_resolution": "each original file size"
+  },
+  "method": "Two real photos repeated with hardlinks; mixed workloads include padded aspect-ratio variants. Cold retains disk compiler caches.",
+  "micro": [
+    {
+      "label": "v2-control-b2",
+      "gpu": 0,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 10.732,
+      "cold_s": 15.467,
+      "hot_s": [
+        13.504,
+        13.689,
+        13.544,
+        13.746
+      ],
+      "images_per_s": 0.1469,
+      "allocated_mib": 31425,
+      "reserved_mib": 33822,
+      "steps": 8
+    },
+    {
+      "label": "v2-row-b2",
+      "gpu": 0,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 8.4,
+      "cold_s": 34.482,
+      "hot_s": [
+        13.279,
+        13.294,
+        13.551,
+        13.342
+      ],
+      "images_per_s": 0.1502,
+      "allocated_mib": 31430,
+      "reserved_mib": 33828,
+      "steps": 8
+    },
+    {
+      "label": "v2-no-tiling-b1",
+      "gpu": 0,
+      "batch": 1,
+      "resolution": 1024,
+      "load_s": 8.727,
+      "cold_s": 8.04,
+      "hot_s": [
+        6.046,
+        6.133,
+        6.119,
+        6.175
+      ],
+      "images_per_s": 0.1632,
+      "allocated_mib": 33501,
+      "reserved_mib": 35116,
+      "steps": 8
+    },
+    {
+      "label": "v2-no-tiling-b2",
+      "gpu": 0,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 7.083,
+      "cold_s": 13.138,
+      "hot_s": [
+        12.897,
+        12.966,
+        13.102,
+        13.088
+      ],
+      "images_per_s": 0.1535,
+      "allocated_mib": 35919,
+      "reserved_mib": 38316,
+      "steps": 8
+    },
+    {
+      "label": "v2-autotune-b1",
+      "gpu": 6,
+      "batch": 1,
+      "resolution": 1024,
+      "load_s": 11.416,
+      "cold_s": 69.897,
+      "hot_s": [
+        6.693,
+        6.831,
+        6.854,
+        6.883
+      ],
+      "images_per_s": 0.1461,
+      "allocated_mib": 27862,
+      "reserved_mib": 31804,
+      "steps": 8
+    },
+    {
+      "label": "v2-autotune-b2",
+      "gpu": 6,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 8.518,
+      "cold_s": 125.832,
+      "hot_s": [
+        13.868,
+        14.15,
+        14.002,
+        14.213
+      ],
+      "images_per_s": 0.1421,
+      "allocated_mib": 31425,
+      "reserved_mib": 33742,
+      "steps": 8
+    },
+    {
+      "label": "v2-row-b1",
+      "gpu": 7,
+      "batch": 1,
+      "resolution": 1024,
+      "load_s": 10.832,
+      "cold_s": 601.285,
+      "hot_s": [
+        6.18,
+        6.114,
+        6.147,
+        6.137
+      ],
+      "images_per_s": 0.1628,
+      "allocated_mib": 27867,
+      "reserved_mib": 31810,
+      "steps": 8
+    },
+    {
+      "label": "v2-row-b3",
+      "gpu": 7,
+      "batch": 3,
+      "resolution": 1024,
+      "load_s": 7.145,
+      "cold_s": 20.118,
+      "hot_s": [
+        19.905,
+        19.984,
+        20.314,
+        20.377
+      ],
+      "images_per_s": 0.1489,
+      "allocated_mib": 34993,
+      "reserved_mib": 37168,
+      "steps": 8
+    },
+    {
+      "label": "v2-layout-b2",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 11.439,
+      "cold_s": 15.273,
+      "hot_s": [
+        13.122,
+        13.21,
+        13.368,
+        13.456
+      ],
+      "images_per_s": 0.1505,
+      "allocated_mib": 31425,
+      "reserved_mib": 33824,
+      "steps": 8
+    },
+    {
+      "label": "v2-cudnn-b2",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 8.001,
+      "cold_s": 24.965,
+      "hot_s": [
+        13.665,
+        13.705,
+        13.941,
+        13.829
+      ],
+      "images_per_s": 0.1453,
+      "allocated_mib": 31862,
+      "reserved_mib": 33764,
+      "steps": 8
+    },
+    {
+      "label": "v2-projections-b1",
+      "gpu": 3,
+      "batch": 1,
+      "resolution": 1024,
+      "load_s": 11.608,
+      "cold_s": 8.504,
+      "hot_s": [
+        6.388,
+        6.404,
+        6.448,
+        6.458
+      ],
+      "images_per_s": 0.1556,
+      "allocated_mib": 27862,
+      "reserved_mib": 31804,
+      "steps": 8
+    },
+    {
+      "label": "v2-projections-b3",
+      "gpu": 3,
+      "batch": 3,
+      "resolution": 1024,
+      "load_s": 8.21,
+      "cold_s": 21.779,
+      "hot_s": [
+        21.434,
+        21.892,
+        22.161,
+        22.255
+      ],
+      "images_per_s": 0.1362,
+      "allocated_mib": 34988,
+      "reserved_mib": 37162,
+      "steps": 8
+    },
+    {
+      "label": "v2-no-slicing-b2",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 8.494,
+      "cold_s": 14.824,
+      "hot_s": [
+        12.83,
+        13.025,
+        13.131,
+        13.195
+      ],
+      "images_per_s": 0.1529,
+      "allocated_mib": 31425,
+      "reserved_mib": 33834,
+      "steps": 8
+    },
+    {
+      "label": "v2-large-tiles-b2",
+      "gpu": 1,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 6.966,
+      "cold_s": 13.471,
+      "hot_s": [
+        13.198,
+        13.42,
+        13.483,
+        13.419
+      ],
+      "images_per_s": 0.149,
+      "allocated_mib": 31425,
+      "reserved_mib": 33804,
+      "steps": 8
+    },
+    {
+      "label": "v2-blocks-b1",
+      "gpu": 4,
+      "batch": 1,
+      "resolution": 1024,
+      "load_s": 10.376,
+      "cold_s": 21.183,
+      "hot_s": [
+        5.852,
+        5.912,
+        5.927,
+        5.934
+      ],
+      "images_per_s": 0.1689,
+      "allocated_mib": 29517,
+      "reserved_mib": 31804,
+      "steps": 8
+    },
+    {
+      "label": "v2-blocks-b2",
+      "gpu": 4,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 8.462,
+      "cold_s": 22.116,
+      "hot_s": [
+        12.207,
+        12.298,
+        12.415,
+        12.363
+      ],
+      "images_per_s": 0.1622,
+      "allocated_mib": 30740,
+      "reserved_mib": 31802,
+      "steps": 8
+    },
+    {
+      "label": "v2-layout-cudnn-b2",
+      "gpu": 2,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 9.732,
+      "cold_s": 27.726,
+      "hot_s": [
+        13.246,
+        13.373,
+        13.415,
+        13.62
+      ],
+      "images_per_s": 0.1493,
+      "allocated_mib": 31425,
+      "reserved_mib": 33844,
+      "steps": 8
+    },
+    {
+      "label": "v2-row-layout-b2",
+      "gpu": 2,
+      "batch": 2,
+      "resolution": 1024,
+      "load_s": 6.894,
+      "cold_s": 514.138,
+      "hot_s": [
+        12.704,
+        12.848,
+        13.026,
+        13.036
+      ],
+      "images_per_s": 0.1546,
+      "allocated_mib": 31430,
+      "reserved_mib": 33848,
+      "steps": 8
+    }
+  ],
+  "micro_inferences": 165,
+  "unfinished_micro": [
+    {
+      "label": "v2-row-blocks-b1",
+      "status": "terminated_during_first_call",
+      "observed_process_seconds_at_least": 939,
+      "reason": "First call still unfinished after more than 15 minutes; no hot throughput result"
+    },
+    {
+      "label": "v2-row-blocks-b2",
+      "status": "not_run",
+      "reason": "Queued after terminated candidate"
+    }
+  ],
+  "deployment_failures": [
+    {
+      "profile": "fp8-replicas2",
+      "physical_gpu": 6,
+      "replicas": 2,
+      "load_parallelism": 1,
+      "status": "CUDA OOM while loading second replica; no job throughput available"
+    }
+  ],
+  "service": [
+    {
+      "tag": "v2-replicas",
+      "timestamp": 1791985464.429447,
+      "git_revision": "826ca8d180a14aeb5730007bacfe1b80a6c46312",
+      "profile": "fp8-projections-b1",
+      "pattern": "uniform",
+      "images": 8,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "727296fc38bc40198259098de794af66",
+      "boot_s": 35.18,
+      "seconds": 60.13,
+      "images_per_s": 0.133,
+      "success": 8,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0
+      ],
+      "max_inflight": 4,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 27862,
+      "memory_by_worker": {
+        "0": {
+          "first": 27862,
+          "last": 27862,
+          "peak": 27862
+        }
+      }
+    },
+    {
+      "tag": "v2-replicas",
+      "timestamp": 1791985524.0290825,
+      "git_revision": "826ca8d180a14aeb5730007bacfe1b80a6c46312",
+      "profile": "fp8-projections-b1",
+      "pattern": "uniform",
+      "images": 8,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "44ca69f7cda249d19c1f5e765d712e15",
+      "boot_s": 35.18,
+      "seconds": 59.59,
+      "images_per_s": 0.1343,
+      "success": 8,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0
+      ],
+      "max_inflight": 4,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 27862,
+      "memory_by_worker": {
+        "0": {
+          "first": 27862,
+          "last": 27862,
+          "peak": 27862
+        }
+      }
+    },
+    {
+      "tag": "v2-four-gpu",
+      "timestamp": 1791985863.0708263,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "db32d3f9c5c84f1591d8af8082cbd093",
+      "boot_s": 35.175,
+      "seconds": 117.97,
+      "images_per_s": 0.5425,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "tag": "v2-four-gpu",
+      "timestamp": 1791985980.144741,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "fa5aff275fd944d4825b0e8e5df83bdf",
+      "boot_s": 35.175,
+      "seconds": 117.043,
+      "images_per_s": 0.5468,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986086.4572814,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "567032d5304b430db1aac9b333ec14fb",
+      "boot_s": 40.219,
+      "seconds": 62.949,
+      "images_per_s": 1.0326,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "5": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "4": {
+          "first": 31351,
+          "last": 27849,
+          "peak": 31400
+        },
+        "6": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986148.1849174,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "87c480e2411c4ae7b75b179e56f5f1fb",
+      "boot_s": 40.219,
+      "seconds": 61.694,
+      "images_per_s": 1.0536,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31351,
+          "last": 27849,
+          "peak": 31400
+        },
+        "5": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "7": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "6": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986209.933123,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 2,
+      "job": "df291871c4e44c24b362b551c2f18da7",
+      "boot_s": 40.219,
+      "seconds": 61.717,
+      "images_per_s": 1.0532,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31351,
+          "last": 27849,
+          "peak": 31400
+        },
+        "5": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "7": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "6": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986315.4759274,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-layout-no-slicing",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "87f0be7098904ce285652133c423d497",
+      "boot_s": 40.229,
+      "seconds": 63.015,
+      "images_per_s": 1.0315,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "6": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "7": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "5": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986377.1608617,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-layout-no-slicing",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "293c8ca6e78444fab713f8594092c179",
+      "boot_s": 40.229,
+      "seconds": 61.657,
+      "images_per_s": 1.0542,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "7": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "5": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "6": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986437.3238325,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-layout-no-slicing",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 2,
+      "job": "5ecca5154a604c0ead8dd9a865bdf428",
+      "boot_s": 40.229,
+      "seconds": 60.135,
+      "images_per_s": 1.0809,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "3": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31425,
+          "peak": 31425
+        },
+        "4": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "7": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "6": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        },
+        "5": {
+          "first": 31351,
+          "last": 31400,
+          "peak": 31400
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986537.6710846,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections-b1",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "27dc7f1a781344c2a103d3c78243250d",
+      "boot_s": 36.191,
+      "seconds": 61.905,
+      "images_per_s": 1.05,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 27862,
+      "memory_by_worker": {
+        "4": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "5": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "7": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "6": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "1": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        },
+        "2": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        },
+        "0": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        },
+        "3": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986598.597338,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections-b1",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "68443d8ba85c443a99f4eab16d2d17a6",
+      "boot_s": 36.191,
+      "seconds": 60.897,
+      "images_per_s": 1.0674,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 27862,
+      "memory_by_worker": {
+        "4": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "5": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "7": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "3": {
+          "first": 27862,
+          "last": 27862,
+          "peak": 27862
+        },
+        "6": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "1": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        },
+        "2": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        },
+        "0": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986658.8022203,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections-b1",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 2,
+      "job": "d092ed026d624fd78bb81ac23445074f",
+      "boot_s": 36.191,
+      "seconds": 60.177,
+      "images_per_s": 1.0801,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 27862,
+      "memory_by_worker": {
+        "4": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "5": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "7": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "3": {
+          "first": 27862,
+          "last": 27862,
+          "peak": 27862
+        },
+        "6": {
+          "first": 27825,
+          "last": 27862,
+          "peak": 27862
+        },
+        "1": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        },
+        "0": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        },
+        "2": {
+          "first": 27862,
+          "last": 27849,
+          "peak": 27862
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986761.7712684,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections-b1-no-tiling",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "30bee6c6fb614d7abdcca43d75e1bd27",
+      "boot_s": 43.244,
+      "seconds": 57.524,
+      "images_per_s": 1.13,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 33501,
+      "memory_by_worker": {
+        "7": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "6": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "4": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "5": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "3": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "2": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "1": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "0": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986819.1157227,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections-b1-no-tiling",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "c7f9d1a76fcb4bbd94cb5730f3ce9e55",
+      "boot_s": 43.244,
+      "seconds": 57.316,
+      "images_per_s": 1.1341,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 33501,
+      "memory_by_worker": {
+        "4": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "7": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "5": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "6": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "3": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "2": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "1": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "0": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-mixed",
+      "timestamp": 1791986875.4477956,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-projections-b1-no-tiling",
+      "pattern": "mixed",
+      "images": 65,
+      "concurrency": 32,
+      "repeat": 2,
+      "job": "64d0a63dbd034386993dba910100b609",
+      "boot_s": 43.244,
+      "seconds": 56.304,
+      "images_per_s": 1.1544,
+      "success": 65,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 33501,
+      "memory_by_worker": {
+        "4": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "7": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "5": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "6": {
+          "first": 33398,
+          "last": 33501,
+          "peak": 33501
+        },
+        "3": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "1": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "2": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "0": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-fixed",
+      "timestamp": 1791986981.0366185,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "d2afd99ff5d046699003dde1e339c6b8",
+      "boot_s": 38.188,
+      "seconds": 63.947,
+      "images_per_s": 1.0008,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 30740,
+      "memory_by_worker": {
+        "1": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "3": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "2": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "7": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "5": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "6": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "0": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "4": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-fixed",
+      "timestamp": 1791987036.1443708,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "5e060bd76f5247ef83e7d22a04eb35ce",
+      "boot_s": 38.188,
+      "seconds": 55.078,
+      "images_per_s": 1.162,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 30740,
+      "memory_by_worker": {
+        "1": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "0": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "2": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "3": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "7": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "4": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "5": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "6": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-fixed",
+      "timestamp": 1791987090.9191463,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 2,
+      "job": "4b398b6e13b34ed29eeb15231987ce81",
+      "boot_s": 38.188,
+      "seconds": 54.743,
+      "images_per_s": 1.1691,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 30740,
+      "memory_by_worker": {
+        "0": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "3": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "2": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "1": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "4": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "7": {
+          "first": 30740,
+          "last": 30740,
+          "peak": 30740
+        },
+        "6": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        },
+        "5": {
+          "first": 30592,
+          "last": 30592,
+          "peak": 30592
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-fixed",
+      "timestamp": 1791987225.6706097,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-b1",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "0d81283c949848c7b6dd4fa3bebbe87e",
+      "boot_s": 42.275,
+      "seconds": 90.686,
+      "images_per_s": 0.7057,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 29656,
+      "memory_by_worker": {
+        "3": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "6": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "5": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "4": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "0": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "1": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "2": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "7": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-fixed",
+      "timestamp": 1791987281.3009338,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-b1",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "0aca829eaf834c37a3d491979ba05684",
+      "boot_s": 42.275,
+      "seconds": 55.597,
+      "images_per_s": 1.1511,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 29656,
+      "memory_by_worker": {
+        "3": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "2": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "1": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "4": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "0": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "5": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "7": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "6": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        }
+      }
+    },
+    {
+      "tag": "v2-eight-fixed",
+      "timestamp": 1791987336.6249642,
+      "git_revision": "9ab8b7a69c766ce9353491b3af15c94a51c51a3c",
+      "profile": "fp8-b1",
+      "pattern": "uniform",
+      "images": 64,
+      "concurrency": 32,
+      "repeat": 2,
+      "job": "c5973b97bcf84937bfe5a1b43bd3b51d",
+      "boot_s": 42.275,
+      "seconds": 55.296,
+      "images_per_s": 1.1574,
+      "success": 64,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 29656,
+      "memory_by_worker": {
+        "3": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "1": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "0": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "4": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "5": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        },
+        "2": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "6": {
+          "first": 29517,
+          "last": 29517,
+          "peak": 29517
+        },
+        "7": {
+          "first": 29656,
+          "last": 29656,
+          "peak": 29656
+        }
+      }
+    },
+    {
+      "tag": "v2-large",
+      "timestamp": 1791987719.383141,
+      "git_revision": "0a4ba60c65f260d8316dd9d12c553487d139b0dc",
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 257,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "2543ec067c24479bbe932b5660d5eb9e",
+      "boot_s": 39.209,
+      "seconds": 230.844,
+      "images_per_s": 1.1133,
+      "success": 257,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "4": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "3": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "tag": "v2-large",
+      "timestamp": 1791987947.1924314,
+      "git_revision": "0a4ba60c65f260d8316dd9d12c553487d139b0dc",
+      "profile": "fp8-projections",
+      "pattern": "mixed",
+      "images": 257,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "a1bfeb30840441e9829c8e7127ebf14f",
+      "boot_s": 39.209,
+      "seconds": 227.745,
+      "images_per_s": 1.1285,
+      "success": 257,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 31425,
+      "memory_by_worker": {
+        "4": {
+          "first": 31425,
+          "last": 27849,
+          "peak": 31425
+        },
+        "3": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "5": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "1": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "2": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "0": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "7": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        },
+        "6": {
+          "first": 31425,
+          "last": 31400,
+          "peak": 31425
+        }
+      }
+    },
+    {
+      "tag": "v2-large",
+      "timestamp": 1791988206.7084024,
+      "git_revision": "0a4ba60c65f260d8316dd9d12c553487d139b0dc",
+      "profile": "fp8-projections-b1-no-tiling",
+      "pattern": "mixed",
+      "images": 257,
+      "concurrency": 32,
+      "repeat": 0,
+      "job": "2bb67868052a4f9c9cc1266dee6937f5",
+      "boot_s": 44.241,
+      "seconds": 213.194,
+      "images_per_s": 1.2055,
+      "success": 257,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 33501,
+      "memory_by_worker": {
+        "3": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "1": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "4": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "2": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "5": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "0": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "7": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "6": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        }
+      }
+    },
+    {
+      "tag": "v2-large",
+      "timestamp": 1791988416.885535,
+      "git_revision": "0a4ba60c65f260d8316dd9d12c553487d139b0dc",
+      "profile": "fp8-projections-b1-no-tiling",
+      "pattern": "mixed",
+      "images": 257,
+      "concurrency": 32,
+      "repeat": 1,
+      "job": "426f9ef8ea384c909d9525fe4404bfdf",
+      "boot_s": 44.241,
+      "seconds": 210.115,
+      "images_per_s": 1.2231,
+      "success": 257,
+      "failed": 0,
+      "bad_sizes": 0,
+      "workers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "max_inflight": 32,
+      "batch_sizes": [
+        1
+      ],
+      "oom_retries": 0,
+      "peak_allocated_mib": 33501,
+      "memory_by_worker": {
+        "3": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "4": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "1": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "2": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "0": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "5": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "7": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        },
+        "6": {
+          "first": 33501,
+          "last": 33466,
+          "peak": 33501
+        }
+      }
+    }
+  ],
+  "service_successful_outputs": 2336,
+  "numeric_difference_mae_8bit": {
+    "layout": 1.271,
+    "row": 1.8737,
+    "cudnn": 1.3589,
+    "untiled": 7.6653
+  }
+}
