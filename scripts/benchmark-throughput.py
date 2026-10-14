@@ -15,6 +15,7 @@ from watermark_studio.cli import request
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--profiles", nargs="+", default=["baseline", "compiled", "fp8", "fp8-projections"])
+parser.add_argument("--tag", default="", help="Label this experiment for result filtering")
 parser.add_argument("--images", type=int, default=128)
 parser.add_argument("--pattern", choices=["uniform", "mixed"], default="uniform")
 parser.add_argument("--repeats", type=int, default=2)
@@ -158,6 +159,9 @@ for profile in args.profiles:
                     with Image.open(source / row["file"]) as before, Image.open(target / row["file"]) as after:
                         bad_sizes += before.size != after.size
                 record = {
+                    "tag": args.tag, "timestamp": time.time(),
+                    "git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+                    "command": command,
                     "profile": profile, "pattern": args.pattern, "images": count, "concurrency": concurrency,
                     "repeat": repeat, "job": job_id, "boot_s": round(boot_s, 3),
                     "seconds": round(elapsed, 3), "images_per_s": round(job["succeeded"] / elapsed, 4),

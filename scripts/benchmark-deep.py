@@ -115,6 +115,14 @@ matrices.update({
     19: [("v2-row-b1", second | {"float8_granularity": "row"}, 1, 1024),
          ("v2-row-b3", second | {"float8_granularity": "row"}, 3, 1024)],
 })
+matrices[20] = [
+    ("v2-no-tiling-b1", second | {"vae_tiling": False}, 1, 1024),
+    ("v2-no-tiling-b2", second | {"vae_tiling": False}, 2, 1024),
+]
+matrices[21] = [
+    ("v2-no-slicing-b2", second | {"vae_slicing": False}, 2, 1024),
+    ("v2-large-tiles-b2", second | {"vae_tile_size": 512, "vae_tile_stride": 384}, 2, 1024),
+]
 model = Path.home() / ".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 for label, overrides, batch, resolution in matrices[args.lane]:
     if args.case and label != args.case:

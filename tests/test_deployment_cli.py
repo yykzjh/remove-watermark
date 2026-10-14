@@ -55,3 +55,16 @@ def test_all_boolean_flags_are_opt_in(tmp_path):
             assert getattr(baseline, name) is False
             value, _ = parse_deployment(["--config", str(path), "--" + name.replace("_", "-")])
             assert getattr(value, name) is True
+
+
+def test_convolution_and_fp8_options_are_serialized(tmp_path):
+    path = tmp_path / "empty.toml"
+    path.write_text("")
+    config, _ = parse_deployment([
+        "--config", str(path), "--quantization", "float8",
+        "--float8-granularity", "row", "--vae-channels-last", "--cudnn-benchmark",
+    ])
+    restored = DeploymentConfig.model_validate_json(render_config(config))
+    assert restored.float8_granularity == "row"
+    assert restored.cudnn_benchmark and restored.vae_channels_last
+    assert restored.quantization == "float8"

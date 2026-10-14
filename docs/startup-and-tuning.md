@@ -63,6 +63,9 @@ starting 仅表示进程创建，/health stage=ready 才表示所有模型加载
 | --encoder-batch-size | 默认 1，1–16；仅 lean 生效，独立图像联合编码的上限；与去噪 batch-size 分开 |
 | --fuse-qkv | bool，合并 Transformer Q/K/V 线性层；本机没有稳定收益，保持关闭 |
 | --quantization | none（默认）/ float8 / int8；仅量化 Transformer 块线性层，需 quantization extra；可能改变生成细节 |
+| --float8-granularity | tensor（默认）/ row；仅 FP8 生效，分别用整张量/逐行 scale；硬件支持、性能和数值误差需实测 |
+| --cudnn-benchmark | bool，搜索卷积算法，固定形状可能加速；新形状首次更慢，可能增加临时显存，不保证确定性 |
+| --vae-channels-last | bool，仅转换 VAE Conv2d/Conv3d 权重的内存布局；可能加速卷积，也可能因转换开销变慢 |
 | --vae-tile-size | 默认 256，128–1024、32 倍数；启用 vae-tiling 时的像素块边长 |
 | --vae-tile-stride | 默认 192，64–1024、32 倍数且不大于块边长；重叠宽度=tile-size−stride |
 | --expandable-segments | bool，CUDA 初始化前启用可扩展 allocator，减少碎片；无法解决真实容量不足 |

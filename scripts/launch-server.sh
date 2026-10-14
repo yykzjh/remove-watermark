@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Complete eight-L40 deployment example. Trailing CLI options override values below.
-# Boolean switches omitted below (compile, compile-dynamic, fuse-qkv) remain false.
+# Omitted booleans (compile, compile-dynamic, fuse-qkv, cudnn-benchmark,
+# vae-channels-last) remain false.
 # To disable an enabled boolean, remove its line or call start-server.sh directly.
 set -euo pipefail
 cd "$(dirname "$0")/.."
