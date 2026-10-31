@@ -125,12 +125,16 @@ def harmonize_repair(original, generated, regions):
         original.save(folder/"original.png",compress_level=1)
         generated.save(folder/"generated.png",compress_level=1)
         (folder/"regions.json").write_text(json.dumps([r.model_dump() for r in regions]))
+    highest_scale=min(1,512/max(original.size))
+    highest_size=(max(4,round(original.width*highest_scale)),max(4,round(original.height*highest_scale)))
+    source_pyramid=original.convert("RGB").resize(highest_size,Image.Resampling.BOX)
+    candidate_pyramid=generated.convert("RGB").resize(highest_size,Image.Resampling.BOX)
     previous = None
     for longest, iterations in ((16, 96), (32, 64), (64, 40), (128, 24), (256, 24), (512, 16)):
         scale = min(1, longest/max(original.size))
         size = (max(4, round(original.width*scale)), max(4, round(original.height*scale)))
-        source = np.asarray(original.convert("RGB").resize(size, Image.Resampling.BOX), dtype=np.float32)
-        candidate = np.asarray(generated.convert("RGB").resize(size, Image.Resampling.BOX), dtype=np.float32)
+        source = np.asarray(source_pyramid.resize(size, Image.Resampling.BOX), dtype=np.float32)
+        candidate = np.asarray(candidate_pyramid.resize(size, Image.Resampling.BOX), dtype=np.float32)
         valid = np.ones((size[1], size[0]), dtype=bool)
         for region in regions:
             x0, y0, x1, y1 = region.box
