@@ -100,7 +100,7 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
     import torch
 
     outputs = []
-    def run(group):
+    def run(group, format_retry=False):
         previous = processor.tokenizer.padding_side
         try:
             processor.tokenizer.padding_side = "left"
@@ -113,7 +113,10 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
                     {"type":"text","text":(prompt or DETECTION_PROMPT) + (
                         '\nAlso include top-level "scene": "outdoor", "document", "indoor" or "unknown". '
                         'Classify the actual photograph, not pictures/icons printed inside a watermark. '
-                        'Paper receipts/certificates photographed on clothes are document scenes.' if scene_context else "")},
+                        'Paper receipts/certificates photographed on clothes are document scenes.' if scene_context else "") + (
+                        '\nReturn compact JSON only, with at most 8 distinct groups. No prose, no repeated entries, '
+                        'no markdown. Keep the original visual standard: physical text is not a digital overlay; '
+                        'do not invent boxes. Use watermarks and integer 0..1000 box coordinates.' if format_retry else "")},
                 ]}])
             inputs = processor.apply_chat_template(
                 chats, tokenize=True, add_generation_prompt=True,
@@ -121,15 +124,9 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
             )
             inputs.pop("token_type_ids", None)
             inputs = inputs.to(device)
-            from .overlay_schema import overlay_grammar
-            eos=encoder.generation_config.eos_token_id or processor.tokenizer.eos_token_id
-            eos_ids=[eos] if isinstance(eos,int) else list(eos)
-            grammar=overlay_grammar(processor.tokenizer,eos_ids,scene_context)
-            width=inputs.input_ids.shape[1]
             with torch.inference_mode():
                 generated = encoder.generate(
                     **inputs, max_new_tokens=512, do_sample=False, use_cache=True,
-                    prefix_allowed_tokens_fn=lambda batch,ids:grammar(ids[width:].tolist()),
                 )
             texts = processor.batch_decode(
                 generated[:, inputs.input_ids.shape[1]:], skip_special_tokens=True,
@@ -137,12 +134,27 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
             )
             if len(texts) != len(group):
                 raise ValueError("Detection output count differs from requests")
+            del inputs,generated
             results = []
-            for text in texts:
+            for image,text in zip(group,texts):
                 try:
                     results.append((parse_detection(text), text))
-                except (ValueError, TypeError, KeyError) as error:
-                    results.append(error)
+                except (json.JSONDecodeError,TypeError,KeyError) as error:
+                    if format_retry:
+                        results.append(error)
+                    else:
+                        recovered=run([image],True)[0]
+                        if not isinstance(recovered,Exception):
+                            regions,raw=recovered
+                            raw=raw.strip()
+                            if raw.startswith("```"):
+                                raw=raw.split("\n",1)[1].rsplit("```",1)[0].strip()
+                            data=json.loads(raw)
+                            data["format_recovery"]={"used":True,"initial_error":str(error)[:160]}
+                            recovered=(regions,json.dumps(data))
+                        results.append(recovered)
+                except ValueError as error:
+                    results.append(error)  # Geometry/type/area vetoes are not format repair.
             return results
         except Exception as error:  # noqa: BLE001 - isolate image and memory failures
             message = f"{type(error).__name__}: {error}"[:400]
@@ -153,7 +165,7 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
         torch.cuda.empty_cache()
         if split:
             mid = len(group)//2
-            return run(group[:mid]) + run(group[mid:])
+            return run(group[:mid],format_retry) + run(group[mid:],format_retry)
         return [RuntimeError(message)]
 
     for offset in range(0, len(images), batch_size):

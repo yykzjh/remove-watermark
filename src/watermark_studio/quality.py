@@ -210,7 +210,9 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
                 inner,outer,distant=values
                 slope=(outer-distant)/(far-near)
                 residual=inner-(outer+slope*(inside+near))
-                if abs(slope)>.25 or max(spreads[1:])>8 or abs(residual)<minimum_step:
+                soft=inset_search and minimum_step<8
+                if (abs(slope)>(1 if soft else .25) or
+                        max(spreads[1:])>(32 if soft else 8) or abs(residual)<minimum_step):
                     hits.append(None)
                     continue
                 if before is not None:
@@ -244,6 +246,15 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
                             [lo/size[0],max(0,position-pad-6)/size[1],
                              min(size[0],lo+48)/size[0],min(size[1],position+pad+8)/size[1]])
                     records.append({"side":side,"box":area,"luma_step":round((first[1]+second[1])/2,3)})
+    if inset_search and minimum_step<8:
+        # Lower-amplitude hints need coherent sides; random terrain texture
+        # must not trigger an additional VLM call from a single arbitrary edge.
+        coherent=[]
+        for sign in (-1,1):
+            matching=[r for r in records if r["luma_step"]*sign>0]
+            if len(matching)>=4 and len({r["side"] for r in matching})>=2:
+                coherent.extend(matching)
+        records=coherent
     return {"method":"mask_boundary_lighting_v2_insets","suspect_segments":records[:12],
             "count":len(records),"comparison_size":list(size),
             "source_unchanged_segments":unchanged_segments}
@@ -608,8 +619,14 @@ def confirm_repair_cues(candidates, encoder, processor, device, max_tokens):
         footprint=enclosing[0] if enclosing else box
         crop=context_box(pixel_box(footprint,after.size),after.size,.45)
         normal=preview(after.crop(crop),512)
-        diagnostic=ImageEnhance.Contrast(normal.filter(ImageFilter.GaussianBlur(2))).enhance(4)
-        content=[{"type":"text","text":"下列均为结果图：整图、正常局部、同局部的明暗诊断图。"},
+        diagnostic=ImageEnhance.Contrast(normal.convert("L").filter(ImageFilter.GaussianBlur(6))).enhance(4).convert("RGB")
+        local=[(footprint[0]*after.width-crop[0])/(crop[2]-crop[0]),
+               (footprint[1]*after.height-crop[1])/(crop[3]-crop[1]),
+               (footprint[2]*after.width-crop[0])/(crop[2]-crop[0]),
+               (footprint[3]*after.height-crop[1])/(crop[3]-crop[1])]
+        content=[{"type":"text","text":"下列均为结果图：整图、正常局部、同局部的明暗诊断图。"
+                  +f"原覆盖区在完整图0..1范围{footprint}，在局部图0..1范围{[round(v,4) for v in local]}。"
+                  +"位置仅用于对照，不是缺陷判定。"},
                  {"type":"image","image":preview(after,512)},
                  {"type":"image","image":normal},{"type":"image","image":diagnostic},
                  {"type":"text","text":

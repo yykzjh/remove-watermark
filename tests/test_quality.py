@@ -250,3 +250,19 @@ def test_new_inset_cues_need_visual_confirmation_and_cannot_exempt_confirmed_dam
     assert q["repair_cue_assessment"]["model"]["defect_visible"]==visible
     # Even a simultaneous natural_boundary=true cannot excuse defect_visible=true.
     assert ("repair_inset_confirmed" in q.get("guard_codes",[]))==visible
+
+
+def test_low_amplitude_inset_rectangles_are_only_soft_candidates_and_real_existing_edges_are_retained():
+    from PIL import ImageDraw
+
+    from watermark_studio.config import Region
+    from watermark_studio.quality import repair_boundary_warnings
+    source=Image.new("RGB",(600,450),(100,100,100))
+    after=source.copy()
+    box=(120,180,420,400)
+    ImageDraw.Draw(source).rectangle(box,fill="blue")
+    ImageDraw.Draw(after).rectangle(box,fill=(94,94,94))
+    regions=[Region(box=(.2,.4,.7,400/450))]
+    assert repair_boundary_warnings(after,regions,before=source)["count"]==0
+    assert repair_boundary_warnings(after,regions,before=source,inset_search=True,minimum_step=4)["count"]>0
+    assert repair_boundary_warnings(after,regions,before=after,inset_search=True,minimum_step=4)["count"]==0

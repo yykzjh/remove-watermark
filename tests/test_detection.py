@@ -79,3 +79,39 @@ def test_confirmed_source_region_does_not_need_another_gpu_scan(monkeypatch):
     found = confirm_source_hints(Image.new("RGB", (100,100)), known,
                                  [{"kind":"logo", "box":(.8,.8,.9,.9)}], None,None,None)
     assert not called and found == known
+
+
+@pytest.mark.parametrize("replies,expected_calls,valid",[
+    (['{"watermarks":[]}'],1,True),
+    (["not JSON",'{"watermarks":[]}'],2,True),
+    (["not JSON","still not JSON"],2,False),
+    (['{"watermarks":[{"kind":"panel","box":[0,0,1000,1000]}]}'],1,False),
+])
+def test_locator_repairs_only_malformed_format_once_and_never_defaults_to_empty(monkeypatch,replies,expected_calls,valid):
+    import sys
+    from contextlib import nullcontext
+
+    from watermark_studio.detection import locate_watermarks_batch
+
+    class Inputs(dict):
+        input_ids=SimpleNamespace(shape=(1,1))
+        def to(self,device): return self
+    class Generated:
+        def __getitem__(self,key): return self
+    prompts=[]
+    outputs=iter(replies)
+    processor=SimpleNamespace(tokenizer=SimpleNamespace(padding_side="right"))
+    def apply(chats,**kwargs):
+        prompts.append(chats)
+        return Inputs()
+    processor.apply_chat_template=apply
+    processor.batch_decode=lambda *a,**k:[next(outputs)]
+    encoder=SimpleNamespace(generate=lambda **k:Generated())
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(
+        inference_mode=nullcontext,cuda=SimpleNamespace(empty_cache=lambda:None)))
+    result=locate_watermarks_batch([Image.new("RGB",(200,150))],encoder,processor,"cpu")[0]
+    assert len(prompts)==expected_calls
+    assert (not isinstance(result,Exception))==valid
+    assert processor.tokenizer.padding_side=="right"
+    if valid and expected_calls==2:
+        assert json.loads(result[1])["format_recovery"]["used"] is True
