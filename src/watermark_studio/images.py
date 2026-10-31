@@ -118,7 +118,7 @@ def harmonize_repair(original, generated, regions):
     if not regions:
         return generated
     previous = None
-    for longest, iterations in ((16, 96), (32, 64), (64, 40), (128, 24)):
+    for longest, iterations in ((16, 96), (32, 64), (64, 40), (128, 24), (256, 24), (512, 16)):
         scale = min(1, longest/max(original.size))
         size = (max(4, round(original.width*scale)), max(4, round(original.height*scale)))
         source = np.asarray(original.convert("RGB").resize(size, Image.Resampling.BOX), dtype=np.float32)

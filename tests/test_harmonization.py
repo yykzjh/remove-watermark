@@ -51,3 +51,28 @@ def test_targeted_details_cover_tiny_code_instead_of_only_large_panel():
     assert boxes[0][1] <= .97 and boxes[0][3] == 1
     assert views[0].width > views[0].height * 3
     assert max(views[0].size) <= 512
+
+def test_material_dependent_shading_does_not_leave_a_rectangular_floor_edge():
+    yy,xx=np.indices((768,1024))
+    clean=np.empty((768,1024,3),dtype=np.uint8)
+    floor=yy > (.8*768-xx*.15)
+    clean[:]=(100,85,65)
+    clean[floor]=(195,190,180)
+    original=Image.fromarray(clean)
+    region=Region(box=(0,.55,.392,1))
+    ImageDraw.Draw(original).rectangle((0,423,401,767),fill=(25,80,215))
+    generated=clean.astype(np.int16)-[25,20,15]
+    generated[floor]-=15
+    output=composite_protected(original,Image.fromarray(generated.astype(np.uint8)),
+                               [region],12,"harmonic")
+    assert repair_boundary_warnings(output,[region])["count"] == 0
+
+def test_original_visible_object_edge_is_not_a_new_patch_seam():
+    clean=Image.new("RGB",(512,384),(140,140,140))
+    region=Region(box=(.2,.2,.7,.8))
+    ImageDraw.Draw(clean).rectangle((102,77,358,307),fill=(85,85,85))
+    before=clean.copy()
+    ImageDraw.Draw(before).rectangle((125,100,335,284),fill=(30,90,220))
+    assert repair_boundary_warnings(clean,[region])["count"]>0
+    checked=repair_boundary_warnings(clean,[region],before=before)
+    assert checked["count"] == 0 and checked["source_unchanged_segments"]>0

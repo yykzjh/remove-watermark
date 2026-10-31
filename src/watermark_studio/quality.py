@@ -155,7 +155,7 @@ def outside_repair_changes(before, after, regions, resolution=2048, feather=12):
             "method": "local_outside_overlay_v1"}
 
 
-def repair_boundary_warnings(image, regions, feather=12, resolution=1024):
+def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before=None):
     """Find long, mask-aligned lighting steps; a cue for review, not a quality score."""
     scale = min(1, resolution/max(image.size))
     size = (max(1,round(image.width*scale)), max(1,round(image.height*scale)))
@@ -164,7 +164,8 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024):
     light = rgb @ np.array([.2126,.7152,.0722], dtype=np.float32)
     pad = max(2,round(feather*scale))
     near, far, inside = pad+6, pad+18, 6
-    records = []
+    records, reference = [], None
+    unchanged_segments = 0
     for region in regions:
         x0,y0,x1,y1 = region.box if hasattr(region,"box") else region["box"]
         box = (round(x0*size[0]),round(y0*size[1]),round(x1*size[0]),round(y1*size[1]))
@@ -192,6 +193,20 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024):
                 if abs(slope)>.25 or max(spreads[1:])>8 or abs(residual)<8:
                     hits.append(None)
                     continue
+                if before is not None:
+                    if reference is None:
+                        ref=before.convert("RGB").resize(size,Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(1.2))
+                        reference=np.asarray(ref,dtype=np.float32)
+                    changes=[]
+                    for offset in (inside,-near,-far):
+                        at=position+direction*offset
+                        source_tile=reference[lo:hi,at-2:at+3] if vertical else reference[at-2:at+3,lo:hi]
+                        output_tile=rgb[lo:hi,at-2:at+3] if vertical else rgb[at-2:at+3,lo:hi]
+                        changes.append(float(np.abs(source_tile-output_tile).mean()))
+                    if max(changes)<3:
+                        unchanged_segments+=1
+                        hits.append(None)
+                        continue  # The same edge is visible in the original; it was not introduced.
                 profile=[]
                 offsets=list(range(-pad-6,10))
                 for offset in offsets:
@@ -210,7 +225,8 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024):
                              min(size[0],lo+48)/size[0],min(size[1],position+pad+8)/size[1]])
                     records.append({"side":side,"box":area,"luma_step":round((first[1]+second[1])/2,3)})
     return {"method":"mask_boundary_lighting_v1","suspect_segments":records[:12],
-            "count":len(records),"comparison_size":list(size)}
+            "count":len(records),"comparison_size":list(size),
+            "source_unchanged_segments":unchanged_segments}
 
 
 def detail_sheets(before, after, count=4):
@@ -554,7 +570,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["outside_repair_change"] = local
             verdict["source_regions"] = [r.model_dump() if hasattr(r, "model_dump") else r for r in regions]
             seam_photo = after if after.size == before.size else after.resize(before.size, Image.Resampling.LANCZOS)
-            seam = repair_boundary_warnings(seam_photo, regions, feather)
+            seam = repair_boundary_warnings(seam_photo, regions, feather, before=before)
             verdict["repair_boundary"] = seam
             if seam["count"]:
                 verdict.update(status="review", natural=False, uncertain=True)
