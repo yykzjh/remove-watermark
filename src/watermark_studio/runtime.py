@@ -256,6 +256,9 @@ class Runtime:
             if (request.options.quality_check and self.config.backend != "mock"
                     and not self.config.quality_verifier):
                 raise ValueError("质量检验需要服务启动时指定 --quality-verifier，并选择 quality-backend")
+            if (request.options.quality_cross_review and self.config.backend != "mock"
+                    and self.config.quality_backend != "independent"):
+                raise ValueError("编辑侧争议复核需要 --quality-backend independent，不能用相同模型自证通过")
             if request.options.concurrency > self.config.capacity:
                 raise ValueError(f"在途图片数不能超过工作进程缓冲容量 {self.config.capacity}")
             single = None

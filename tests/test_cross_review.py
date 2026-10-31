@@ -151,3 +151,16 @@ def test_corrected_claim_requires_actual_observable_explanation(monkeypatch):
     with pytest.raises(ValueError,match="observable explanation"):
         _recover_classification([{ "role":"user","content":[{"type":"text","text":"classify"}]}],
                                 '{}',"missing fields",None,None,"cpu")
+
+
+def test_production_cross_review_requires_an_independent_validator(tmp_path):
+    from watermark_studio.config import DeploymentConfig, JobRequest
+    from watermark_studio.runtime import Runtime
+
+    runtime=Runtime(DeploymentConfig(state_dir=str(tmp_path/"state"),quality_verifier=True,
+                                     quality_backend="resident"))
+    runtime.stage="ready"
+    request=JobRequest(input_dir=str(tmp_path),output_dir=str(tmp_path/"out"),
+        options=ProcessingConfig(quality_check=True,quality_cross_review=True,concurrency=1))
+    with pytest.raises(ValueError,match="independent"):
+        runtime.submit(request)
