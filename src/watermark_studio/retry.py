@@ -144,6 +144,9 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             selected["best_attempt"] = current_attempt
         if saved["best"] is not None:
             atomic_copy(best, task["destination"], options.overwrite or bool(task.get("_retry")))
+        selected["cross_review_attempted_now"] = bool(q.get("cross_review",{}).get("attempted"))
+        selected["cross_review_corrected_now"] = q.get("cross_review",{}).get("status")=="corrected"
+        selected["cross_review_error_now"] = q.get("cross_review",{}).get("status")=="error"
         again = retry_allowed(selected, options, current_attempt)
         if (again and task.get("_protect_disputed_text") and task.get("_recheck")
                 and selected.get("quality",{}).get("status") in {"review","error"}):

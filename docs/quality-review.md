@@ -22,7 +22,7 @@ bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
 
 ~~~bash
 uv run --no-sync watermark-studio --ssh-host cdu_dev \
-  --preserve-background --quality-check --quality-auto-retry --quality-batch-size 2
+  --preserve-background --quality-check --quality-auto-retry --quality-cross-review --quality-batch-size 2
 ~~~
 
 客户端可手工勾选检验、自动返工、原图保护；以上启动命令显式预选这三项，不会自动提交。
@@ -107,7 +107,7 @@ explanation_seconds单独计时，并计入quality_total_seconds与端到端wall
 
 任何明暗台阶、纹理骤降、内容变化或不确定判定都不能被这条链路豁免。双模型仍有误判风险，不能声称完美；扫描、说明或解析错误都保留原拒绝。每张图整个返工生命周期最多实际争议复核1次，避免模型相互争辩无限拖慢吞吐。编辑侧有明确实物证据而验证侧不同意时，只复检候选1次；仍有分歧就保留待复核（retry_blocked=unresolved_physical_text_dispute），即使quality_max_attempts=0也不无限反复复检或盲目擦掉该处真实文字。
 
-quality.cross_review保存编辑侧说明、独立侧依据、原图像素比较、整图重检、最终扫描和耗时；改判时pre_cross_review保存原判定与原依据。相同模型不能充当两个独立意见。桌面有“编辑侧说明与独立复核”选项；CLI/桌面启动都支持 --quality-cross-review。
+quality.cross_review保存编辑侧说明、独立侧依据、原图像素比较、整图重检、最终扫描和耗时；改判时pre_cross_review保存原判定与原依据。相同模型不能充当两个独立意见。桌面有“编辑侧说明与独立复核”选项，显示争议复核、已纠正误报与错误次数；计数按实际尝试，不重复计入被沿用的最佳候选。CLI/桌面启动都支持 --quality-cross-review。
 
 ## 原图保护与返工
 

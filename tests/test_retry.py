@@ -289,3 +289,17 @@ def test_inconclusive_physical_text_recheck_ends_in_review_even_in_unlimited_mod
     assert final["retry_blocked"]=="unresolved_physical_text_dispute"
     assert final["retry_exhausted"] is False
     assert (tmp_path/"out.png").read_bytes()==b"preserved physical text"
+
+
+def test_runtime_counts_current_dispute_event_not_reused_best_candidate_twice(tmp_path):
+    runtime=Runtime(DeploymentConfig(backend="mock",state_dir=str(tmp_path)))
+    runtime.job={"id":"cross-events","state":"running","total":1,"completed":0,"succeeded":0,
+                 "failed":0,"errors":[],"no_watermark":0,"invalid":0,"options":{"quality_check":True}}
+    runtime._persist()
+    q=verdict();q["cross_review"]={"attempted":True,"status":"error"}
+    runtime._record({"file":"brand.png","ok":True,"quality":q,
+        "cross_review_attempted_now":True,"cross_review_error_now":True,
+        "_retry_task":{"relative":"brand.png"}})
+    runtime._record({"file":"brand.png","ok":True,"quality":q,
+        "cross_review_attempted_now":False,"cross_review_error_now":False})
+    assert runtime.job["cross_review_attempts"]==1 and runtime.job["cross_review_errors"]==1

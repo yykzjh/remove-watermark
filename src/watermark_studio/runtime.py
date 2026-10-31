@@ -139,6 +139,14 @@ class Runtime:
     def _record(self, result):
         job = self.job
         job["current"] = result["file"]
+        cross = result.get("quality",{}).get("cross_review",{})
+        for key,event,fallback in (
+            ("cross_review_attempts","cross_review_attempted_now",bool(cross.get("attempted"))),
+            ("cross_review_corrected","cross_review_corrected_now",cross.get("status")=="corrected"),
+            ("cross_review_errors","cross_review_error_now",cross.get("status")=="error"),
+        ):
+            if result.get(event,fallback):
+                job[key] = job.get(key,0)+1
         retry = result.pop("_retry_task", None)
         if result.get("quality_attempts", 1) > 1:
             job["retry_attempts"] = job.get("retry_attempts", 0) + 1
@@ -297,6 +305,9 @@ class Runtime:
                 "no_watermark": 0,
                 "existing_outputs": 0,
                 "quality_counts": {},
+                "cross_review_attempts": 0,
+                "cross_review_corrected": 0,
+                "cross_review_errors": 0,
                 "quality_issues": [],
                 "failed": 0,
                 "skipped": 0,

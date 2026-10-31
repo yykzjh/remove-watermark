@@ -616,7 +616,9 @@ class MainWindow(QMainWindow):
             f"目录 {mirror.get('directories', 0)}  原样复制 {mirror.get('copied_files', 0)} 个文件"
             f"（不可处理图像 {mirror.get('copied_invalid_images', 0)}）  "
             f"链接 {mirror.get('copied_links', 0)}  已有附带文件保留 {mirror.get('existing_files', 0)}  "
-            f"复制失败 {mirror.get('copy_failures', 0)}"
+            f"复制失败 {mirror.get('copy_failures', 0)}\n"
+            f"争议复核 {job.get('cross_review_attempts',0)}  已纠正误报 {job.get('cross_review_corrected',0)}  "
+            f"复核错误 {job.get('cross_review_errors',0)}"
         )
         self.current.setText(job.get("current", ""))
         self.errors.setPlainText(
