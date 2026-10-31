@@ -225,8 +225,11 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         width = inputs.input_ids.shape[1]
 
         def allowed(batch_id, token_ids):
+            suffix = token_ids[width:].tolist()
+            if any(token in eos_ids for token in suffix):
+                return eos_ids
             node = grammar
-            for token in token_ids[width:].tolist():
+            for token in suffix:
                 node = node[token]
             return list(node)
 

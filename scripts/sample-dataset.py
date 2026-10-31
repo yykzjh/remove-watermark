@@ -2,6 +2,7 @@
 import argparse
 import json
 import random
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -23,7 +24,12 @@ for row in manifest:
     if not f.is_file() or not row["size"] or f.stat().st_size != row["size"]:
         continue
     parts = Path(rel).parts
-    key = parts[0] if ("-" in parts[0] and "村" in parts[0]) else "/".join(parts[:2])
+    match = re.match(r"(.+?(?:镇|乡|街道))(?:[-—_ ]+)?(.*)", parts[0])
+    town = match[1] if match else parts[0]
+    village = match[2] if match and match[2] else (parts[1] if len(parts)>2 else "未明确村名")
+    named = re.match(r"(.+?(?:村|社区))", village)
+    key = town + "/" + (named[1] if named else village)
+
     groups[key].append(f)
 rng = random.Random(20261031)
 keys = sorted(groups)
@@ -65,6 +71,6 @@ for page in range((len(selected)+7)//8):
     target = out / f"contact-{page:02d}.jpg"
     sheet.save(target, quality=42)
     assert target.stat().st_size < 65536
-print(json.dumps({"samples": len(selected), "village_directories": len({r["group"] for r in selected}),
+print(json.dumps({"samples": len(selected), "directory_groups": len({r["group"] for r in selected}),
                   "town_directories": len({Path(r["group"]).parts[0] for r in selected}),
                   "pages": (len(selected)+7)//8}))
