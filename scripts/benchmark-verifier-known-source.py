@@ -20,7 +20,7 @@ PROFILES={
 }
 
 
-def frozen_job_cases(state_root, job):
+def frozen_job_cases(state_root, job, files=None):
     from watermark_studio.config import Region
     folder = Path(state_root) / job
     summary = json.loads((folder/"summary.json").read_text())
@@ -30,11 +30,19 @@ def frozen_job_cases(state_root, job):
     if len(rows) != summary["total"] or len({r["file"] for r in rows}) != len(rows):
         raise ValueError("Incomplete or repeated source results")
     source_root, output_root = Path(summary["input_dir"]).resolve(), Path(summary["output_dir"]).resolve()
+    selected=None if files is None else set(files)
+    if selected is not None and (not selected or len(selected)!=len(files) or
+                                 not selected.issubset({r["file"] for r in rows})):
+        raise ValueError("Explicit source subset must be nonempty, unique and available")
     cases = []
     for row in sorted(rows, key=lambda r:r["file"]):
         name = Path(row["file"])
-        if name.is_absolute() or ".." in name.parts or not row.get("ok"):
-            raise ValueError("Every paired image must have a valid successful generation")
+        if name.is_absolute() or ".." in name.parts:
+            raise ValueError("Every paired image must stay inside its frozen source root")
+        if selected is not None and row["file"] not in selected:
+            continue
+        if not row.get("ok"):
+            raise ValueError("Every selected pair must have a valid successful generation")
         source, output = (source_root/name).resolve(), (output_root/name).resolve()
         if not source.is_relative_to(source_root) or not output.is_relative_to(output_root):
             raise ValueError("Pair path escapes source/output roots")
@@ -147,6 +155,7 @@ def file_hashes(cases):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--source-job")
+    parser.add_argument("--files",nargs="+",help="Explicit successful source subset; omissions are reported")
     parser.add_argument("--controls-only",action="store_true",help="Grade only known control pairs; no candidate source job")
     parser.add_argument("--tag",required=True)
     parser.add_argument("--profile",choices=list(PROFILES),required=True)
@@ -160,7 +169,7 @@ def main():
     if not re.fullmatch(r"[a-zA-Z0-9_-]+",args.tag):
         parser.error("Simple tag required")
     if args.controls_only:
-        if args.source_job or not args.controls:
+        if args.source_job or args.files or not args.controls:
             parser.error("--controls-only requires --controls and excludes --source-job")
     elif not args.source_job or not re.fullmatch(r"[a-f0-9]{32}",args.source_job):
         parser.error("Exact completed source job ID required")
@@ -180,7 +189,7 @@ def main():
     target.mkdir(parents=True,exist_ok=False)
     cases=known_control_cases(args.controls) if args.controls else []
     if not args.controls_only:
-        cases+=frozen_job_cases(args.state_dir,args.source_job)
+        cases+=frozen_job_cases(args.state_dir,args.source_job,args.files)
     before=file_hashes(cases)
     repository,mode=PROFILES[args.profile]
     model=args.models_root/repository/"snapshots/master"
@@ -238,7 +247,9 @@ def main():
                 cohorts[cohort].update(
                     clean_refused=sum(r["expected"]=="passed" and r["quality"]["status"]!="passed" for r in selected),
                     defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected))
-        result={"profile":args.profile,"source_job":args.source_job,"images":len(cases),
+        result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
+                 "code_revision":__import__("subprocess").check_output(
+                     ["git","rev-parse","--short","HEAD"],text=True).strip(),"images":len(cases),
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,
                 "cross_review_effective":args.cross_review and identity["relation"]=="different_weights",

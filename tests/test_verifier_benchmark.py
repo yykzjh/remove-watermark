@@ -69,3 +69,19 @@ def test_synthetic_source_annotations_exclude_clean_identity_but_cover_injected_
 def test_bf16_benchmark_profiles_never_select_nf4_implicitly():
     for name,(_,quantization) in TOOLS["PROFILES"].items():
         assert quantization==("none" if name.endswith("-bf16") else "nf4")
+
+
+
+def test_explicit_subset_can_inspect_successful_pairs_without_hiding_a_full_job_failure(tmp_path):
+    state,folder,row=job_fixture(tmp_path)
+    failed={**row,"file":"failed.png","ok":False}
+    with (folder/"results.jsonl").open("a") as stream: stream.write(json.dumps(failed)+"\n")
+    summary=json.loads((folder/"summary.json").read_text());summary["total"]=2
+    (folder/"summary.json").write_text(json.dumps(summary))
+    assert len(TOOLS["frozen_job_cases"](state,"job",["image.png"]))==1
+    with pytest.raises(ValueError,match="successful"):
+        TOOLS["frozen_job_cases"](state,"job")
+    with pytest.raises(ValueError,match="successful"):
+        TOOLS["frozen_job_cases"](state,"job",["failed.png"])
+    with pytest.raises(ValueError,match="subset"):
+        TOOLS["frozen_job_cases"](state,"job",["missing.png"])
