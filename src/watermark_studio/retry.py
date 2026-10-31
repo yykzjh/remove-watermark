@@ -30,6 +30,23 @@ def quality_rank(result):
     )
 
 
+
+def unsupported_residual_dispute(quality):
+    """No evidence for a destructive re-edit; recheck once and retain review if disputed."""
+    explanation = quality.get("model_explanation", {})
+    return (
+        quality.get("status") == "review"
+        and quality.get("watermark_removed") is False
+        and quality.get("natural") is True
+        and quality.get("content_preserved") is True
+        and quality.get("uncertain") is False
+        and not quality.get("guard_codes")
+        and quality.get("residual_regions") == []
+        and explanation.get("status") == "ok"
+        and explanation.get("assessment") == "no_clear_defect"
+        and not any(f.get("issue") != "physical_text" for f in explanation.get("findings", []))
+    )
+
 def retry_allowed(result, options, attempt):
     return (
         options.quality_auto_retry and result.get("quality", {}).get("status") in {"review", "error"}
@@ -122,6 +139,9 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         from .evidence import refresh_evidence
         if q.get("status") in {"review", "error", "passed"}:
             refresh_evidence(q)
+        if unsupported_residual_dispute(q):
+            q["retry_recheck_only"] = True
+            q["retry_recheck_reason"] = "unsupported_residual_dispute"
         record = {"attempt": current_attempt, "quality": result.get("quality"),
                   "ok": result["ok"], "action": result.get("action"), "error": result.get("error"),
                   "repair_feedback_used": result.get("repair_feedback_used", []),
@@ -151,7 +171,11 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         if (again and task.get("_protect_disputed_text") and task.get("_recheck")
                 and selected.get("quality",{}).get("status") in {"review","error"}):
             again = False
-            selected["retry_blocked"] = "unresolved_physical_text_dispute"
+            selected["retry_blocked"] = (
+                "unresolved_residual_dispute"
+                if selected.get("quality", {}).get("retry_recheck_reason") == "unsupported_residual_dispute"
+                else "unresolved_physical_text_dispute"
+            )
         selected["retry_exhausted"] = bool(
             not again and selected.get("quality", {}).get("status") in {"review", "error"}
             and not selected.get("retry_blocked")

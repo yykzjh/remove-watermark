@@ -303,3 +303,50 @@ def test_runtime_counts_current_dispute_event_not_reused_best_candidate_twice(tm
     runtime._record({"file":"brand.png","ok":True,"quality":q,
         "cross_review_attempted_now":False,"cross_review_error_now":False})
     assert runtime.job["cross_review_attempts"]==1 and runtime.job["cross_review_errors"]==1
+
+
+def test_unsupported_residual_refusal_is_rechecked_without_repainting(tmp_path):
+    cfg = DeploymentConfig(state_dir=str(tmp_path / "state"), backend="mock")
+    opts = ProcessingConfig(quality_check=True, quality_auto_retry=True, quality_max_attempts=0)
+    source, target = tmp_path / "original.png", tmp_path / "output.png"
+    source.write_bytes(b"source")
+    seen = []
+    def process(tasks, settings, *_):
+        task = tasks[0]
+        seen.append(task.get("reuse_existing", False))
+        path = Path(task["destination"])
+        if task.get("_recheck"):
+            assert task["reuse_existing"] and path.read_bytes() == b"safe-first"
+        else:
+            path.write_bytes(b"safe-first")
+        q = verdict()
+        q.update(residual_regions=[], model_explanation={
+            "status": "ok", "assessment": "no_clear_defect", "findings": []})
+        return [{"file": "a.png", "ok": True, "quality": q}]
+    task = {"source": str(source), "destination": str(target), "relative": "a.png"}
+    first = process_attempts([task], opts, cfg, None, {}, "job", process)[0]
+    assert first["quality"]["status"] == "review"
+    assert first["_retry_task"]["_recheck"]
+    final = process_attempts([first["_retry_task"]], opts, cfg, None, {}, "job", process)[0]
+    assert seen == [False, True]
+    assert target.read_bytes() == b"safe-first" and source.read_bytes() == b"source"
+    assert final["quality"]["status"] == "review"
+    assert final["retry_blocked"] == "unresolved_residual_dispute"
+    assert "_retry_task" not in final
+
+
+@pytest.mark.parametrize("change", [
+    {"natural": False}, {"content_preserved": False}, {"uncertain": True},
+    {"guard_codes": ["repair_boundary_step"]}, {"residual_regions": [{"box": [0,.5,.5,1]}]},
+    {"model_explanation": {"status": "error", "assessment": "no_clear_defect"}},
+    {"model_explanation": {"status": "ok", "assessment": "defect_visible", "findings": []}},
+    {"model_explanation": {"status": "ok", "assessment": "no_clear_defect",
+                           "findings": [{"issue": "rectangular_shadow"}]}},
+])
+def test_real_or_uncertain_defects_never_enter_unsupported_dispute_shortcut(change):
+    from watermark_studio.retry import unsupported_residual_dispute
+    q = verdict() | {"residual_regions": [], "model_explanation": {
+        "status": "ok", "assessment": "no_clear_defect", "findings": []}}
+    assert unsupported_residual_dispute(q)
+    q.update(change)
+    assert not unsupported_residual_dispute(q)
