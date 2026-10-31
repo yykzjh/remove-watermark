@@ -13,6 +13,12 @@ import re
 import time
 from pathlib import Path
 
+PROFILES={
+    "4b-bf16":("Qwen--Qwen3-VL-4B-Instruct","none"),
+    "8b-nf4":("Qwen--Qwen3-VL-8B-Instruct","nf4"),
+    "35-4b-bf16":("Qwen--Qwen3.5-4B","none"),
+}
+
 
 def frozen_job_cases(state_root, job):
     from watermark_studio.config import Region
@@ -143,7 +149,7 @@ def main():
     parser.add_argument("--source-job")
     parser.add_argument("--controls-only",action="store_true",help="Grade only known control pairs; no candidate source job")
     parser.add_argument("--tag",required=True)
-    parser.add_argument("--profile",choices=["4b-bf16","8b-nf4","35-4b-bf16"],required=True)
+    parser.add_argument("--profile",choices=list(PROFILES),required=True)
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--cross-review",action="store_true")
@@ -176,13 +182,11 @@ def main():
     if not args.controls_only:
         cases+=frozen_job_cases(args.state_dir,args.source_job)
     before=file_hashes(cases)
-    repository={"4b-bf16":"Qwen--Qwen3-VL-4B-Instruct","8b-nf4":"Qwen--Qwen3-VL-8B-Instruct",
-                "35-4b-bf16":"Qwen--Qwen3.5-4B"}[args.profile]
+    repository,mode=PROFILES[args.profile]
     model=args.models_root/repository/"snapshots/master"
     editor_root=args.models_root/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
     from watermark_studio.model_identity import compare_model_weights
     identity=compare_model_weights(editor_root/"text_encoder",model)
-    mode="none" if args.profile=="4b-bf16" else "nf4"
     ctx=mp.get_context("spawn")
     events,start=ctx.Queue(),ctx.Event()
     workers=[]

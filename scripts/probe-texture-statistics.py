@@ -36,6 +36,17 @@ def main():
                          "<offline-texture-ablation>","exec")
         exec(compiled,namespace)  # noqa: S102 - checked project source and finite numeric constants only
         variants.append((f"cap_{cap:g}",namespace["repair_texture_warnings"]))
+    robust={
+        "median":"float(np.median(tile))",
+        "trim_top_quarter":"float(np.minimum(tile,np.quantile(tile,.75)).mean())",
+        "dense_support":"(float(tile.mean()) if (tile>.5).mean()>=.5 else 0.0)",
+    }
+    for name,expression in robust.items():
+        namespace=dict(vars(quality))
+        compiled=compile(source.replace(token,f"stats.append({expression})"),
+                         "<offline-texture-ablation>","exec")
+        exec(compiled,namespace)  # noqa: S102 - fixed local statistic expressions only
+        variants.append((name,namespace["repair_texture_warnings"]))
     values={name:[] for name,_ in variants}
     started=time.monotonic()
     for case in cases:

@@ -531,7 +531,7 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         results.append(result | {"seconds": round(elapsed / len(pairs), 3),
             "batch_seconds": round(elapsed, 3), "batch_size": len(pairs),
             "resolution": resolution, "detail_boxes": boxes, "pixel_mae": pixel_change(before, after),
-            "method": reviewer + "_qwen3_vl", "review_version": "2026-10-31.detail-json-v2",
+            "method": reviewer+"_"+getattr(getattr(encoder,"config",None),"model_type","unknown"), "review_version": "2026-10-31.detail-json-v2",
             "comparison_output_resized": before.size != after.size})
     return results
 
@@ -722,7 +722,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             output_inspection_seconds=round(output_seconds/len(pairs), 3),
             content_comparison_seconds=round(content_seconds/len(pairs), 3),
             resolution=resolution, detail_boxes=boxes, pixel_mae=pixel_change(before, after),
-            method=reviewer+"_qwen3_vl", review_version="2026-10-31.decomposed-v1",
+            method=reviewer+"_"+getattr(getattr(encoder,"config",None),"model_type","unknown"), review_version="2026-10-31.decomposed-v1",
         )
         regions = known[index]
         verdict["reference_detail_box"]=(list(max(regions,key=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1])).box)

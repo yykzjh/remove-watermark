@@ -64,3 +64,8 @@ def test_synthetic_source_annotations_exclude_clean_identity_but_cover_injected_
     assert clean["regions"]==[]
     box=marked["regions"][0]["box"]
     assert box[0]<.60 and box[1]<.03 and box[2]>=.97 and box[3]>.28
+
+
+def test_bf16_benchmark_profiles_never_select_nf4_implicitly():
+    for name,(_,quantization) in TOOLS["PROFILES"].items():
+        assert quantization==("none" if name.endswith("-bf16") else "nf4")
