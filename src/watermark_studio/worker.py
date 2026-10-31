@@ -490,14 +490,11 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate, q
             pipe = None if config.backend == "mock" else load_pipeline(config, model_path)
             if pipe is not None and quality_path:
                 import torch
-                from transformers import Qwen3VLProcessor
 
-                from .quality_loading import load_quality_encoder
+                from .quality_loading import load_quality_encoder, load_quality_processor
                 torch.cuda.empty_cache()
                 pipe._quality_encoder = load_quality_encoder(quality_path,config,pipe._execution_device)
-                pipe._quality_processor = Qwen3VLProcessor.from_pretrained(
-                    quality_path, local_files_only=True,
-                )
+                pipe._quality_processor = load_quality_processor(quality_path)
             elif pipe is not None and config.quality_verifier:
                 pipe._quality_encoder, pipe._quality_processor = pipe.text_encoder, pipe.processor
             if pipe is not None:

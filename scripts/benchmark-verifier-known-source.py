@@ -90,11 +90,11 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
         from watermark_studio.config import DeploymentConfig, Region
         from watermark_studio.images import load_photo
         from watermark_studio.quality import verify_batch
-        from watermark_studio.quality_loading import load_quality_encoder
+        from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
         torch.set_num_threads(1)
         cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent",quality_quantization=mode)
         encoder=load_quality_encoder(model,cfg,"cuda:0")
-        processor=Qwen3VLProcessor.from_pretrained(model,local_files_only=True)
+        processor=load_quality_processor(model)
         editor=None
         ep=None
         allow=cross and relation=="different_weights"
@@ -143,7 +143,7 @@ def main():
     parser.add_argument("--source-job")
     parser.add_argument("--controls-only",action="store_true",help="Grade only known control pairs; no candidate source job")
     parser.add_argument("--tag",required=True)
-    parser.add_argument("--profile",choices=["4b-bf16","8b-nf4"],required=True)
+    parser.add_argument("--profile",choices=["4b-bf16","8b-nf4","35-4b-bf16"],required=True)
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--cross-review",action="store_true")
@@ -176,8 +176,9 @@ def main():
     if not args.controls_only:
         cases+=frozen_job_cases(args.state_dir,args.source_job)
     before=file_hashes(cases)
-    model=args.models_root/("Qwen--Qwen3-VL-4B-Instruct" if args.profile=="4b-bf16"
-                           else "Qwen--Qwen3-VL-8B-Instruct")/"snapshots/master"
+    repository={"4b-bf16":"Qwen--Qwen3-VL-4B-Instruct","8b-nf4":"Qwen--Qwen3-VL-8B-Instruct",
+                "35-4b-bf16":"Qwen--Qwen3.5-4B"}[args.profile]
+    model=args.models_root/repository/"snapshots/master"
     editor_root=args.models_root/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
     from watermark_studio.model_identity import compare_model_weights
     identity=compare_model_weights(editor_root/"text_encoder",model)
