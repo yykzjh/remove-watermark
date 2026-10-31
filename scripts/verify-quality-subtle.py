@@ -1,4 +1,5 @@
 """Validate overview/detail reviews on known retained overlays and local defects."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -11,11 +12,16 @@ from transformers import Qwen3VLForConditionalGeneration, Qwen3VLProcessor
 
 from watermark_studio.quality import verify_batch
 
-snapshot = Path.home()/".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
+parser = argparse.ArgumentParser()
+parser.add_argument("--backend", choices=["resident", "independent"], default="resident")
+args = parser.parse_args()
+folder = "Qwen--Qwen-Image-2.1-Turbo" if args.backend == "resident" else "Qwen--Qwen3-VL-4B-Instruct"
+snapshot = Path.home()/".cache/watermark-models/models"/folder/"snapshots/master"
 encoder = Qwen3VLForConditionalGeneration.from_pretrained(
-    snapshot/"text_encoder", dtype=torch.bfloat16, local_files_only=True,
+    snapshot/"text_encoder" if args.backend == "resident" else snapshot, dtype=torch.bfloat16, local_files_only=True,
 ).to("cuda").eval()
-processor = Qwen3VLProcessor.from_pretrained(snapshot/"processor", local_files_only=True)
+processor = Qwen3VLProcessor.from_pretrained(
+    snapshot/"processor" if args.backend == "resident" else snapshot, local_files_only=True)
 root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/quality-benchmark")
 files = sorted((root/"input").glob("*"))
 cases = []
@@ -53,19 +59,31 @@ box = (int(w*.85), int(h*.27), int(w*.90), int(h*.34))
 patch = after.crop((box[0]-int(w*.07), box[1], box[2]-int(w*.07), box[3]))
 after.paste(patch, box)
 cases.append(("small_head_region_replaced", clean, after, "review"))
-out = root/"subtle-controls"
+# Known-good removals: overlays are added to a real clean photo, then the exact
+# clean photo is used as output. Hidden ground truth is known for these fixtures.
+for label, location in (("bottom_left", (.02, .72)), ("top_right", (.60, .02)), ("center", (.30, .42))):
+    panel = Image.new("RGBA", (int(w*.36), int(h*.25)), (225, 225, 225, 225))
+    draw = ImageDraw.Draw(panel)
+    draw.rectangle((0, 0, panel.width, panel.height//3), fill=(30, 110, 220, 255))
+    draw.text((12, 8), "SITE INFO", font=font, fill="white")
+    draw.text((12, panel.height//2), "2026-10-31", font=font, fill="black")
+    layer = Image.new("RGBA", clean.size, (0, 0, 0, 0))
+    layer.paste(panel, (int(w*location[0]), int(h*location[1])))
+    before = Image.alpha_composite(clean.convert("RGBA"), layer).convert("RGB")
+    cases.append(("known_clean_removal_"+label, before, clean.copy(), "passed"))
+out = root/("subtle-controls-"+args.backend+"-v2")
 out.mkdir(exist_ok=True)
 for detail in (0, 4):
     records = []
     for label, before, after, expected in cases:
         result = verify_batch([(before, after)], encoder, processor, "cuda",
-                              resolution=768, max_tokens=128, reviewer="resident",
+                              resolution=768, max_tokens=128, reviewer=args.backend,
                               detail_patches=detail)[0]
         row = {"case": label, "expected": expected, "details": detail, **result}
         records.append(row)
         with (out/"results.jsonl").open("a") as f:
             f.write(json.dumps(row, ensure_ascii=False)+"\n")
-    print(json.dumps({"details": detail, "cases": len(records),
+    print(json.dumps({"backend": args.backend, "details": detail, "cases": len(records),
                       "bad_false_pass": [r["case"] for r in records if r["expected"]=="review" and r["status"]=="passed"],
                       "clean_status": [r["status"] for r in records if r["expected"]=="passed"],
                       "errors": sum(r["status"]=="error" for r in records),
