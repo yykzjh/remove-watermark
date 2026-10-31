@@ -101,6 +101,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     start = time.monotonic()
     batch_limits = {} if batch_limits is None else batch_limits
     states, results, edits = [], {}, []
+    source_images, existing_images = {}, {}
     cuda = config.backend != "mock"
     if cuda:
         import torch
@@ -109,6 +110,16 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         state = None
         try:
             source, exif, icc, alpha = load_photo(task["source"])
+            if options.quality_check:
+                source_images[task["relative"]] = source
+            if task.get("reuse_existing"):
+                existing = load_photo(task["destination"])[0]
+                existing_images[task["relative"]] = existing
+                results[task["relative"]] = {
+                    "file": task["relative"], "ok": True, "action": "existing_output_verified",
+                    "regions": [], "detection_seconds": 0, "output_size": list(existing.size),
+                }
+                continue
             detection_start = time.monotonic()
             if not cuda:
                 regions = []
@@ -259,13 +270,22 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
 
         def review(group):
             try:
-                pairs = [(load_photo(t["source"])[0], load_photo(t["destination"])[0]) for t in group]
+                pairs = [
+                    (source_images[t["relative"]], existing_images[t["relative"]]
+                     if t["relative"] in existing_images else load_photo(t["destination"])[0])
+                    for t in group
+                ]
                 reviews = verify_batch(
                     pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
                     options.quality_resolution, options.quality_max_tokens,
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                 )
                 for task, verdict in zip(group, reviews):
+                    size = ([options.output_width, options.output_height] if options.output_width
+                            else list(source_images[task["relative"]].size))
+                    verdict["dimensions_match"] = results[task["relative"]]["output_size"] == size
+                    if not verdict["dimensions_match"] and verdict["status"] != "error":
+                        verdict.update(status="review", reason=(verdict["reason"]+" 输出尺寸与所选设置不符。").strip())
                     results[task["relative"]]["quality"] = verdict
             except Exception as error:  # noqa: BLE001 - quality failures must never become passes
                 if isinstance(error, torch.cuda.OutOfMemoryError) and len(group) > 1:

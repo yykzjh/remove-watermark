@@ -62,7 +62,7 @@ def main():
             print(
                 f"{job['state']}: {job['completed']}/{job['total']}; "
                 f"success={job['succeeded']}, no_watermark={job.get('no_watermark', 0)}, "
-                f"failed={job['failed']}, quality={job.get('quality_counts', {})}",
+                f"failed={job['failed']}, existing_review={job.get('existing_outputs', 0)}, quality={job.get('quality_counts', {})}",
                 flush=True,
             )
             previous = update

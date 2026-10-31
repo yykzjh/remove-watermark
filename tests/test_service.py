@@ -59,8 +59,11 @@ def test_complete_remote_directory_batch_and_limits(tmp_path):
         for original in source.rglob("*.png"):
             with Image.open(original) as a, Image.open(target / original.relative_to(source)) as b:
                 assert a.size == b.size and a.tobytes() == b.tobytes()
+        saved = {p.name: p.read_bytes() for p in target.rglob("*.png")}
         assert client.post("/jobs", json=payload).status_code == 202
         state = wait_for(client, lambda s: s["job"] and s["job"]["state"] == "completed")
-        assert state["job"]["skipped"] == 4
-        assert state["job"]["total"] == 0
+        assert state["job"]["skipped"] == 0
+        assert state["job"]["total"] == 4
+        assert state["job"]["existing_outputs"] == 4
+        assert {p.name: p.read_bytes() for p in target.rglob("*.png")} == saved
         assert list((tmp_path / "state").glob("*/summary.json"))

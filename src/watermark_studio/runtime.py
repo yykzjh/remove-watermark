@@ -139,6 +139,8 @@ class Runtime:
         job = self.job
         job["completed"] += 1
         job["succeeded" if result["ok"] else "failed"] += 1
+        if result.get("action") == "existing_output_verified":
+            job["existing_outputs"] = job.get("existing_outputs", 0) + 1
         if result.get("action") == "no_watermark_detected":
             job["no_watermark"] += 1
         if result.get("quality"):
@@ -261,6 +263,7 @@ class Runtime:
                 "completed": 0,
                 "succeeded": 0,
                 "no_watermark": 0,
+                "existing_outputs": 0,
                 "quality_counts": {},
                 "quality_issues": [],
                 "failed": 0,
@@ -288,13 +291,14 @@ class Runtime:
         try:
             if single is None:
                 tasks, skipped, invalid = scan_images(
-                    source, target, self.job["options"]["overwrite"], self.cancel_scan, self.config.scan_workers
+                    source, target, self.job["options"]["overwrite"] or self.job["options"]["quality_check"], self.cancel_scan, self.config.scan_workers
                 )
             else:
                 from .images import ImageTask
                 target.mkdir(parents=True, exist_ok=True)
                 destination = target / single.name
-                skipped = int(destination.exists() and not self.job["options"]["overwrite"])
+                skipped = int(destination.exists() and not self.job["options"]["overwrite"]
+                              and not self.job["options"]["quality_check"])
                 tasks = [] if skipped else [ImageTask(str(single), str(destination), single.name)]
                 invalid = []
             if self.config.shape_sort and self.job["options"]["scope"] == "full_image":
@@ -309,7 +313,12 @@ class Runtime:
                         return (0, 0)
                 tasks.sort(key=shape_key)
             with self.lock:
-                self.pending = deque(asdict(t) for t in tasks)
+                self.pending = deque(
+                    asdict(t) | {"reuse_existing": bool(
+                        self.job["options"]["quality_check"] and
+                        not self.job["options"]["overwrite"] and Path(t.destination).is_file()
+                    )} for t in tasks
+                )
                 self.job.update(
                     total=len(tasks), skipped=skipped, invalid=len(invalid), errors=invalid[-20:]
                 )
