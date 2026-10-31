@@ -3,6 +3,7 @@ import argparse
 import collections
 import hashlib
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -14,6 +15,7 @@ parser=argparse.ArgumentParser()
 parser.add_argument("--url",default="http://127.0.0.1:8765")
 parser.add_argument("--tag",required=True)
 parser.add_argument("--prepare-only",action="store_true")
+parser.add_argument("--fixtures-from")
 args=parser.parse_args()
 if not args.tag.replace("-","").replace("_","").isalnum():
     parser.error("Simple tag required")
@@ -22,6 +24,14 @@ work=root/("adversarial-"+args.tag)
 inputs,outputs=work/"input",work/"output"
 inputs.mkdir(parents=True,exist_ok=True);outputs.mkdir(parents=True,exist_ok=True)
 fixture=work/"fixture.json"
+if args.fixtures_from and not fixture.exists():
+    if not args.fixtures_from.replace("-","").replace("_","").isalnum():
+        parser.error("Simple fixture tag required")
+    source=root/("adversarial-"+args.fixtures_from)
+    for folder in ("input","output"):
+        for original in (source/folder).glob("*.png"):
+            shutil.copy2(original,work/folder/original.name)
+    shutil.copy2(source/"fixture.json",fixture)
 if not fixture.exists():
     bases=[]
     hold=root/"first-pass-holdout-neutral-v1/input"
@@ -140,7 +150,9 @@ for r in records:
 summary={"images":len(records),"job":job,"code_revision":state["code_revision"],
     "seconds":round(time.monotonic()-started,3),"output_unchanged":True,
     "clean_controls":sum(r["expected"]=="passed" for r in records),
-    "false_rejects":sum(r["expected"]=="passed" and r["actual"]!="passed" for r in records),
+    "clean_not_accepted":sum(r["expected"]=="passed" and r["actual"]!="passed" for r in records),
+    "false_rejects":sum(r["expected"]=="passed" and r["actual"]=="review" for r in records),
+    "clean_errors":sum(r["expected"]=="passed" and r["actual"]=="error" for r in records),
     "defect_controls":sum(r["expected"]=="review" for r in records),
     "false_accepts":sum(r["expected"]=="review" and r["actual"]=="passed" for r in records),
     "errors":sum(r["actual"]=="error" for r in records),

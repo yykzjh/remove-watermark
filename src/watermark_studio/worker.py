@@ -287,6 +287,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         buckets[key].append(edit)
     oom_retries = 0
     quality_oom_splits = 0
+    quality_validation_splits = 0
 
     def execute(group):
         nonlocal oom_retries
@@ -387,7 +388,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 pending.append(task)
 
         def review(group):
-            nonlocal quality_oom_splits
+            nonlocal quality_oom_splits, quality_validation_splits
             failure, split, is_oom = "", False, False
             try:
                 pairs = [
@@ -425,13 +426,14 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 return
             except Exception as error:  # noqa: BLE001 - quality failures must never become passes
                 is_oom = isinstance(error, torch.cuda.OutOfMemoryError)
-                split = is_oom and len(group) > 1
+                split = len(group) > 1
                 failure = f"{type(error).__name__}: {error}"[:400]
             # Leave the exception handler before retrying: traceback frames can own GPU tensors.
             if is_oom:
                 torch.cuda.empty_cache()
             if split:
-                quality_oom_splits += 1
+                quality_oom_splits += int(is_oom)
+                quality_validation_splits += int(not is_oom)
                 mid = len(group)//2
                 review(group[:mid])
                 review(group[mid:])
@@ -448,6 +450,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,
         "peak_reserved_mib": round(torch.cuda.max_memory_reserved()/2**20) if cuda else 0,
         "oom_retries": oom_retries, "quality_oom_splits": quality_oom_splits,
+        "quality_validation_splits":quality_validation_splits,
     }
     return [results[task["relative"]] | metrics for task in tasks]
 

@@ -103,7 +103,10 @@ def test_local_guard_detects_subtle_change_outside_removed_overlay():
     regions = [Region(box=(.01, .70, .32, 1.))]
     assert outside_repair_changes(before, after, regions)["tiles"] == 0
     ImageDraw.Draw(after).text((700, 300), "CAMERA", fill=(160, 160, 160))
-    assert outside_repair_changes(before, after, regions)["tiles"] > 0
+    change=outside_repair_changes(before, after, regions)
+    assert change["tiles"] > 0
+    from watermark_studio.evidence import local_findings
+    assert local_findings({"outside_repair_change":change})[0]["box"]
 
 
 def test_local_guard_tolerates_requested_output_resize_and_jpeg():
@@ -160,7 +163,8 @@ def test_quality_size_check_uses_display_orientation(tmp_path, monkeypatch, orie
     assert result["quality"]["display_output_size"] == ([40, 60] if orientation >= 5 else [60, 40])
     assert result["output_size"] == [60, 40]
 
-def test_quality_oom_releases_traceback_before_splitting(tmp_path, monkeypatch):
+@pytest.mark.parametrize("batch_error",["oom","malformed"])
+def test_quality_oom_releases_traceback_before_splitting(tmp_path, monkeypatch,batch_error):
     import sys
     import weakref
     from types import SimpleNamespace
@@ -177,7 +181,7 @@ def test_quality_oom_releases_traceback_before_splitting(tmp_path, monkeypatch):
         if len(pairs)>1:
             held=HeldTensor()
             refs.append(weakref.ref(held))
-            raise OOM("simulated batch memory pressure")
+            raise (OOM if batch_error=="oom" else ValueError)("simulated batch failure")
         assert refs[0]() is None
         return [{"status":"passed","reason":""}]
     monkeypatch.setattr("watermark_studio.quality.verify_batch",verify)
@@ -194,7 +198,8 @@ def test_quality_oom_releases_traceback_before_splitting(tmp_path, monkeypatch):
     pipe=SimpleNamespace(_quality_encoder=None,_quality_processor=None,_execution_device="cpu")
     rows=process_batch(tasks,ProcessingConfig(scope="full_image",quality_check=True,quality_batch_size=2),
                        DeploymentConfig(),pipe)
-    assert all(r["quality"]["status"]=="passed" and r["quality_oom_splits"]==1 for r in rows)
+    assert all(r["quality"]["status"]=="passed" and r["quality_oom_splits"]==int(batch_error=="oom") for r in rows)
+    assert all(r["quality_validation_splits"]==int(batch_error=="malformed") for r in rows)
 
 
 def test_material_context_is_per_image_and_does_not_leak_between_documents_and_outdoors(monkeypatch):

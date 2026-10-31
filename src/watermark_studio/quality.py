@@ -148,11 +148,30 @@ def outside_repair_changes(before, after, regions, resolution=2048, feather=12):
     hits = eligible & (means > 1.5) & (changed > .03)
     ys, xs = np.nonzero(hits)
     ranked = sorted(zip(ys, xs), key=lambda p: float(means[p]), reverse=True)
-    boxes = [(x*block/size[0], y*block/size[1],
-              (x+1)*block/size[0], (y+1)*block/size[1]) for y, x in ranked[:8]]
+    boxes = [tuple(float(v) for v in (x*block/size[0], y*block/size[1],
+              (x+1)*block/size[0], (y+1)*block/size[1])) for y, x in ranked[:8]]
     return {"tiles": int(hits.sum()), "boxes": boxes, "comparison_size": list(size),
             "max_tile_mae": round(float(means[eligible].max()), 3) if eligible.any() else 0,
             "method": "local_outside_overlay_v1"}
+
+
+def repair_probe_regions(regions):
+    """Inspect the padded mask plus likely original panel edges inside its margin."""
+    from .config import Region
+    result=[]
+    for region in regions:
+        box=region.box if hasattr(region,"box") else region["box"]
+        l,t,r,b=box
+        px=.008+.06*max(0,(r-l-.016)/1.12)
+        py=.008+.06*max(0,(b-t-.016)/1.12)
+        for fraction in (0,.5,1,1.5):
+            x0=l+fraction*px if l>0 else l
+            x1=r-fraction*px if r<1 else r
+            y0=t+fraction*py if t>0 else t
+            y1=b-fraction*py if b<1 else b
+            if x0<x1 and y0<y1:
+                result.append(Region(box=(x0,y0,x1,y1)))
+    return result
 
 
 def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before=None):
@@ -166,7 +185,7 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
     near, far, inside = pad+6, pad+18, 6
     records, reference = [], None
     unchanged_segments = 0
-    for region in regions:
+    for region in repair_probe_regions(regions):
         x0,y0,x1,y1 = region.box if hasattr(region,"box") else region["box"]
         box = (round(x0*size[0]),round(y0*size[1]),round(x1*size[0]),round(y1*size[1]))
         for side in ("left","right","top","bottom"):
@@ -224,7 +243,7 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
                             [lo/size[0],max(0,position-pad-6)/size[1],
                              min(size[0],lo+48)/size[0],min(size[1],position+pad+8)/size[1]])
                     records.append({"side":side,"box":area,"luma_step":round((first[1]+second[1])/2,3)})
-    return {"method":"mask_boundary_lighting_v1","suspect_segments":records[:12],
+    return {"method":"mask_boundary_lighting_v2_insets","suspect_segments":records[:12],
             "count":len(records),"comparison_size":list(size),
             "source_unchanged_segments":unchanged_segments}
 
@@ -241,7 +260,7 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
     reference=None
     records=[]
     probes=[]
-    for region_index,region in enumerate(regions):
+    for region_index,region in enumerate(repair_probe_regions(regions)):
         box=region.box if hasattr(region,"box") else region["box"]
         x0,y0,x1,y1=box
         left,top,right,bottom=(round(x0*size[0]),round(y0*size[1]),
@@ -300,7 +319,7 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                     run=[]
                 else:
                     run.append(hit)
-    return {"method":"mask_texture_collapse_v1","count":len(records),
+    return {"method":"mask_texture_collapse_v2_insets","count":len(records),
             "suspect_segments":records[:12],"comparison_size":list(size),
             **({"probes":sorted(probes,key=lambda p:p["ratio"])[:12]} if debug else {})}
 
@@ -686,7 +705,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         verdict["source_scan_seconds"] = round(source_seconds if index in missing else 0, 3)
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
         verdict["scene_context"]=contexts[index].get("source_scene","unknown")
-        verdict["review_version"] = "2026-11-01.evidence-v6"
+        verdict["review_version"] = "2026-11-01.context-inset-v8"
         candidate = verdict["status"] != "error" and (
             verdict["status"] == "passed" or verdict.get("watermark_removed") is False or (
                 verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"]))
@@ -726,5 +745,5 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             if allowed:
                 reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,
                            device,resolution,max_tokens,feather,context)
-            verdict["review_version"]="2026-11-01.cross-review-v7"
+            verdict["review_version"]="2026-11-01.context-cross-review-v8"
     return verdicts

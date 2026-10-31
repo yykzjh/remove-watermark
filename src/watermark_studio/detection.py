@@ -121,9 +121,15 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
             )
             inputs.pop("token_type_ids", None)
             inputs = inputs.to(device)
+            from .overlay_schema import overlay_grammar
+            eos=encoder.generation_config.eos_token_id or processor.tokenizer.eos_token_id
+            eos_ids=[eos] if isinstance(eos,int) else list(eos)
+            grammar=overlay_grammar(processor.tokenizer,eos_ids,scene_context)
+            width=inputs.input_ids.shape[1]
             with torch.inference_mode():
                 generated = encoder.generate(
                     **inputs, max_new_tokens=512, do_sample=False, use_cache=True,
+                    prefix_allowed_tokens_fn=lambda batch,ids:grammar(ids[width:].tolist()),
                 )
             texts = processor.batch_decode(
                 generated[:, inputs.input_ids.shape[1]:], skip_special_tokens=True,
