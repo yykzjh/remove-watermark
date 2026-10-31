@@ -108,6 +108,7 @@ class DeploymentConfig(BaseModel):
     parallelism: Literal["single", "data"] = "data"
     batch_size: int = Field(default=2, ge=1, le=16)
     small_batch_size: int = Field(default=0, ge=0, le=16)
+    prefill_overlays: bool = False
     batch_window: int = Field(default=4, ge=1, le=8)
     batch_bucketing: bool = False
     adaptive_dispatch: bool = False

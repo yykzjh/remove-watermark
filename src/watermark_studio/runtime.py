@@ -469,6 +469,7 @@ class Runtime:
                     "compile_dynamic": self.config.compile_dynamic,
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
+                    "prefill_overlays": self.config.prefill_overlays,
                     "cudnn_benchmark": self.config.cudnn_benchmark,
                     "vae_channels_last": self.config.vae_channels_last,
                 },

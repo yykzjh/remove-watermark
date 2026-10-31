@@ -111,6 +111,8 @@ for profile in args.profiles:
         "first_pass_rate":None if args.generation_only else round(counts["passed"]/len(paths),5),
         "generation_only":args.generation_only,"quality_batch_size":args.quality_batch_size,"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),
+        "prefilled_model_inputs":sum(bool(p) for r in rows for p in r.get("conditioning_prefill",[])),
+        "prefill_overlays":state.get("optimization",{}).get("prefill_overlays",False),
         "edit_batch_participation":dict(collections.Counter(str(b) for r in rows for b in r.get("batch_sizes",[]))),
         "successful_diffusion_forwards":round(sum(1/b for r in rows for b in r.get("batch_sizes",[])),6),
         "small_batch_size":state.get("small_batch_size",0),

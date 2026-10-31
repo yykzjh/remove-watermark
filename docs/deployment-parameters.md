@@ -13,6 +13,7 @@
 |--gpus|[0, 1, 2, 3, 4, 5, 6, 7]|Comma-separated physical GPU indices, e.g. 1,2,3|
 |--parallelism|data|single: exactly one worker; data: independent image workers on selected GPUs|
 |--batch-size|2|Maximum independent edits per GPU forward, 1..16|
+|--prefill-overlays|False|Experimental source-only harmonic conditioning initialization for focused/complete generation; requires real context, preserves original input files, no extra diffusion candidate. Not enabled by default.|
 |--small-batch-size|0|Separate cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it. Does not raise the raw-image concurrency/window. Exact shapes and OOM learned caps still apply.|
 |--batch-window|4|Images gathered per worker = batch size times window, 1..8|
 |--batch-bucketing|False|Group edits by identical inference dimensions within the window|
@@ -57,7 +58,7 @@
 |--backend|qwen|qwen: real model; mock: tests only, copies images without removal|
 
 
-## 独立8B检验候选
+## 单独加载8B检验候选（同一基础权重）
 
 在Linux开发机安装可选依赖（由开发机直接下载）：
 
@@ -75,3 +76,7 @@ NF4降低语言层驻留显存，不保证比BF16更快或更准确；需要同�
 因此显式排除model.visual；加载后再次检查视觉模块不存在Linear4bit/Linear8bitLt。
 resident复用去水印编码器，health如实报告::text_encoder；它不提供两个独立模型意见，
 不能启用双模型争议改判。none/int8/nf4是字符串选择项，不是bool开关。
+
+当前官方8B检查点与图像模型text_encoder的全部750个权重张量指纹相同。independent表示单独加载的实例，不保证权重独立。
+服务会进行规范化张量指纹审计；同一基础权重或身份未知时cross_review_supported=false，API与桌面禁止双模型改判。
+8B/NF4仍可作单独检验角色；不要向该配方的客户端传--quality-cross-review。4B等不同权重也必须先通过身份核验。

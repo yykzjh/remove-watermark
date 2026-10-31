@@ -438,3 +438,43 @@ def composite_protected(original, generated, regions, feather=12, blending="feat
                 min(w, x1+feather), min(h, y1+feather))
         result = blend_patch(result, generated.crop(crop), box, crop, feather)
     return result
+
+
+def prefill_overlay_reference(original, box, crop, regions):
+    """Erase the input overlay's appearance using only real unoccluded SOURCE colors.
+
+    This is a conditioning initialization, never an accepted repair or an extra candidate.
+    Original pixels outside the target rectangle remain exact.
+    """
+    from .config import Region
+    cx0,cy0,cx1,cy1=crop
+    reference=original.crop(crop).convert("RGB")
+    width,height=reference.size
+    exclusions=[]
+    for region in regions:
+        left,top,right,bottom=pixel_box(region.box,original.size)
+        left,top,right,bottom=max(cx0,left),max(cy0,top),min(cx1,right),min(cy1,bottom)
+        if left<right and top<bottom:
+            exclusions.append(Region(box=((left-cx0)/width,(top-cy0)/height,
+                                           (right-cx0)/width,(bottom-cy0)/height)))
+    x0,y0,x1,y1=box
+    if not (cx0<=x0<x1<=cx1 and cy0<=y0<y1<=cy1):
+        raise ValueError("Prefill target must stay inside the original crop")
+    exclusions.append(Region(box=((x0-cx0)/width,(y0-cy0)/height,
+                                  (x1-cx0)/width,(y1-cy0)/height)))
+    scale=min(1,256/max(reference.size))
+    small_size=(max(4,round(width*scale)),max(4,round(height*scale)))
+    known=np.ones((small_size[1],small_size[0]),dtype=bool)
+    for region in exclusions:
+        left,top,right,bottom=pixel_box(region.box,small_size)
+        known[top:bottom,left:right]=False
+    if known.sum()<4:
+        return reference,False
+    small=reference.resize(small_size,Image.Resampling.BOX)
+    neutral=Image.new("RGB",small_size,(128,128,128))
+    field=harmonize_repair(small,neutral,exclusions,reference_resolution=256)
+    field=field.resize(reference.size,Image.Resampling.BILINEAR)
+    target=(x0-cx0,y0-cy0,x1-cx0,y1-cy0)
+    result=reference.copy()
+    result.paste(field.crop(target),target)
+    return result,True

@@ -14,12 +14,14 @@ from .images import (
     context_box,
     load_photo,
     pixel_box,
+    prefill_overlay_reference,
     regions_for,
     save_output,
 )
 from .prompts import (
     build_focused_prompt,
     build_full_prompt,
+    build_prefilled_prompt,
     build_prompt,
     build_small_overlay_prompt,
     scene_instruction,
@@ -242,6 +244,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 box = pixel_box(region.box, source.size)
                 crop = context_box(box, source.size, options.context)
                 reference = source.crop(crop)
+                prefilled=False
+                if config.prefill_overlays and focused_auto:
+                    reference,prefilled=prefill_overlay_reference(source,box,crop,regions)
                 extra_prompt = options.extra_prompt
                 if task.get("_retry_feedback"):
                     from .evidence import local_retry_guidance
@@ -258,12 +263,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                           max(b[2] for b in cores),max(b[3] for b in cores)) if cores else None
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
-                    "prompt": (build_full_prompt(extra_prompt) if state["whole_generation"] else
+                    "prompt": (build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
+                               build_full_prompt(extra_prompt) if state["whole_generation"] else
                                build_small_overlay_prompt(box,crop,extra_prompt)+scene_instruction(scene)
                                if small else build_focused_prompt(region.kind,box,crop,extra_prompt,scene)
                                if focused else build_prompt(region.kind,box,crop,extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
-                    "scene_hint":scene,"core_box":core_box,
+                    "scene_hint":scene,"core_box":core_box,"prefilled":prefilled,
                     "resolution":budget, "size": dimensions(reference,budget),
                 })
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
@@ -356,6 +362,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "source_detail_views":detail_counts.get(task["relative"],0),
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
+            "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
             "source_scene":state["source_scene"],
             "repair_blending": options.repair_blending,
