@@ -17,6 +17,10 @@ def rectangular_repairs(before, after, regions, resolution=1024, minimum_step=4,
     source=np.asarray(before.convert("RGB").resize(size,Image.Resampling.LANCZOS)
                       .filter(ImageFilter.GaussianBlur(3)),dtype=np.float32)
     records=[]
+    xx=np.arange(-20,-7,dtype=np.float32)
+    outside_weights=1/len(xx)-xx.mean()*(xx-xx.mean())/np.square(xx-xx.mean()).sum()
+    xx=np.arange(8,21,dtype=np.float32)
+    inside_weights=1/len(xx)-xx.mean()*(xx-xx.mean())/np.square(xx-xx.mean()).sum()
     for region in regions:
         l,t,r,b=region.box if hasattr(region,"box") else region["box"]
         if (r-l)*(b-t)<.06 or min((r-l)*size[0],(b-t)*size[1])<80:
@@ -38,25 +42,24 @@ def rectangular_repairs(before, after, regions, resolution=1024, minimum_step=4,
             candidates=[]
             for fraction in (0,.25,.5,.75,1,1.25,1.5,1.75):
                 pos=round((coordinate+outward*fraction*margin)*extent)
-                if not 19<pos<extent-19 or end-start<40: continue
+                if not 22<pos<extent-22 or end-start<40: continue
                 def stripe(array,offset,lo=start,hi=end,pos=pos,outward=outward,vertical=vertical):
                     at=pos+outward*offset
                     return array[lo:hi,at-2:at+3] if vertical else array[at-2:at+3,lo:hi]
-                inner=np.median(stripe(rgb,7).reshape(-1,3),axis=0)
-                near=np.median(stripe(rgb,-7).reshape(-1,3),axis=0)
-                far=np.median(stripe(rgb,-16).reshape(-1,3),axis=0)
-                slope=(near-far)/9
-                if abs(float(slope@weights))>.40: continue
-                expected=np.clip(near+slope*14,0,255)
+                indices=pos+outward*np.arange(-20,21)
+                strip=rgb[start:end,indices,:] if vertical else rgb[indices,start:end,:].transpose(1,0,2)
+                profile=strip.mean(axis=0)
+                inner=np.clip(inside_weights@profile[-13:],0,255)
+                expected=np.clip(outside_weights@profile[:13],0,255)
                 ratios=(inner+12)/(expected+12)
                 if np.max(ratios)-np.min(ratios)>.10: continue
                 step=float((inner-expected)@weights)
                 local=[];texture_ratios=[]
                 for lo in range(start,end-15,16):
                     hi=min(end,lo+24)
-                    a=np.median(stripe(rgb,7,lo,hi).reshape(-1,3),axis=0)
-                    o=np.median(stripe(rgb,-7,lo,hi).reshape(-1,3),axis=0)
-                    local.append(float((a-o-slope*14)@weights))
+                    partial=strip[lo-start:hi-start].mean(axis=0)
+                    delta=inside_weights@partial[-13:]-outside_weights@partial[:13]
+                    local.append(float(delta@weights))
                     oi=float(stripe(high,-7,lo,hi).mean())
                     ii=float(stripe(high,7,lo,hi).mean())
                     if oi>=1.2: texture_ratios.append(ii/oi)
@@ -73,6 +76,15 @@ def rectangular_repairs(before, after, regions, resolution=1024, minimum_step=4,
         # A closed shape must agree on every side with usable exterior context.
         # Clipped image edges are optional, never invented as positive evidence.
         if len(mandatory)<2: continue
+        texture_selected={}
+        for side,values in side_records.items():
+            eligible=[v for v in values if v["texture_ratio"]<=.22]
+            if eligible:
+                texture_selected[side]=min(eligible,key=lambda v:v["texture_ratio"])
+        if (all(side in texture_selected for side in mandatory) and
+                (len(texture_selected)>=3 or len(mandatory)==2)):
+            records.append({"issue":"blur_smear","box":[l,t,r,b],
+                            "side_evidence":texture_selected,"mandatory_sides":mandatory})
         for sign in (-1,1):
             selected={}
             for side,values in side_records.items():
