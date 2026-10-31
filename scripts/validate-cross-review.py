@@ -31,7 +31,7 @@ root=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")
 bench=root/"quality-benchmark-protected-v3-64"
 old={r["file"]:r for r in map(json.loads,(Path.home()/".local/state/watermark-studio/9dd02bb8463c4f9dba5be6f8137e7214/results.jsonl").read_text().splitlines())}
 cases=[]
-for label,name,box in (("physical_brand","057.jpg",[.13,.58,.25,.68]),
+for label,name,box in (("physical_brand","057.jpg",[.48,.18,.55,.25]),
                        ("physical_sign","010.jpg",[.37,.34,.61,.53])):
     before=load_photo(bench/"input"/name)[0]
     # Use corrected backgrounds; the sign/brand pixels are from the source.

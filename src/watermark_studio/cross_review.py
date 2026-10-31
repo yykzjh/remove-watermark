@@ -76,7 +76,11 @@ def dispute_chats(before,after,boxes):
     chats=[]
     for box in boxes:
         crop=context_box(pixel_box(box,before.size),before.size,.7)
-        content=[{"type":"text","text":f"待核实文字在完整照片0..1坐标{box}；后续只展示此处及邻域。"},
+        local=[(box[0]*before.width-crop[0])/(crop[2]-crop[0]),
+               (box[1]*before.height-crop[1])/(crop[3]-crop[1]),
+               (box[2]*before.width-crop[0])/(crop[2]-crop[0]),
+               (box[3]*before.height-crop[1])/(crop[3]-crop[1])]
+        content=[{"type":"text","text":f"待核实文字在完整照片0..1坐标{box}；在下列局部图中的0..1范围{[round(v,4) for v in local]}。只核实此中心范围，邻域只提供载体上下文。"},
                  {"type":"text","text":"原图局部，只核实可见实物及文字载体。"},
                  {"type":"image","image":preview(before.crop(crop),512)},
                  {"type":"text","text":"同位置结果局部，核实文字是否属于数字覆盖层。"},
@@ -116,9 +120,50 @@ def _classify(chats,encoder,processor,device):
                                      clean_up_tokenization_spaces=False)
         if len(texts)!=len(chats):
             raise ValueError("Dispute classification count mismatch")
-        return [parse_classification(text) for text in texts]
+        results=[]
+        for chat,text in zip(chats,texts):
+            try:
+                results.append(parse_classification(text))
+            except (ValueError,TypeError) as error:
+                # Never fill missing flags with permissive defaults. Re-evaluate
+                # syntax-constrained booleans and retain an actual observation.
+                results.append(_recover_classification(chat,text,str(error),encoder,processor,device))
+        return results
     finally:
         tokenizer.padding_side=previous
+
+
+
+def _recover_classification(chat,raw,error,encoder,processor,device):
+    from .evidence import _generate_explanations
+    from .quality import _structured_vqa
+
+    fields=("physical_scene_text","digital_overlay","object_attachment","surface_evidence","uncertain")
+    content=chat[0]["content"][:-1]
+    flags_prompt=(CLASSIFY_PROMPT.split("只返回JSON。")[0]+
+        "只返回JSON，physical_scene_text、digital_overlay、object_attachment、surface_evidence、uncertain为布尔值；"
+        "area为none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。"
+        "不能只因原图也有或像素相同就认作实物，实物载体和材质/透视都必须有可见证据。")
+    rows,_=_structured_vqa([[{"role":"user","content":content+[{"type":"text","text":flags_prompt}]}]],
+                           fields,encoder,processor,device,192)
+    result={key:rows[0][key] for key in fields}
+    evidence=""
+    try:
+        partial=json.loads(raw.strip().removeprefix("```json").removesuffix("```").strip())
+        if isinstance(partial,dict) and isinstance(partial.get("evidence"),str):
+            evidence=partial["evidence"].strip()[:160]
+    except (ValueError,TypeError):
+        pass
+    if not evidence and physical(result):
+        observed=_generate_explanations([[{"role":"user","content":content+[{"type":"text","text":
+            "只写一句中文具体描述中心文字的实物载体、材质/透视证据。不能用原图也有或像素相同代替依据。"
+            "看不清就说明原因。不要JSON、思维过程或逐字转录文字。"}]}]],encoder,processor,device,96,True)[0]
+        if observed.get("status")!="summary_only":
+            raise ValueError("Physical-text claim lacks observable explanation")
+        evidence=observed["summary"]
+    result.update(evidence=evidence or "结构化复核未建立完整实物载体与表面证据。",
+                  format_recovered=True,format_error=error[:160])
+    return result
 
 
 def physical(report):
