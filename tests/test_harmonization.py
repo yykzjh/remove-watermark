@@ -86,3 +86,20 @@ def test_observed_large_colour_offset_is_not_artificially_capped_at_64():
     assert result.getpixel((80,250)) == (210,210,210)
     assert result.info["harmonization"]["offset_max"]>64
     assert repair_boundary_warnings(result,[region],before=original)["count"]==0
+
+def test_texture_guard_rejects_local_blur_without_a_colour_step():
+    from PIL import ImageFilter
+
+    from watermark_studio.quality import repair_texture_warnings
+    rng=np.random.default_rng(7)
+    array=rng.integers(95,145,(384,512),dtype=np.uint8)
+    clean=Image.fromarray(np.repeat(array[...,None],3,axis=2))
+    region=Region(box=(.2,.2,.8,.9))
+    before=clean.copy()
+    ImageDraw.Draw(before).rectangle((112,87,399,337),fill=(30,100,215))
+    blurred=clean.copy()
+    box=(112,87,399,337)
+    blurred.paste(clean.crop(box).filter(ImageFilter.GaussianBlur(8)),box)
+    assert repair_texture_warnings(blurred,[region],before=before)["count"]>0
+    assert repair_texture_warnings(clean,[region],before=before)["count"]==0
+    assert repair_texture_warnings(blurred,[region],before=blurred)["count"]==0
