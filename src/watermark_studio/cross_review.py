@@ -80,9 +80,7 @@ def dispute_chats(before,after,boxes):
                (box[1]*before.height-crop[1])/(crop[3]-crop[1]),
                (box[2]*before.width-crop[0])/(crop[2]-crop[0]),
                (box[3]*before.height-crop[1])/(crop[3]-crop[1])]
-        content=[{"type":"text","text":"完整原图仅提供纸张、机械、标牌等实物载体的全局边缘和透视上下文。原图中其他数字水印不是本次中心文字的结果残留证据；是否为实物仍须在下面同位置局部中核实。"},
-                 {"type":"image","image":preview(before,640)},
-                 {"type":"text","text":f"待核实文字在完整照片0..1坐标{box}；在下列局部图中的0..1范围{[round(v,4) for v in local]}。只核实此中心范围，邻域只提供载体上下文。"},
+        content=[{"type":"text","text":f"待核实文字在完整照片0..1坐标{box}；在下列局部图中的0..1范围{[round(v,4) for v in local]}。只核实此中心范围，邻域只提供载体上下文。"},
                  {"type":"text","text":"原图局部，只核实可见实物及文字载体。"},
                  {"type":"image","image":preview(before.crop(crop),512)},
                  {"type":"text","text":"同位置结果局部，核实文字是否属于数字覆盖层。"},

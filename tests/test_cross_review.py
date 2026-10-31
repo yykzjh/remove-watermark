@@ -304,16 +304,3 @@ def test_production_rejects_cross_review_for_same_or_unaudited_weights(tmp_path,
         options=ProcessingConfig(quality_check=True,quality_cross_review=True,concurrency=1))
     with pytest.raises(ValueError,match="different|不同"):
         runtime.submit(request)
-
-
-def test_text_dispute_retains_full_original_carrier_context_without_replacing_local_evidence():
-    from watermark_studio.cross_review import dispute_chats
-    before=Image.new("RGB",(1200,900),"green")
-    ImageDraw.Draw(before).rectangle((600,400,800,600),fill="white")
-    after=before.copy()
-    content=dispute_chats(before,after,[(.52,.47,.6,.55)])[0][0]["content"]
-    images=[entry["image"] for entry in content if entry["type"]=="image"]
-    assert len(images)==3
-    assert images[0].size==(640,480) and images[0].getpixel((0,0))==(0,128,0)
-    assert all(max(photo.size)<=512 for photo in images[1:])
-    assert "仅提供" in content[0]["text"] and "局部" in content[-1]["text"]
