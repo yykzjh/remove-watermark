@@ -140,6 +140,8 @@ for profile in args.profiles:
         if time.monotonic()-started>10800: raise TimeoutError(job)
         time.sleep(.5)
     rows=[json.loads(line) for line in (Path.home()/".local/state/watermark-studio"/job/"results.jsonl").read_text().splitlines()]
+    if len(rows)!=len(paths) or {r["file"] for r in rows}!=set(names):
+        raise ValueError("Incomplete or duplicate first-pass image results")
     elapsed=time.monotonic()-started
     audit_started=time.monotonic()
     source_unchanged=all(hashlib.sha256((inputs/name).read_bytes()).hexdigest()==digest
