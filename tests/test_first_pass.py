@@ -323,3 +323,25 @@ def test_incomplete_edge_evidence_cannot_overwrite_or_restore_arbitrary_backgrou
     proof=[{"box":[.8,.8,1,1],"original_box":[.8,.8,.99,1],"sides":[{"side":"right"}]}]
     with pytest.raises(ValueError,match="stroke bounds"):
         protect_edge_completion_context(source,source.copy(),proof)
+
+
+
+def test_oversized_auxiliary_quarter_gets_context_without_redrawing_known_large_panel(monkeypatch):
+    from watermark_studio.detection import DetectionAreaError, refine_source_details
+    image=Image.new("RGB",(4000,3000))
+    panel=Region(kind="panel",box=(0,.6,.45,1))
+    calls=[]
+    def locate(crops,*args):
+        calls.append([p.size for p in crops])
+        if len(calls)==1:
+            assert len(crops)==4
+            return [( [],"{}"),DetectionAreaError("large known panel fills local crop"),([], "{}"),([], "{}")]
+        assert len(crops)==1 and args[-1] is None
+        return [([Region(kind="panel",box=(.1,.1,.8,.8))],"{}")]
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",locate)
+    audit={}
+    results,counts=refine_source_details([image],[([panel],"{}")],None,None,"cpu",
+                                         complete=True,context_audit=audit)
+    assert results[0][0]==[panel] and counts[0]==5
+    assert audit[0][0]["scan_kind"]=="quarter"
+    assert calls[1][0][0]>calls[0][1][0] and calls[1][0][1]>calls[0][1][1]

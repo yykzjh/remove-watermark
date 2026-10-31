@@ -275,7 +275,7 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
     # ambiguity without clipping an invalid box or weakening either area limit.
     if complete:
         for position,((index,box,completion),result) in enumerate(zip(jobs,results)):
-            if not completion or not isinstance(result,DetectionAreaError):
+            if not isinstance(result,DetectionAreaError):
                 continue
             left,top,right,bottom=box
             px,py=max(12,round((right-left)*.35)),max(12,round((bottom-top)*.35))
@@ -284,12 +284,13 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
             if wider==box:
                 continue
             retry=locate_watermarks_batch([images[index].crop(wider)],encoder,processor,device,
-                                          resolution,1,False,COMPLETENESS_PROMPT)[0]
+                                          resolution,1,False,COMPLETENESS_PROMPT if completion else None)[0]
             results[position]=retry
-            jobs[position]=(index,wider,True)
+            jobs[position]=(index,wider,completion)
             extra_views[index]=extra_views.get(index,0)+1
             if context_audit is not None:
                 context_audit.setdefault(index,[]).append({"reason":"oversized_local_overlay",
+                    "scan_kind":"camera_completion" if completion else "quarter",
                     "original_crop":list(box),"context_crop":list(wider),
                     "status":"error" if isinstance(retry,Exception) else "valid",
                     "maximum_global_added_area":.035})
