@@ -350,6 +350,11 @@ class MainWindow(QMainWindow):
         self.preserve_background = QCheckBox("自动保护原图内容（减少非水印内容被重绘）")
         self.preserve_background.setToolTip("完整图像仍送入编辑模型；自动定位水印后合成，保留其余原图内容。定位也可能出错，建议同时检验。")
         form.addRow(self.preserve_background)
+        self.repair_blending = QComboBox()
+        self.repair_blending.addItem("自动校正修补区域明暗（推荐）", "harmonic")
+        self.repair_blending.addItem("仅边缘羽化（对照）", "feather")
+        self.repair_blending.setToolTip("从原水印以外的可见像素估计平滑色偏，减少矩形阴影；不扩大处理范围。")
+        form.addRow("修补明暗衔接", self.repair_blending)
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
         self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；建议同时启用自动保护原图内容。待复核或检验错误不算通过。")
         form.addRow(self.quality_check)
@@ -510,6 +515,7 @@ class MainWindow(QMainWindow):
                 quality_max_attempts=self.quality_attempts.value(),
                 quality_retry_resolution=self.retry_resolution.currentData(),
                 preserve_background=self.preserve_background.isChecked(),
+                repair_blending=self.repair_blending.currentData(),
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
                 quality_detail_patches=self.quality_details.value(),
@@ -634,6 +640,7 @@ def default_ssh_program():
 
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
+    window.repair_blending.setCurrentIndex(0 if getattr(args,"repair_blending","harmonic")=="harmonic" else 1)
     window.preserve_background.setChecked(args.preserve_background)
     window.quality_check.setChecked(args.quality_check)
     window.quality_retry.setChecked(args.quality_auto_retry)
@@ -662,6 +669,7 @@ def main():
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
     parser.add_argument("--preserve-background", action="store_true", help="Preselect original background protection")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
+    parser.add_argument("--repair-blending", choices=["feather","harmonic"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")
     args = parser.parse_args()

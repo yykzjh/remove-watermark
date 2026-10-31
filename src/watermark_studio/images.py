@@ -107,7 +107,61 @@ def context_box(box, size, factor):
     return (max(0, x0 - dx), max(0, y0 - dy), min(size[0], x1 + dx), min(size[1], y1 + dy))
 
 
-def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: int):
+def harmonize_repair(original, generated, regions):
+    """Fit a smooth RGB offset from unoccluded pixels, never from watermark pixels.
+
+    Coarse-to-fine harmonic extension uses Neumann boundaries at image edges.
+    Only low-frequency colour changes; composition still controls the edit footprint.
+    """
+    if original.size != generated.size:
+        raise ValueError("Harmonization requires matching image dimensions")
+    if not regions:
+        return generated
+    previous = None
+    for longest, iterations in ((16, 96), (32, 64), (64, 40), (128, 24)):
+        scale = min(1, longest/max(original.size))
+        size = (max(4, round(original.width*scale)), max(4, round(original.height*scale)))
+        source = np.asarray(original.convert("RGB").resize(size, Image.Resampling.BOX), dtype=np.float32)
+        candidate = np.asarray(generated.convert("RGB").resize(size, Image.Resampling.BOX), dtype=np.float32)
+        valid = np.ones((size[1], size[0]), dtype=bool)
+        for region in regions:
+            x0, y0, x1, y1 = region.box
+            valid[max(0, int(y0*size[1])):min(size[1], math.ceil(y1*size[1])),
+                  max(0, int(x0*size[0])):min(size[0], math.ceil(x1*size[0]))] = False
+        if valid.sum() < 4:
+            return generated
+        boundary = np.clip(source-candidate, -64, 64)
+        if previous is None:
+            field = np.broadcast_to(np.median(boundary[valid], axis=0), boundary.shape).copy()
+        else:
+            field = np.stack([
+                np.asarray(Image.fromarray(previous[..., channel]).resize(size, Image.Resampling.BILINEAR))
+                for channel in range(3)
+            ], axis=2).astype(np.float32)
+        field[valid] = boundary[valid]
+        yy, xx = np.indices(valid.shape)
+        phases = [(~valid) & ((xx+yy)%2 == parity) for parity in (0, 1)]
+        for _ in range(iterations):
+            largest_update = 0.
+            for active in phases:
+                if not active.any():
+                    continue
+                padded = np.pad(field, ((1,1),(1,1),(0,0)), mode="edge")
+                average = (padded[:-2,1:-1]+padded[2:,1:-1]+padded[1:-1,:-2]+padded[1:-1,2:])*.25
+                delta = 1.65*(average[active]-field[active])
+                field[active] += delta
+                largest_update = max(largest_update, float(np.abs(delta).max()))
+            if largest_update < .02:
+                break
+        previous = np.clip(field, -64, 64)
+    result = np.asarray(generated.convert("RGB"), dtype=np.float32).copy()
+    for channel in range(3):
+        offset = Image.fromarray(previous[..., channel]).resize(original.size, Image.Resampling.BILINEAR)
+        result[..., channel] += np.asarray(offset, dtype=np.float32)
+    return Image.fromarray(np.clip(np.rint(result), 0, 255).astype(np.uint8))
+
+
+def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: int, blending="feather"):
     # Alpha is 1 throughout the specified watermark, fading OUTSIDE it.
     # A blurred mask that fades inside the watermark would leave text ghosts.
     x0, y0, x1, y1 = box
@@ -124,6 +178,11 @@ def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: i
     alpha = alpha * alpha * (3 - 2 * alpha)
     mask = Image.fromarray(np.uint8(np.round(alpha * 255)))
     resized = patch.convert("RGB").resize((cx1 - cx0, cy1 - cy0), Image.Resampling.LANCZOS)
+    if blending == "harmonic":
+        from .config import Region
+        local = Region(box=((x0-cx0)/(cx1-cx0), (y0-cy0)/(cy1-cy0),
+                            (x1-cx0)/(cx1-cx0), (y1-cy0)/(cy1-cy0)))
+        resized = harmonize_repair(original.crop(crop), resized, [local])
     result = original.copy()
     result.paste(resized, (cx0, cy0), mask)
     return result
@@ -227,10 +286,12 @@ def inference_shape(path, resolution):
     height = width / ratio
     return round(width / 32) * 32, round(height / 32) * 32
 
-def composite_protected(original, generated, regions, feather=12):
+def composite_protected(original, generated, regions, feather=12, blending="feather"):
     """Keep the source outside automatically detected overlay masks."""
     if original.size != generated.size:
         raise ValueError("Protected composition requires source-sized generated image")
+    if blending == "harmonic":
+        generated = harmonize_repair(original, generated, regions)
     result = original.copy()
     w, h = original.size
     for region in regions:

@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--quality-max-attempts", type=int, default=3, help="0: until pass or cancel")
     parser.add_argument("--quality-retry-resolution", type=int, default=768)
     parser.add_argument("--preserve-background", action="store_true")
+    parser.add_argument("--repair-blending", choices=["feather","harmonic"], default="harmonic")
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--quality-max-tokens", type=int, default=128)
@@ -54,6 +55,7 @@ def main():
                 "quality_max_attempts": args.quality_max_attempts,
                 "quality_retry_resolution": args.quality_retry_resolution,
                 "preserve_background": args.preserve_background,
+                "repair_blending": args.repair_blending,
                 "quality_resolution": args.quality_resolution,
                 "quality_batch_size": args.quality_batch_size,
                 "quality_max_tokens": args.quality_max_tokens,

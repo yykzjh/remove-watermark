@@ -19,6 +19,7 @@ parser.add_argument("--backend", choices=["resident", "independent"], default="r
 parser.add_argument("--combined", action="store_true", help="Include removed overlays with subtle new defects")
 parser.add_argument("--compare-details", action="store_true", help="Experimental paired content detail comparison")
 parser.add_argument("--run-label", choices=["", "local-guard"], default="")
+parser.add_argument("--repair-cases", action="store_true")
 args = parser.parse_args()
 if args.compare_details and not args.combined:
     parser.error("--compare-details requires --combined")
@@ -94,6 +95,47 @@ if args.run_label == "local-guard":
     cases.append(("known_clean_removal_jpeg", combined_before, jpeg, "passed"))
     resized = clean.resize((clean.width//2, clean.height//2), Image.Resampling.LANCZOS)
     cases.append(("known_clean_removal_resize", combined_before, resized, "passed"))
+known_regions = {}
+if args.repair_cases:
+    from watermark_studio.config import Region
+    from watermark_studio.images import load_photo
+
+    bench = root.parent/"quality-benchmark-protected-v3-64"
+    state = Path.home()/".local/state/watermark-studio/9dd02bb8463c4f9dba5be6f8137e7214/results.jsonl"
+    prior = {r["file"]:r for r in map(json.loads,state.read_text().splitlines())}
+    for name, crop_box in (("010.jpg",(.40,.35,.80,.85)),("057.jpg",(.02,.25,.5,.62))):
+        original = load_photo(bench/"input"/name)[0]
+        output = load_photo(bench/"quality-768-b2"/name)[0]
+        label = "prior_dark_seam" if name=="010.jpg" else "prior_excavator_observed"
+        cases.append((label,original,output,"review" if name=="010.jpg" else "passed"))
+        known_regions[label] = [Region.model_validate(r) for r in prior[name]["quality"]["source_regions"]]
+        box = tuple(round(v*s) for v,s in zip(crop_box,(original.width,original.height,original.width,original.height)))
+        clean_crop = original.crop(box)
+        label = "physical_sign" if name=="010.jpg" else "physical_brand"
+        cases.append((label,clean_crop,clean_crop.copy(),"passed"))
+        known_regions[label] = []
+        cw,ch=clean_crop.size
+        px,py,pw,ph=int(cw*.55),int(ch*.65),int(cw*.4),int(ch*.3)
+        layer=Image.new("RGBA",clean_crop.size,(0,0,0,0))
+        panel=Image.new("RGBA",(pw,ph),(220,220,220,240))
+        pd=ImageDraw.Draw(panel)
+        pd.rectangle((0,0,pw,ph//3),fill=(30,110,220,255))
+        pd.text((5,5),"SITE INFO",font=font,fill="white")
+        layer.paste(panel,(px,py))
+        marked=Image.alpha_composite(clean_crop.convert("RGBA"),layer).convert("RGB")
+        source_mask = Region(kind="panel",box=(max(0,px/cw-.01),max(0,py/ch-.01),
+                                               min(1,(px+pw)/cw+.01),min(1,(py+ph)/ch+.01)))
+        label_good=label+"_known_removal"
+        cases.append((label_good,marked,clean_crop.copy(),"passed"))
+        known_regions[label_good]=[source_mask]
+        for opacity in (64,128):
+            layer=Image.new("RGBA",clean_crop.size,(0,0,0,0))
+            label_font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",max(16,cw//60))
+            ImageDraw.Draw(layer).text((px+12,py+ph//2),"CAMERA 2026",font=label_font,fill=(255,255,255,opacity))
+            partial=Image.alpha_composite(clean_crop.convert("RGBA"),layer).convert("RGB")
+            key=label+"_inside_residue_"+str(opacity)
+            cases.append((key,marked,partial,"review"))
+            known_regions[key]=[source_mask]
 if args.compare_details:
     from watermark_studio import quality
     original_vqa = quality._structured_vqa
@@ -117,6 +159,8 @@ if args.compare_details:
 out = root/("subtle-controls-"+args.backend+("-combined-details" if args.compare_details else "-combined") if args.combined else "subtle-controls-"+args.backend+"-v2")
 if args.run_label:
     out = out.with_name(out.name+"-"+args.run_label)
+if args.repair_cases:
+    out=out.with_name(out.name+"-repair")
 out.mkdir(exist_ok=True)
 for detail in ((4,) if args.combined else (0, 4)):
     records = []
@@ -124,7 +168,8 @@ for detail in ((4,) if args.combined else (0, 4)):
         active_pair = (before, after)
         result = verify_batch([(before, after)], encoder, processor, "cuda",
                               resolution=768, max_tokens=128, reviewer=args.backend,
-                              detail_patches=detail)[0]
+                              detail_patches=detail,
+                              source_regions=[known_regions[label]] if label in known_regions else None)[0]
         row = {"case": label, "expected": expected, "details": detail, **result}
         records.append(row)
         with (out/"results.jsonl").open("a") as f:

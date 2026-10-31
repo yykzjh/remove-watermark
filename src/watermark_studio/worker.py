@@ -283,11 +283,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 )
                 if state["protected_regions"] is not None:
                     state["result"] = composite_protected(
-                        state["source"], state["result"], state["protected_regions"], options.feather,
+                        state["source"], state["result"], state["protected_regions"], options.feather, options.repair_blending,
                     )
             else:
                 state["result"] = blend_patch(
-                    state["result"], edit["patch"], edit["box"], edit["crop"], options.feather
+                    state["result"], edit["patch"], edit["box"], edit["crop"], options.feather, options.repair_blending
                 )
     for state in states:
         task = state["task"]
@@ -296,6 +296,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "regions": [r.model_dump() for r in state["regions"]],
             "detection_seconds": state["detection_seconds"], "batch_sizes": state["batches"],
             "background_preserved": state["protected_regions"] is not None or options.scope == "regions",
+            "repair_blending": options.repair_blending,
             "repair_regions": [r.model_dump() for r in (state["protected_regions"] or [])],
         }
         try:

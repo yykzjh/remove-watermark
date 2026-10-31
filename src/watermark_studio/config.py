@@ -42,6 +42,7 @@ class ProcessingConfig(BaseModel):
     regions: list[Region] = Field(default_factory=list, max_length=8)
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
     preserve_background: bool = False
+    repair_blending: Literal["feather", "harmonic"] = "harmonic"
     quality_check: bool = False
     quality_auto_retry: bool = False
     quality_max_attempts: int = Field(default=3, ge=0, le=20)

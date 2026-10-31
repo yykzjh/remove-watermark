@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import time
-from itertools import product
+from itertools import pairwise, product
 
 import numpy as np
 from PIL import Image, ImageChops, ImageFilter
@@ -155,6 +155,64 @@ def outside_repair_changes(before, after, regions, resolution=2048, feather=12):
             "method": "local_outside_overlay_v1"}
 
 
+def repair_boundary_warnings(image, regions, feather=12, resolution=1024):
+    """Find long, mask-aligned lighting steps; a cue for review, not a quality score."""
+    scale = min(1, resolution/max(image.size))
+    size = (max(1,round(image.width*scale)), max(1,round(image.height*scale)))
+    photo = image.convert("RGB").resize(size, Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(1.2))
+    rgb = np.asarray(photo, dtype=np.float32)
+    light = rgb @ np.array([.2126,.7152,.0722], dtype=np.float32)
+    pad = max(2,round(feather*scale))
+    near, far, inside = pad+6, pad+18, 6
+    records = []
+    for region in regions:
+        x0,y0,x1,y1 = region.box if hasattr(region,"box") else region["box"]
+        box = (round(x0*size[0]),round(y0*size[1]),round(x1*size[0]),round(y1*size[1]))
+        for side in ("left","right","top","bottom"):
+            vertical = side in {"left","right"}
+            position = box[0 if side=="left" else 2] if vertical else box[1 if side=="top" else 3]
+            direction = 1 if side in {"left","top"} else -1
+            start,end = (box[1],box[3]) if vertical else (box[0],box[2])
+            extent = size[0] if vertical else size[1]
+            if not (far+3 < position < extent-far-3):
+                continue  # The image edge has no trustworthy exterior context.
+            hits = []
+            for lo in range(start+8,end-31,16):
+                hi=lo+32
+                values=[]
+                spreads=[]
+                for offset in (inside,-near,-far):
+                    at=position+direction*offset
+                    tile=light[lo:hi,at-2:at+3] if vertical else light[at-2:at+3,lo:hi]
+                    values.append(float(np.median(tile)))
+                    spreads.append(float(np.std(tile)))
+                inner,outer,distant=values
+                slope=(outer-distant)/(far-near)
+                residual=inner-(outer+slope*(inside+near))
+                if abs(slope)>.25 or max(spreads[1:])>8 or abs(residual)<8:
+                    hits.append(None)
+                    continue
+                profile=[]
+                offsets=list(range(-pad-6,10))
+                for offset in offsets:
+                    at=position+direction*offset
+                    tile=light[lo:hi,at:at+1] if vertical else light[at:at+1,lo:hi]
+                    profile.append(float(np.median(tile)))
+                derivative=np.abs(np.diff(profile))
+                peak=offsets[int(np.argmax(derivative))]
+                hits.append((lo,residual,peak) if -pad-3<=peak<=3 and derivative.max()>1.5 else None)
+            for first,second in pairwise(hits):
+                if first is not None and second is not None and first[1]*second[1]>0:
+                    lo=first[0]
+                    area = ([max(0,position-pad-6)/size[0],lo/size[1],
+                             min(size[0],position+pad+8)/size[0],min(size[1],lo+48)/size[1]] if vertical else
+                            [lo/size[0],max(0,position-pad-6)/size[1],
+                             min(size[0],lo+48)/size[0],min(size[1],position+pad+8)/size[1]])
+                    records.append({"side":side,"box":area,"luma_step":round((first[1]+second[1])/2,3)})
+    return {"method":"mask_boundary_lighting_v1","suspect_segments":records[:12],
+            "count":len(records),"comparison_size":list(size)}
+
+
 def detail_sheets(before, after, count=4):
     """Choose diverse changed/structural patches; these are evidence, not full coverage."""
     if after.mode != "RGB":
@@ -202,6 +260,34 @@ def detail_sheets(before, after, count=4):
             canvas.paste(patch, (xx, yy+22))
             # Matching grid positions identify crops without adding synthetic text.
     return canvases, boxes
+
+
+def output_detail_views(before, after, count=4, regions=()):
+    """Prioritize whole original overlay footprints, including tiny camera codes."""
+    views, boxes = [], []
+    if count <= 0:
+        return views, boxes
+    for region in sorted(regions, key=lambda r: (r.box[2]-r.box[0])*(r.box[3]-r.box[1])):
+        x0,y0,x1,y1=region.box
+        px,py=(x1-x0)*.10,(y1-y0)*.10
+        box=[max(0,x0-px),max(0,y0-py),min(1,x1+px),min(1,y1+py)]
+        native=tuple(round(v*s) for v,s in zip(box,(after.width,after.height,after.width,after.height)))
+        crop=after.crop(native).convert("RGB")
+        crop.thumbnail((512,512),Image.Resampling.LANCZOS)
+        views.append(crop)
+        boxes.append(box)
+        if len(views)==count:
+            return views,boxes
+    _, candidates=detail_sheets(before,after,count)
+    for box in candidates:
+        native=tuple(round(v*s) for v,s in zip(box,(after.width,after.height,after.width,after.height)))
+        crop=after.crop(native).convert("RGB")
+        crop.thumbnail((256,256),Image.Resampling.LANCZOS)
+        views.append(crop)
+        boxes.append(box)
+        if len(views)==count:
+            break
+    return views,boxes
 
 
 _GRAMMARS = {}
@@ -405,21 +491,21 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         for index, detection in zip(missing, detected):
             known[index] = detection if isinstance(detection, Exception) else detection[0]
     output_chats, content_chats, boxes_list = [], [], []
-    for before, after in pairs:
+    for pair_index, (before, after) in enumerate(pairs):
         aligned = after.resize(before.size, Image.Resampling.LANCZOS) if after.size != before.size else after
-        overview = preview(aligned, resolution)
-        boxes = []
-        if detail_patches:
-            sheets, boxes = detail_sheets(before, aligned, detail_patches)
-            sheet = sheets[1]
-            canvas = Image.new("RGB", (max(overview.width, sheet.width),
-                                       overview.height+sheet.height+24), (48, 48, 48))
-            canvas.paste(overview, ((canvas.width-overview.width)//2, 0))
-            canvas.paste(sheet, ((canvas.width-sheet.width)//2, overview.height+24))
-            overview = canvas
-        output_chats.append([{"role": "user", "content": [
-            {"type": "image", "image": overview}, {"type": "text", "text": OUTPUT_PROMPT},
-        ]}])
+        regions = known[pair_index] if not isinstance(known[pair_index], Exception) else []
+        details, boxes = output_detail_views(before, aligned, detail_patches, regions)
+        content = [{"type": "text", "text": "图1是完整结果照片；后续图像是标明原照片坐标的局部裁切，不是新增面板。"},
+                   {"type": "image", "image": preview(aligned, resolution)}]
+        for detail, box in zip(details, boxes):
+            content.extend([
+                {"type": "text", "text": f"局部在完整照片中的归一化范围：{[round(v,4) for v in box]}。裁切边缘不是水印。"},
+                {"type": "image", "image": detail},
+            ])
+        content.append({"type": "text", "text": OUTPUT_PROMPT.replace(
+            "这是一张去水印结果的检验画布：上方为整图，下方（如有）为同一结果图的放大细节。",
+            "图1是完整结果照片，后续图是标明原照片坐标的放大局部。结合整图透视和物体关系区分真实印刷文字。")})
+        output_chats.append([{"role": "user", "content": content}])
         content_chats.append([{"role": "user", "content": [
             {"type": "image", "image": preview(before, resolution)},
             {"type": "image", "image": preview(aligned, resolution)},
@@ -467,6 +553,13 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             local = outside_repair_changes(before, after, regions, feather=feather)
             verdict["outside_repair_change"] = local
             verdict["source_regions"] = [r.model_dump() if hasattr(r, "model_dump") else r for r in regions]
+            seam_photo = after if after.size == before.size else after.resize(before.size, Image.Resampling.LANCZOS)
+            seam = repair_boundary_warnings(seam_photo, regions, feather)
+            verdict["repair_boundary"] = seam
+            if seam["count"]:
+                verdict.update(status="review", natural=False, uncertain=True)
+                verdict["guard_codes"] = verdict.get("guard_codes", []) + ["repair_boundary_step"]
+                verdict["reason"] = (verdict["reason"]+" 修补边界存在沿矩形方向的明暗突变，需复核。").strip()[:400]
             verdict["local_comparison_seconds"] = round(time.monotonic()-started, 3)
             if local["tiles"]:
                 verdict.update(status="review", uncertain=True)
@@ -475,7 +568,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["seconds"] = round(verdict["seconds"]+verdict["local_comparison_seconds"], 3)
         verdict["source_scan_seconds"] = round(source_seconds if index in missing else 0, 3)
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
-        verdict["review_version"] = "2026-10-31.local-guard-v2"
+        verdict["review_version"] = "2026-11-01.source-detail-seam-v3"
         candidate = verdict["status"] != "error" and (verdict["status"] == "passed" or (
             verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"]))
         verdicts.append(verdict)
