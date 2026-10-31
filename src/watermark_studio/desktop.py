@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
         self.preserve_background.setToolTip("完整图像仍送入编辑模型；自动定位水印后合成，保留其余原图内容。定位也可能出错，建议同时检验。")
         form.addRow(self.preserve_background)
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
-        self.quality_check.setToolTip("对照原图与最终输出；待复核或检验错误不会计为检验通过。图像仍会保存。")
+        self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；建议同时启用自动保护原图内容。待复核或检验错误不算通过。")
         form.addRow(self.quality_check)
         self.quality_resolution = QComboBox()
         for size in (512, 768, 1024, 1280):

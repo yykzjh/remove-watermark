@@ -117,6 +117,43 @@ def deterministic_warnings(before, after):
     return warnings
 
 
+def outside_repair_changes(before, after, regions, resolution=2048):
+    """Conservative local change cue outside known overlays, tolerant of JPEG noise.
+
+    This is not a semantic score. A hit requires review even if the VLM says pass.
+    """
+    scale = min(1, resolution/max(before.size), after.width/before.width,
+                after.height/before.height)
+    size = (max(32, round(before.width*scale)), max(32, round(before.height*scale)))
+    photos = [photo.convert("RGB").resize(size, Image.Resampling.LANCZOS)
+              .filter(ImageFilter.GaussianBlur(.55)) for photo in (before, after)]
+    arrays = [np.asarray(p, dtype=np.float32) for p in photos]
+    delta = np.abs(arrays[0]-arrays[1]).mean(axis=2)
+    valid = np.ones((size[1], size[0]), dtype=bool)
+    # Include feather and JPEG block effects around the detector's padded boxes.
+    for region in regions:
+        box = region.box if hasattr(region, "box") else region["box"]
+        l, t, r, b = box
+        x0, y0 = max(0, int(l*size[0])-12), max(0, int(t*size[1])-12)
+        x1, y1 = min(size[0], int(r*size[0])+13), min(size[1], int(b*size[1])+13)
+        valid[y0:y1, x0:x1] = False
+    block = 32
+    h, w = size[1]//block*block, size[0]//block*block
+    def tile_mean(values):
+        return values[:h, :w].reshape(h//block, block, w//block, block).mean(axis=(1, 3))
+    means = tile_mean(delta)
+    changed = tile_mean(delta > 6)
+    eligible = tile_mean(valid) > .98
+    hits = eligible & (means > 1.5) & (changed > .03)
+    ys, xs = np.nonzero(hits)
+    ranked = sorted(zip(ys, xs), key=lambda p: float(means[p]), reverse=True)
+    boxes = [(x*block/size[0], y*block/size[1],
+              (x+1)*block/size[0], (y+1)*block/size[1]) for y, x in ranked[:8]]
+    return {"tiles": int(hits.sum()), "boxes": boxes, "comparison_size": list(size),
+            "max_tile_mae": round(float(means[eligible].max()), 3) if eligible.any() else 0,
+            "method": "local_outside_overlay_v1"}
+
+
 def detail_sheets(before, after, count=4):
     """Choose diverse changed/structural patches; these are evidence, not full coverage."""
     if after.mode != "RGB":
@@ -349,9 +386,23 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
 
 
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
-                 reviewer="resident", detail_patches=4, detection_batch_size=1):
+                 reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None):
     from .detection import locate_watermarks_batch
 
+    known = list(source_regions) if source_regions is not None else [None]*len(pairs)
+    if len(known) != len(pairs):
+        raise ValueError("Source-region count differs from image pairs")
+    missing = [i for i, regions in enumerate(known) if regions is None]
+    source_seconds = 0
+    if missing:
+        started = time.monotonic()
+        detected = locate_watermarks_batch(
+            [pairs[i][0] for i in missing], encoder, processor, device,
+            max(1024, resolution), detection_batch_size,
+        )
+        source_seconds = (time.monotonic()-started)/len(missing)
+        for index, detection in zip(missing, detected):
+            known[index] = detection if isinstance(detection, Exception) else detection[0]
     output_chats, content_chats, boxes_list = [], [], []
     for before, after in pairs:
         aligned = after.resize(before.size, Image.Resampling.LANCZOS) if after.size != before.size else after
@@ -383,7 +434,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         encoder, processor, device, max_tokens,
     )
     verdicts, residual_candidates = [], []
-    for check, comparison, (before, after), boxes in zip(inspected, compared, pairs, boxes_list):
+    for index, (check, comparison, (before, after), boxes) in enumerate(zip(inspected, compared, pairs, boxes_list)):
         data = {k: check[k] for k in ("watermark_removed", "natural")}
         data["content_preserved"] = comparison["content_preserved"]
         data["uncertain"] = check["uncertain"] or comparison["uncertain"]
@@ -407,8 +458,25 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             resolution=resolution, detail_boxes=boxes, pixel_mae=pixel_change(before, after),
             method=reviewer+"_qwen3_vl", review_version="2026-10-31.decomposed-v1",
         )
-        candidate = verdict["status"] == "passed" or (
-            verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"])
+        regions = known[index]
+        if isinstance(regions, Exception):
+            verdict.update(status="error", reason=f"Original overlay scan: {regions}"[:400])
+        else:
+            started = time.monotonic()
+            local = outside_repair_changes(before, after, regions)
+            verdict["outside_repair_change"] = local
+            verdict["source_regions"] = [r.model_dump() if hasattr(r, "model_dump") else r for r in regions]
+            verdict["local_comparison_seconds"] = round(time.monotonic()-started, 3)
+            if local["tiles"]:
+                verdict.update(status="review", uncertain=True)
+                verdict["guard_codes"] = verdict.get("guard_codes", []) + ["outside_repair_change"]
+                verdict["reason"] = (verdict["reason"]+" 水印区域以外检测到局部变化，需复核。").strip()[:400]
+            verdict["seconds"] = round(verdict["seconds"]+verdict["local_comparison_seconds"], 3)
+        verdict["source_scan_seconds"] = round(source_seconds if index in missing else 0, 3)
+        verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
+        verdict["review_version"] = "2026-10-31.local-guard-v2"
+        candidate = verdict["status"] != "error" and (verdict["status"] == "passed" or (
+            verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"]))
         verdicts.append(verdict)
         if candidate:
             residual_candidates.append((verdict, after))
@@ -428,7 +496,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 if regions:
                     verdict.update(status="review", watermark_removed=False,
                                    reason="输出残留水印扫描发现数字覆盖层。")
-                elif verdict.get("guard_codes") == ["identical"]:
+                elif verdict.get("guard_codes") == ["identical"] and not verdict.get("source_regions"):
                     verdict.update(status="passed", uncertain=verdict["model_uncertain"],
                                    reason=verdict["model_reason"])
             verdict["residual_scan_seconds"] = round(seconds, 3)

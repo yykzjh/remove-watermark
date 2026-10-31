@@ -91,3 +91,32 @@ def test_protected_composition_does_not_change_pixels_outside_feather():
     changed = np.any(np.array(result) != np.array(before), axis=2)
     changed[13:35, 17:43] = False
     assert not changed.any()
+
+def test_local_guard_detects_subtle_change_outside_removed_overlay():
+    from PIL import ImageDraw
+
+    from watermark_studio.config import Region
+    from watermark_studio.quality import outside_repair_changes
+    before = Image.new("RGB", (1024, 768), "gray")
+    after = before.copy()
+    ImageDraw.Draw(before).rectangle((20, 550, 300, 750), fill="blue")
+    regions = [Region(box=(.01, .70, .32, 1.))]
+    assert outside_repair_changes(before, after, regions)["tiles"] == 0
+    ImageDraw.Draw(after).text((700, 300), "CAMERA", fill=(160, 160, 160))
+    assert outside_repair_changes(before, after, regions)["tiles"] > 0
+
+
+def test_local_guard_tolerates_requested_output_resize_and_jpeg():
+    import io
+
+    import numpy as np
+
+    from watermark_studio.quality import outside_repair_changes
+    rng = np.random.default_rng(42)
+    before = Image.fromarray(rng.integers(0, 256, (768, 1024, 3), dtype=np.uint8))
+    buffer = io.BytesIO()
+    before.save(buffer, format="JPEG", quality=97, subsampling=0)
+    after = Image.open(io.BytesIO(buffer.getvalue()))
+    assert outside_repair_changes(before, after, [])["tiles"] == 0
+    after = before.resize((512, 384), Image.Resampling.LANCZOS)
+    assert outside_repair_changes(before, after, [])["tiles"] == 0

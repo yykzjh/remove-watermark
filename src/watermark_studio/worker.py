@@ -325,6 +325,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     options.quality_resolution, options.quality_max_tokens,
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                     detection_batch_size=config.detection_batch_size,
+                    source_regions=[
+                        detections[t["relative"]][0][0] if t["relative"] in detections
+                        and not isinstance(detections[t["relative"]][0], Exception)
+                        else None for t in group
+                    ],
                 )
                 for task, verdict in zip(group, reviews):
                     size = ([options.output_width, options.output_height] if options.output_width

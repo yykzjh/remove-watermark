@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--backend", choices=["resident", "independent"], default="resident")
 parser.add_argument("--combined", action="store_true", help="Include removed overlays with subtle new defects")
 parser.add_argument("--compare-details", action="store_true", help="Experimental paired content detail comparison")
+parser.add_argument("--run-label", choices=["", "local-guard"], default="")
 args = parser.parse_args()
 if args.compare_details and not args.combined:
     parser.error("--compare-details requires --combined")
@@ -85,6 +86,14 @@ if args.combined:
                   "small_edge_displacement", "small_head_region_replaced"):
         after = next(c[2] for c in cases if c[0] == label)
         cases.append(("removed_plus_"+label, combined_before, after, "review"))
+if args.run_label == "local-guard":
+    import io
+    buffer = io.BytesIO()
+    clean.save(buffer, format="JPEG", quality=97, subsampling=0)
+    jpeg = Image.open(io.BytesIO(buffer.getvalue())).convert("RGB")
+    cases.append(("known_clean_removal_jpeg", combined_before, jpeg, "passed"))
+    resized = clean.resize((clean.width//2, clean.height//2), Image.Resampling.LANCZOS)
+    cases.append(("known_clean_removal_resize", combined_before, resized, "passed"))
 if args.compare_details:
     from watermark_studio import quality
     original_vqa = quality._structured_vqa
@@ -106,6 +115,8 @@ if args.compare_details:
         return original_vqa(chats, fields, *arguments)
     quality._structured_vqa = with_details
 out = root/("subtle-controls-"+args.backend+("-combined-details" if args.compare_details else "-combined") if args.combined else "subtle-controls-"+args.backend+"-v2")
+if args.run_label:
+    out = out.with_name(out.name+"-"+args.run_label)
 out.mkdir(exist_ok=True)
 for detail in ((4,) if args.combined else (0, 4)):
     records = []

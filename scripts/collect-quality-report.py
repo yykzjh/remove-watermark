@@ -12,7 +12,8 @@ manifest = json.loads((state_dir/"manifest.json").read_text())
 report = {"dataset": {"image_files": status["images"], "valid_decoded": status["valid"],
                       "source_zero_byte_files": sum(r["size"] == 0 and Path(r["path"]).suffix.lower()
                                                    in {".jpg", ".png"} for r in manifest),
-                      "image_bytes": status["bytes"]},
+                      "image_bytes": status["bytes"], "cloud_files": len(manifest),
+                      "excluded_nonimages": len(manifest)-status["images"]},
           "performance": [], "controls": []}
 for tag in ("decomposed-64", "independent-8", "stage-batch-64",
             "ablation-serial-64", "ablation-batched-64", "retry-64", "protected-retry-24", "retry-hints-64"):
@@ -38,7 +39,7 @@ report["environment"] = {name: version(name) for name in ("torch", "diffusers", 
 report["code_revision"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 report["combined_controls"] = []
 for backend in ("resident", "independent"):
-    for suffix in ("combined", "combined-details"):
+    for suffix in ("combined", "combined-details", "combined-local-guard"):
         f = root/"quality-benchmark"/("subtle-controls-"+backend+"-"+suffix)/"results.jsonl"
         if not f.exists():
             continue
@@ -49,6 +50,9 @@ for backend in ("resident", "independent"):
             "clean_status": dict(collections.Counter(r["status"] for r in rows if r["expected"] == "passed")),
             "errors": sum(r["status"] == "error" for r in rows),
         })
+sources = json.loads((root/"sample-review/sources.json").read_text())
+report["sampling_design"] = {"samples": len(sources), "groups": len({r["group"] for r in sources}),
+    "towns": len({Path(r["group"]).parts[0] for r in sources}), "seed": 20261031}
 profile = root/"sample-review/profile-1024/summary.json"
 if profile.exists():
     report["sample_profile"] = json.loads(profile.read_text())
