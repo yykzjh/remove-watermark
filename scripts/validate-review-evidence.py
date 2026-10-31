@@ -46,7 +46,7 @@ def run(retry):
         q=row["quality"]
         report=q["model_explanation"]
         if not retry and q["status"]=="review":
-            assert report["status"]=="ok",(row["file"],report)
+            assert report["status"] in {"ok","summary_only"},(row["file"],report)
             assert report.get("summary"),row["file"]
             assert q["retry_feedback"] and q["repair_advice"],row["file"]
         assert q["judgment_basis"]["model_checks"],row["file"]

@@ -114,3 +114,22 @@ def test_empty_residual_scan_or_explanation_cannot_overrule_model_rejection(monk
     assert row["watermark_removed"] is not reject
     assert row["model_checks"]["watermark_removed"] is not reject
     assert row["residual_regions"]==[]
+
+
+def test_malformed_model_json_gets_one_explicit_summary_fallback(monkeypatch):
+    calls=[]
+    def generate(chats,*args):
+        calls.append(chats)
+        if len(calls)==1:
+            return [{"status":"error","error":"summary missing","raw":"bad schema"}]
+        assert args[-1] is True
+        return [{"status":"summary_only","assessment":"uncertain",
+                 "summary":"柱体靠近原水印上边缘出现明显横向暗边。","findings":[]}]
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",generate)
+    image=Image.new("RGB",(128,96))
+    verdict={"status":"review","reason":"明暗异常","natural":False,"seconds":1}
+    attach_evidence([(image,image)],[verdict],None,None,None,768,128)
+    assert len(calls)==2 and verdict["status"]=="review"
+    assert verdict["model_explanation"]["status"]=="summary_only"
+    assert verdict["model_explanation"]["schema_error"]=="summary missing"
+    assert "横向暗边" in verdict["reason"] and verdict["retry_feedback"]

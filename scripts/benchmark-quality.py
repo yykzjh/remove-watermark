@@ -108,7 +108,7 @@ for label, enabled, resolution, batch in profiles:
               "retry_exhausted": job.get("retry_exhausted", 0),
               "preserve_background": args.preserve_background,
               "repair_blending": args.repair_blending,
-              "explained_attempts": sum(q.get("model_explanation", {}).get("status") == "ok" for q in quality_attempts),
+              "explained_attempts": sum(q.get("model_explanation", {}).get("status") in {"ok", "summary_only"} for q in quality_attempts),
               "explanation_errors": sum(q.get("model_explanation", {}).get("status") == "error" for q in quality_attempts),
               "explanation_seconds": round(sum(q.get("explanation_seconds", 0) for q in quality_attempts), 3),
               "explanation_oom_splits_max": max((q.get("model_explanation", {}).get("oom_splits", 0) for q in quality_attempts), default=0),

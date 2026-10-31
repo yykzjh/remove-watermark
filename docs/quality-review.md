@@ -83,7 +83,7 @@ quality.judgment_basis 保存模型三项原始判断、检查的局部坐标、
 对 review 项额外调用同一检验模型，提供原图/结果整图和一个重点区域的原图/结果放大对照；输出：
 
 - model_explanation.assessment：defect_visible / uncertain / no_clear_defect；
-- summary：一句可见依据；findings 最多2条，含 issue、完整照片归一化 box（无法定位则null）、observation；
+- summary：一句可见依据；结构化说明不完整时最多追加一次160令牌的简短观察说明，标记summary_only并保留原schema_error，不能虚构坐标或类型；findings 最多2条，含 issue、完整照片归一化 box（无法定位则null）、observation；
 - evidence：模型观察与程序局部检查分开标明来源，数值台阶、纹理衰减和可见内容变化可定位回原图；
 - retry_feedback、repair_advice：从受限问题类型及可信坐标构建的针对性建议。
 
