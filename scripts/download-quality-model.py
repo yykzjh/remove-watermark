@@ -52,7 +52,7 @@ for row in files:
                     raise
                 time.sleep(min(2**retry, 16))
     try:
-        with cf.ThreadPoolExecutor(max_workers=64) as pool:
+        with cf.ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(download, i) for i in range((size+chunk-1)//chunk) if i not in completed]
             last = 0
             for future in cf.as_completed(futures):
