@@ -5,12 +5,11 @@ Requires an existing BaiduPCS-Go login. Cookies and download URLs stay on this h
 import argparse
 import concurrent.futures as cf
 import json
-import os
-from pathlib import Path, PurePosixPath
 import subprocess
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path, PurePosixPath
 
 p = argparse.ArgumentParser()
 p.add_argument("--cloud-root", required=True)
@@ -38,8 +37,8 @@ def save(name, data):
 def listing(directory):
     found = []
     for page in range(1, 100000):
-        query = urllib.parse.urlencode(dict(dir=directory, num=1000, page=page,
-                                           order="name", desc=0, web=1))
+        query = urllib.parse.urlencode({"dir": directory, "num": 1000, "page": page,
+                                           "order": "name", "desc": 0, "web": 1})
         for attempt in range(6):
             try:
                 req = urllib.request.Request("https://pan.baidu.com/api/list?" + query,
@@ -77,8 +76,8 @@ else:
                     else:
                         rows.append({k: item[k] for k in ("path", "size", "md5") if k in item})
             pending = next_dirs
-            save("status.json", dict(phase="inventory", directories=directories,
-                                    discovered=len(rows), remaining_directories=len(pending)))
+            save("status.json", {"phase": "inventory", "directories": directories,
+                                    "discovered": len(rows), "remaining_directories": len(pending)})
     if len({r["path"] for r in rows}) != len(rows):
         raise RuntimeError("Duplicate manifest paths")
     save("manifest.json", rows)
@@ -93,8 +92,8 @@ for r in rows:
 
 image_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".avif", ".gif"}
 images = [r for r in rows if Path(r["path"]).suffix.lower() in image_exts]
-save("inventory-summary.json", dict(files=len(rows), images=len(images),
-    image_bytes=sum(r["size"] for r in images), non_images=len(rows)-len(images)))
+save("inventory-summary.json", {"files": len(rows), "images": len(images),
+    "image_bytes": sum(r["size"] for r in images), "non_images": len(rows)-len(images)})
 
 
 def complete(r):
@@ -135,21 +134,23 @@ for attempt in range(1, 7):
             done = [r for r in images if complete(r)]
             present = sum(min(Path(r["local"]).stat().st_size, r["size"])
                           for r in images if Path(r["local"]).is_file())
-            save("status.json", dict(phase="download", attempt=attempt, total=len(images),
-                complete=len(done), bytes=present, total_bytes=sum(r["size"] for r in images),
-                remaining_batches=len(futures)))
+            save("status.json", {"phase": "download", "attempt": attempt, "total": len(images),
+                "complete": len(done), "bytes": present, "total_bytes": sum(r["size"] for r in images),
+                "remaining_batches": len(futures)})
 if any(not complete(r) for r in images):
-    save("status.json", dict(phase="failed", missing=sum(not complete(r) for r in images)))
+    save("status.json", {"phase": "failed", "missing": sum(not complete(r) for r in images)})
     raise RuntimeError("Incomplete image downloads; manifest retained for resume")
 
 # Full decoding, not filename extensions alone, determines valid images.
 from PIL import Image
+
+
 def check(r):
     try:
         with Image.open(r["local"]) as im:
             im.load()
         return None
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - record every per-image decode failure
         return {"path": r["path"], "size": r["size"], "error": type(exc).__name__}
 
 failures = []
@@ -158,9 +159,9 @@ with cf.ThreadPoolExecutor(max_workers=8) as pool:
         if result:
             failures.append(result)
         if count % 500 == 0:
-            save("status.json", dict(phase="validate", checked=count, total=len(images),
-                                    invalid=len(failures)))
-save("validation.json", dict(total=len(images), valid=len(images)-len(failures),
-                             invalid=failures))
-save("status.json", dict(phase="completed", images=len(images), valid=len(images)-len(failures),
-                        invalid=len(failures), bytes=sum(r["size"] for r in images)))
+            save("status.json", {"phase": "validate", "checked": count, "total": len(images),
+                                    "invalid": len(failures)})
+save("validation.json", {"total": len(images), "valid": len(images)-len(failures),
+                             "invalid": failures})
+save("status.json", {"phase": "completed", "images": len(images), "valid": len(images)-len(failures),
+                        "invalid": len(failures), "bytes": sum(r["size"] for r in images)})
