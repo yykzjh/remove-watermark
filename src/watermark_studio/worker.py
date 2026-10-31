@@ -261,6 +261,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                        and r.box[2]<=region.box[2] and r.box[3]<=region.box[3]]
                 core_box=(min(b[0] for b in cores),min(b[1] for b in cores),
                           max(b[2] for b in cores),max(b[3] for b in cores)) if cores else None
+                if prefilled:
+                    # The entire declared mask was initialized for inpainting:
+                    # do not blend original text/backing into its inner margin.
+                    core_box=None
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
                     "prompt": (build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else

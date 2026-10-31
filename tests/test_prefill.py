@@ -54,9 +54,9 @@ def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_p
     from watermark_studio.worker import process_batch
     source,target=tmp_path/"source.png",tmp_path/"result.png"
     photo=Image.new("RGB",(800,600),(80,100,60))
-    ImageDraw.Draw(photo).rectangle((0,360,319,599),fill="blue")
+    ImageDraw.Draw(photo).rectangle((0,360,329,599),fill="blue")
     photo.save(source);original=source.read_bytes()
-    region=Region(kind="panel",box=(0,.6,.4,1))
+    region=Region(kind="panel",box=(0,.58,.432,1))
     def detect(images,*args):
         assert images[0].getpixel((100,500))==(0,0,255)
         return [([region],json.dumps({"scene":"outdoor","watermarks":[
@@ -78,6 +78,8 @@ def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_p
         ProcessingConfig(scope="full_image",preserve_background=True,first_pass_mode="focused"),
         DeploymentConfig(prefill_overlays=True),pipe)[0]
     assert row["ok"] and row["conditioning_prefill"]==[True] and row["model_inferences"]==1
+    assert row["opaque_core_boxes"]==[None]
     assert calls==[1] and source.read_bytes()==original
     with Image.open(target) as output:
         assert output.size==(800,600) and output.getpixel((700,50))==(80,100,60)
+        assert output.getpixel((329,500))==(80,100,60)
