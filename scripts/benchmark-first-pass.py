@@ -80,12 +80,14 @@ for p,name in zip(paths,names):
 (work/"sources.json").write_text(json.dumps([str(p) for p in paths],ensure_ascii=False))
 while request(args.url,"/health")["stage"]!="ready": time.sleep(2)
 for profile in args.profiles:
-    mode,budget=profile.rsplit("-",1);budget=int(budget)
+    match=re.fullmatch(r"(whole|focused|thorough|complete)(?:@([0-9.]+))?-([0-9]+)",profile)
+    if not match: raise ValueError("Invalid profile")
+    mode,context,budget=match.groups();budget=int(budget);context=float(context or .6)
     target=work/profile
     if target.exists(): raise RuntimeError("Fresh tag/output required; existing accepted outputs must not bias first-pass metrics")
     started=time.monotonic()
     job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(target),"options":{
-        "concurrency":20,"resolution":budget,"preserve_background":True,"first_pass_mode":mode,
+        "concurrency":20,"resolution":budget,"preserve_background":True,"first_pass_mode":mode,"context":context,
         "repair_blending":args.blending,"quality_check":True,"quality_batch_size":2,
         "quality_detail_patches":4,"quality_cross_review":args.cross_review,"overwrite":True}})["id"]
     last_progress=started
@@ -102,7 +104,7 @@ for profile in args.profiles:
     rows=[json.loads(line) for line in (Path.home()/".local/state/watermark-studio"/job/"results.jsonl").read_text().splitlines()]
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
     record={"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
-        "blending":args.blending,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
+        "blending":args.blending,"context":context,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
         "first_pass_rate":round(counts["passed"]/len(paths),5),"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),
         "input_budgets":dict(collections.Counter(str(n) for r in rows for n in r.get("model_input_budgets",[]))),

@@ -445,7 +445,8 @@ class Runtime:
                 "batch_size": self.config.batch_size,
                 "batch_window": self.config.batch_window,
                 "quality_verifier": self.config.quality_verifier,
-                "quality_model": self.config.quality_model,
+                "quality_model": (self.config.quality_model if self.config.quality_backend=="independent"
+                                  else self.config.model+"::text_encoder"),
                 "quality_backend": self.config.quality_backend,
                 "quality_quantization":self.config.quality_quantization,
                 "optimization": {
