@@ -12,6 +12,7 @@ from watermark_studio.cli import request
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", default="")
+parser.add_argument("--images", type=int, default=24)
 parser.add_argument("--detail-patches", type=int, default=4)
 parser.add_argument("--profiles", nargs="+")
 parser.add_argument("--contact", action="store_true")
@@ -39,9 +40,9 @@ for f in candidates:
     if not target.exists():
         os.link(f, target)
     chosen.append(str(f))
-    if len(chosen) == 24:
+    if len(chosen) == args.images:
         break
-assert len(chosen) == 24
+assert len(chosen) == args.images
 (root / "sources.json").write_text(json.dumps(chosen, ensure_ascii=False))
 if args.contact:
     from PIL import ImageDraw, ImageOps
@@ -88,7 +89,7 @@ for label, enabled, resolution, batch in profiles:
         time.sleep(.5)
     rows = [json.loads(line) for line in
             (Path.home()/".local/state/watermark-studio"/job_id/"results.jsonl").read_text().splitlines()]
-    record = {"label": label, "tag": args.tag, "detail_patches": args.detail_patches, "seconds": round(time.monotonic()-started, 3),
+    record = {"label": label, "tag": args.tag, "images": args.images, "detail_patches": args.detail_patches, "seconds": round(time.monotonic()-started, 3),
               "job": job_id, "success": job["succeeded"], "failed": job["failed"],
               "quality_counts": job.get("quality_counts", {}),
               "quality_seconds": round(sum(r.get("quality", {}).get("seconds", 0) for r in rows), 3),

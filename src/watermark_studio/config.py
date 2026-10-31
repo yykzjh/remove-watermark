@@ -99,7 +99,7 @@ class DeploymentConfig(BaseModel):
     oom_split_batch: bool = False
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
     quality_verifier: bool = False
-    quality_backend: Literal["resident", "independent"] = "independent"
+    quality_backend: Literal["resident", "independent"] = "resident"
     quality_model: str = "Qwen/Qwen3-VL-4B-Instruct"
     quality_revision: str = "main"
     dtype: Literal["bfloat16", "float16"] = "bfloat16"

@@ -119,7 +119,10 @@ def deterministic_warnings(before, after):
 
 def detail_sheets(before, after, count=4):
     """Choose diverse changed/structural patches; these are evidence, not full coverage."""
-    after = after.convert("RGB").resize(before.size, Image.Resampling.LANCZOS)
+    if after.mode != "RGB":
+        after = after.convert("RGB")
+    if after.size != before.size:
+        after = after.resize(before.size, Image.Resampling.LANCZOS)
     a = before.convert("RGB").resize((512, 512), Image.Resampling.LANCZOS)
     b = after.resize((512, 512), Image.Resampling.LANCZOS)
     x = np.asarray(a.filter(ImageFilter.GaussianBlur(1)), dtype=np.float32)
@@ -192,11 +195,13 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
     started = time.monotonic()
     chats, detail_boxes = [], []
     for before, after in pairs:
-        views = [preview(before, resolution), preview(after, resolution)]
+        aligned_after = (after.resize(before.size, Image.Resampling.LANCZOS)
+                         if after.size != before.size else after)
+        views = [preview(before, resolution), preview(aligned_after, resolution)]
         text = prompt or PROMPT
         boxes = []
         if detail_patches:
-            sheets, boxes = detail_sheets(before, after, detail_patches)
+            sheets, boxes = detail_sheets(before, aligned_after, detail_patches)
             combined = []
             for overview, sheet in zip(views, sheets):
                 canvas = Image.new("RGB", (max(overview.width, sheet.width),
@@ -274,7 +279,8 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         results.append(result | {"seconds": round(elapsed / len(pairs), 3),
             "batch_seconds": round(elapsed, 3), "batch_size": len(pairs),
             "resolution": resolution, "detail_boxes": boxes, "pixel_mae": pixel_change(before, after),
-            "method": reviewer + "_qwen3_vl"})
+            "method": reviewer + "_qwen3_vl", "review_version": "2026-10-31.detail-json-v2",
+            "comparison_output_resized": before.size != after.size})
     return results
 
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
