@@ -21,6 +21,8 @@ parser.add_argument("--images",type=int,default=64)
 parser.add_argument("--seed",type=int,default=20261101)
 parser.add_argument("--exclude-benchmarks",nargs="*",default=[])
 parser.add_argument("--cross-review",action="store_true")
+parser.add_argument("--generation-only",action="store_true")
+parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
 parser.add_argument("--files",nargs="*")
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
@@ -88,7 +90,7 @@ for profile in args.profiles:
     started=time.monotonic()
     job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(target),"options":{
         "concurrency":20,"resolution":budget,"preserve_background":True,"first_pass_mode":mode,"context":context,
-        "repair_blending":args.blending,"quality_check":True,"quality_batch_size":2,
+        "repair_blending":args.blending,"quality_check":not args.generation_only,"quality_batch_size":args.quality_batch_size,
         "quality_detail_patches":4,"quality_cross_review":args.cross_review,"overwrite":True}})["id"]
     last_progress=started
     while True:
@@ -105,7 +107,8 @@ for profile in args.profiles:
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
     record={"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
         "blending":args.blending,"context":context,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
-        "first_pass_rate":round(counts["passed"]/len(paths),5),"processing_failed":status["failed"],
+        "first_pass_rate":None if args.generation_only else round(counts["passed"]/len(paths),5),
+        "generation_only":args.generation_only,"quality_batch_size":args.quality_batch_size,"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),
         "input_budgets":dict(collections.Counter(str(n) for r in rows for n in r.get("model_input_budgets",[]))),
         "source_detail_views":sum(r.get("source_detail_views",0) for r in rows),

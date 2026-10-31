@@ -23,6 +23,7 @@
 |--quality-backend|resident|resident: reuse image encoder; independent: separate instruction VLM; launch-throughput-quality.sh explicitly selects independent|
 |--quality-model|Qwen/Qwen3-VL-4B-Instruct|Independent quality VLM repository or local path; adds GPU memory|
 |--quality-revision|main|Independent quality VLM revision (master for ModelScope)|
+|--quality-quantization|none|Independent verifier language layers: none, int8 or nf4; requires quality-quantization extra. Vision layers and lm_head retain selected dtype; a failed precision audit prevents startup.|
 |--dtype|bfloat16|Model weight and inference dtype|
 |--attention|sdpa|sdpa; flex is rejected on the pinned stack after measured compiler failures|
 |--attention-backend|native|Unmasked/image attention kernel; text causal masks keep native. Hub kernels require kernels extra|
@@ -53,3 +54,23 @@
 |--allowed-roots|['~', '/mnt']|Replace allowed directory roots; space-separated paths|
 |--state-dir|~/.local/state/watermark-studio|Directory for job summaries and per-image result logs|
 |--backend|qwen|qwen: real model; mock: tests only, copies images without removal|
+
+
+## 独立8B检验候选
+
+在Linux开发机安装可选依赖（由开发机直接下载）：
+
+~~~bash
+uv sync --frozen --extra server --extra quantization --extra quality-quantization --no-dev
+uv run --no-sync python scripts/download-quality-model.py --model Qwen/Qwen3-VL-8B-Instruct --workers 8
+bash scripts/launch-throughput-quality.sh \
+  --quality-model "$HOME/.cache/watermark-models/models/Qwen--Qwen3-VL-8B-Instruct/snapshots/master" \
+  --quality-quantization nf4
+~~~
+
+启动配方默认8卡。其他任务占卡时用 --gpus 和 --load-parallelism 显式选择可用卡。
+NF4降低语言层驻留显存，不保证比BF16更快或更准确；需要同时比较正确结果误拒、
+缺陷漏检和端到端耗时。当前Transformers使用完整模块名匹配量化排除项，
+因此显式排除model.visual；加载后再次检查视觉模块不存在Linear4bit/Linear8bitLt。
+resident复用去水印编码器，health如实报告::text_encoder；它不提供两个独立模型意见，
+不能启用双模型争议改判。none/int8/nf4是字符串选择项，不是bool开关。
