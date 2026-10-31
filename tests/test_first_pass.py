@@ -173,3 +173,50 @@ def test_complete_scan_merges_full_code_line_without_expanding_unrelated_panel(m
     found,_=refine_source_details([source],[([panel,logo],"source")],None,None,"cpu",complete=True)
     assert len(found[0][0])==2 and found[0][0][0]==panel
     assert found[0][0][1].box[0]<logo.box[0] and found[0][0][1].box[3]==1
+
+
+@pytest.mark.parametrize("flip", [False, True])
+def test_edge_completion_covers_only_a_source_stroke_crossing_the_known_mask(flip):
+    from PIL import ImageDraw, ImageOps
+
+    from watermark_studio.detection import complete_edge_strokes
+    image=Image.new("RGB",(400,300),(70,90,60))
+    ImageDraw.Draw(image).rectangle((395,282,399,291),fill="white")
+    region=Region(kind="logo",box=(.85,.86,.9925,1))
+    if flip:
+        image=ImageOps.flip(image)
+        region=Region(kind="logo",box=(.85,0,.9925,.14))
+    original=image.tobytes()
+    found,proof=complete_edge_strokes(image,[region])
+    assert image.tobytes()==original and proof
+    assert found[0].box[2]==1 and found[0].box[0]==region.box[0]
+    assert proof[0]["sides"][0]["from_pixel"]==397
+
+
+def test_edge_completion_does_not_use_isolated_highlights_or_expand_large_panels():
+    from PIL import ImageDraw
+
+    from watermark_studio.detection import complete_edge_strokes
+    image=Image.new("RGB",(400,300),(70,90,60))
+    ImageDraw.Draw(image).rectangle((399,282,399,291),fill="white")
+    regions=[Region(kind="logo",box=(.85,.86,.9925,1)),
+             Region(kind="panel",box=(.5,.5,.9925,1))]
+    found,proof=complete_edge_strokes(image,regions)
+    assert found==regions and not proof
+
+
+@pytest.mark.parametrize("side", ["left","top","bottom"])
+def test_edge_stroke_evidence_works_without_assuming_a_fixed_watermark_corner(side):
+    from PIL import ImageDraw
+
+    from watermark_studio.detection import complete_edge_strokes
+    image=Image.new("RGB",(400,300),(70,90,60))
+    if side=="left":
+        box=(0,282,4,291);region=Region(kind="logo",box=(.0075,.86,.15,1));coordinate=0;expected=0
+    elif side=="top":
+        box=(282,0,291,4);region=Region(kind="logo",box=(.7,.01,.8,.2));coordinate=1;expected=0
+    else:
+        box=(282,295,291,299);region=Region(kind="logo",box=(.7,.8,.8,.99));coordinate=3;expected=1
+    ImageDraw.Draw(image).rectangle(box,fill="white")
+    found,proof=complete_edge_strokes(image,[region])
+    assert proof and found[0].box[coordinate]==expected

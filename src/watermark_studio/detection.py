@@ -297,7 +297,104 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
                 output[index]=(merge_regions(detections[index][0]+extra),detections[index][1])
             except ValueError as error:
                 output[index]=error
+    if complete:
+        for index,(image,result) in enumerate(zip(images,output)):
+            if isinstance(result,Exception):
+                continue
+            regions,raw=result
+            regions,evidence=complete_edge_strokes(image,regions)
+            if evidence:
+                data=json.loads(raw)
+                data["source_edge_completion"]=evidence
+                output[index]=(regions,json.dumps(data))
     return output,{i:sum(index==i for index,_,_ in jobs) for i in range(len(images))}
+
+
+def complete_edge_strokes(image, regions):
+    """Cover a light camera glyph crossing a known mask into a tiny image-edge gap.
+
+    This is source-only evidence, not a text detector or a fixed-corner template.
+    It never grows a mask across an arbitrary gap, from an output residual, or
+    for a large panel. Changes stay within the existing 0.8% localization margin.
+    """
+    import numpy as np
+    from PIL import ImageFilter
+
+    from .images import pixel_box
+
+    expanded=[]
+    evidence=[]
+    for index,region in enumerate(regions):
+        x0,y0,x1,y1=region.box
+        if region.kind!="logo" or (x1-x0)*(y1-y0)>.035:
+            expanded.append(region)
+            continue
+        original=pixel_box(region.box,image.size)
+        bounds=list(original)
+        records=[]
+        for side in ("left","right","top","bottom"):
+            vertical=side in {"left","right"}
+            extent=image.width if vertical else image.height
+            margin=max(2,math.ceil(.008*extent))
+            position=original[{"left":0,"top":1,"right":2,"bottom":3}[side]]
+            gap=position if side in {"left","top"} else extent-position
+            if not 0<gap<=margin:
+                continue
+            start,end=(original[1],original[3]) if vertical else (original[0],original[2])
+            lo,hi=(0,min(extent,position+6)) if side in {"left","top"} else (max(0,position-6),extent)
+            roi=(lo,start,hi,end) if vertical else (start,lo,end,hi)
+            tile=image.crop(roi).convert("RGB")
+            rgb=np.asarray(tile,dtype=np.int16)
+            gray=tile.convert("L")
+            contrast=np.asarray(gray,dtype=np.int16)-np.asarray(
+                gray.filter(ImageFilter.GaussianBlur(1)),dtype=np.int16)
+            mask=(rgb.min(axis=2)>=170)&(rgb.max(axis=2)-rgb.min(axis=2)<=60)&(contrast>=12)
+            if not vertical:
+                mask=mask.T
+            boundary=position-lo
+            seen=np.zeros(mask.shape,dtype=bool)
+            candidates=[]
+            for yy,xx in zip(*np.where(mask)):
+                if seen[yy,xx]:
+                    continue
+                queue=[(int(yy),int(xx))];seen[yy,xx]=True;cells=[]
+                while queue:
+                    y,x=queue.pop();cells.append((y,x))
+                    for dy in (-1,0,1):
+                        for dx in (-1,0,1):
+                            ny,nx=y+dy,x+dx
+                            if (0<=ny<mask.shape[0] and 0<=nx<mask.shape[1]
+                                    and mask[ny,nx] and not seen[ny,nx]):
+                                seen[ny,nx]=True;queue.append((ny,nx))
+                ys,xs=zip(*cells)
+                left,right,top,bottom=min(xs),max(xs)+1,min(ys),max(ys)+1
+                # Positive source contrast must continue across the actual mask
+                # boundary. An isolated bright object in the gap cannot extend it.
+                if (left<boundary<right and len(cells)>=3 and
+                        max(right-left,bottom-top)<=max(8,round(.055*min(image.size)))):
+                    candidates.append((left,top,right,bottom))
+            if not candidates:
+                continue
+            target=(max(0,lo+min(c[0] for c in candidates)-2) if side in {"left","top"} else
+                    min(extent,lo+max(c[2] for c in candidates)+2))
+            coordinate={"left":0,"top":1,"right":2,"bottom":3}[side]
+            bounds[coordinate]=target
+            records.append({"side":side,"from_pixel":position,"to_pixel":target,
+                            "source_stroke_components":len(candidates)})
+        candidate=Region(kind=region.kind,box=(bounds[0]/image.width,bounds[1]/image.height,
+                                               bounds[2]/image.width,bounds[3]/image.height))
+        intersects_other=any(other_index!=index and
+            max(candidate.box[0],other.box[0])<min(candidate.box[2],other.box[2]) and
+            max(candidate.box[1],other.box[1])<min(candidate.box[3],other.box[3])
+            for other_index,other in enumerate(regions))
+        if (records and not intersects_other and
+                (candidate.box[2]-candidate.box[0])*(candidate.box[3]-candidate.box[1])<=.035):
+            expanded.append(candidate)
+            evidence.append({"region":index,"method":"source_edge_stroke_continuation_v1",
+                             "original_box":list(region.box),"box":list(candidate.box),"sides":records})
+        else:
+            expanded.append(region)
+    return expanded,evidence
 
 
 def source_scene(text):
