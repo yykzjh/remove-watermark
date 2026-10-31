@@ -20,7 +20,7 @@
 |--oom-split-batch|False|Recursively split a batch on CUDA OOM; singleton failure is reported|
 |--replicas-per-gpu|1|Full model copies per GPU, 1..4; multiplies VRAM use|
 |--quality-verifier|False|Enable post-removal review using the selected quality backend|
-|--quality-backend|resident|resident: reuse image encoder; independent: separate instruction VLM|
+|--quality-backend|resident|resident: reuse image encoder; independent: separate instruction VLM; launch-throughput-quality.sh explicitly selects independent|
 |--quality-model|Qwen/Qwen3-VL-4B-Instruct|Independent quality VLM repository or local path; adds GPU memory|
 |--quality-revision|main|Independent quality VLM revision (master for ModelScope)|
 |--dtype|bfloat16|Model weight and inference dtype|

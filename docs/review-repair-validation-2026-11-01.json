@@ -1,0 +1,1192 @@
+{
+  "date": "2026-11-01",
+  "code_revision": "b7fb041e97591e9c797b9dfb1d842cc6061df38c",
+  "environment": {
+    "torch": "2.14.1",
+    "diffusers": "0.41.0.dev0",
+    "transformers": "5.19.0",
+    "torchao": "0.18.0",
+    "numpy": "2.5.4",
+    "pillow": "12.3.0"
+  },
+  "diagnostic": {
+    "resident": [
+      {
+        "file": "010.jpg",
+        "mode": "overview",
+        "backend": "resident",
+        "seconds": 4.587,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 705,
+            "vision_patches": 1728
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "review",
+          "watermark_removed": false,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": "残留数字水印（中部）"
+        }
+      },
+      {
+        "file": "010.jpg",
+        "mode": "canvas",
+        "backend": "resident",
+        "seconds": 3.224,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1137,
+            "vision_patches": 3456
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "review",
+          "watermark_removed": false,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": "残留数字水印（下方）"
+        }
+      },
+      {
+        "file": "010.jpg",
+        "mode": "separate",
+        "backend": "resident",
+        "seconds": 3.358,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1197,
+            "vision_patches": 2752
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "review",
+          "watermark_removed": false,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": "残留数字水印（中部）"
+        }
+      },
+      {
+        "file": "057.jpg",
+        "mode": "overview",
+        "backend": "resident",
+        "seconds": 1.828,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 705,
+            "vision_patches": 1728
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "review",
+          "watermark_removed": false,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": "残留数字水印（下方）"
+        }
+      },
+      {
+        "file": "057.jpg",
+        "mode": "canvas",
+        "backend": "resident",
+        "seconds": 2.035,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1137,
+            "vision_patches": 3456
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "review",
+          "watermark_removed": false,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": "残留数字水印（右下）"
+        }
+      },
+      {
+        "file": "057.jpg",
+        "mode": "separate",
+        "backend": "resident",
+        "seconds": 2.09,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1199,
+            "vision_patches": 2752
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "review",
+          "watermark_removed": false,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": "残留数字水印（中部）"
+        }
+      }
+    ],
+    "independent": [
+      {
+        "file": "010.jpg",
+        "mode": "overview",
+        "backend": "independent",
+        "seconds": 5.266,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 705,
+            "vision_patches": 1728
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "passed",
+          "watermark_removed": true,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": ""
+        }
+      },
+      {
+        "file": "010.jpg",
+        "mode": "canvas",
+        "backend": "independent",
+        "seconds": 3.035,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1137,
+            "vision_patches": 3456
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "passed",
+          "watermark_removed": true,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": ""
+        }
+      },
+      {
+        "file": "010.jpg",
+        "mode": "separate",
+        "backend": "independent",
+        "seconds": 3.482,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1197,
+            "vision_patches": 2752
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "passed",
+          "watermark_removed": true,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": ""
+        }
+      },
+      {
+        "file": "057.jpg",
+        "mode": "overview",
+        "backend": "independent",
+        "seconds": 1.991,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 705,
+            "vision_patches": 1728
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "passed",
+          "watermark_removed": true,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": ""
+        }
+      },
+      {
+        "file": "057.jpg",
+        "mode": "canvas",
+        "backend": "independent",
+        "seconds": 2.106,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1137,
+            "vision_patches": 3456
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "passed",
+          "watermark_removed": true,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": ""
+        }
+      },
+      {
+        "file": "057.jpg",
+        "mode": "separate",
+        "backend": "independent",
+        "seconds": 2.252,
+        "traces": [
+          {
+            "phase": "watermark_removed",
+            "input_tokens": 1199,
+            "vision_patches": 2752
+          },
+          {
+            "phase": "content_preserved",
+            "input_tokens": 1090,
+            "vision_patches": 3456
+          }
+        ],
+        "flags": {
+          "status": "passed",
+          "watermark_removed": true,
+          "natural": true,
+          "content_preserved": true,
+          "uncertain": false,
+          "reason": ""
+        }
+      }
+    ]
+  },
+  "two_case": [
+    {
+      "strategy": "feather",
+      "seconds": 18.801,
+      "job": "85af202585324953b04085dcf4c320a8",
+      "state": "completed",
+      "source_unchanged": true,
+      "quality_counts": {
+        "passed": 1,
+        "review": 1
+      },
+      "failed": 0,
+      "tag": "repair-lighting",
+      "cases": [
+        {
+          "file": "057.jpg",
+          "status": "passed",
+          "reason": "",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [],
+            "count": 0,
+            "comparison_size": [
+              1024,
+              768
+            ]
+          },
+          "texture": null,
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              1707,
+              1280
+            ],
+            "max_tile_mae": 0.884,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            1707,
+            1280
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": null
+        },
+        {
+          "file": "010.jpg",
+          "status": "review",
+          "reason": "修补边界存在沿矩形方向的明暗突变，需复核。",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [
+              {
+                "side": "right",
+                "box": [
+                  0.380859375,
+                  0.89453125,
+                  0.40234375,
+                  0.95703125
+                ],
+                "luma_step": -43.078
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.0078125,
+                  0.55859375,
+                  0.0546875,
+                  0.5872395833333334
+                ],
+                "luma_step": -12.961
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.0234375,
+                  0.55859375,
+                  0.0703125,
+                  0.5872395833333334
+                ],
+                "luma_step": -13.4
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.0390625,
+                  0.55859375,
+                  0.0859375,
+                  0.5872395833333334
+                ],
+                "luma_step": -13.376
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.0546875,
+                  0.55859375,
+                  0.1015625,
+                  0.5872395833333334
+                ],
+                "luma_step": -12.901
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.2109375,
+                  0.55859375,
+                  0.2578125,
+                  0.5872395833333334
+                ],
+                "luma_step": -15.133
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.2265625,
+                  0.55859375,
+                  0.2734375,
+                  0.5872395833333334
+                ],
+                "luma_step": -15.228
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.2890625,
+                  0.55859375,
+                  0.3359375,
+                  0.5872395833333334
+                ],
+                "luma_step": -15.433
+              },
+              {
+                "side": "top",
+                "box": [
+                  0.3046875,
+                  0.55859375,
+                  0.3515625,
+                  0.5872395833333334
+                ],
+                "luma_step": -14.022
+              }
+            ],
+            "count": 9,
+            "comparison_size": [
+              1024,
+              768
+            ]
+          },
+          "texture": null,
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              2048,
+              1536
+            ],
+            "max_tile_mae": 0.384,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            3264,
+            2448
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": null
+        }
+      ]
+    },
+    {
+      "strategy": "harmonic",
+      "seconds": 14.243,
+      "job": "9acb4807ab394098a2083d35731acf03",
+      "state": "completed",
+      "source_unchanged": true,
+      "quality_counts": {
+        "passed": 1,
+        "review": 1
+      },
+      "failed": 0,
+      "tag": "repair-lighting",
+      "cases": [
+        {
+          "file": "057.jpg",
+          "status": "passed",
+          "reason": "",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [],
+            "count": 0,
+            "comparison_size": [
+              1024,
+              768
+            ]
+          },
+          "texture": null,
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              1707,
+              1280
+            ],
+            "max_tile_mae": 0.884,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            1707,
+            1280
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": null
+        },
+        {
+          "file": "010.jpg",
+          "status": "review",
+          "reason": "修补边界存在沿矩形方向的明暗突变，需复核。",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [
+              {
+                "side": "right",
+                "box": [
+                  0.380859375,
+                  0.89453125,
+                  0.40234375,
+                  0.95703125
+                ],
+                "luma_step": -19.343
+              }
+            ],
+            "count": 1,
+            "comparison_size": [
+              1024,
+              768
+            ]
+          },
+          "texture": null,
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              2048,
+              1536
+            ],
+            "max_tile_mae": 0.384,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            3264,
+            2448
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": null
+        }
+      ]
+    },
+    {
+      "strategy": "harmonic",
+      "seconds": 20.361,
+      "job": "2e98865c996a4133b9a7cd7a228d89d2",
+      "state": "completed",
+      "source_unchanged": true,
+      "quality_counts": {
+        "passed": 1,
+        "review": 1
+      },
+      "failed": 0,
+      "tag": "repair-lighting-v2",
+      "cases": [
+        {
+          "file": "057.jpg",
+          "status": "passed",
+          "reason": "",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [],
+            "count": 0,
+            "comparison_size": [
+              1024,
+              768
+            ],
+            "source_unchanged_segments": 0
+          },
+          "texture": null,
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              1707,
+              1280
+            ],
+            "max_tile_mae": 0.884,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            1707,
+            1280
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": null
+        },
+        {
+          "file": "010.jpg",
+          "status": "review",
+          "reason": "修补边界存在沿矩形方向的明暗突变，需复核。",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [
+              {
+                "side": "right",
+                "box": [
+                  0.380859375,
+                  0.89453125,
+                  0.40234375,
+                  0.95703125
+                ],
+                "luma_step": -17.613
+              }
+            ],
+            "count": 1,
+            "comparison_size": [
+              1024,
+              768
+            ],
+            "source_unchanged_segments": 0
+          },
+          "texture": null,
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              2048,
+              1536
+            ],
+            "max_tile_mae": 0.384,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            3264,
+            2448
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": null
+        }
+      ]
+    },
+    {
+      "strategy": "harmonic",
+      "seconds": 21.366,
+      "job": "a5efd28006a84c27ba61f1b2c6c0c35c",
+      "state": "completed",
+      "source_unchanged": true,
+      "quality_counts": {
+        "passed": 2
+      },
+      "failed": 0,
+      "tag": "repair-lighting-final",
+      "cases": [
+        {
+          "file": "057.jpg",
+          "status": "passed",
+          "reason": "",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [],
+            "count": 0,
+            "comparison_size": [
+              1024,
+              768
+            ],
+            "source_unchanged_segments": 1
+          },
+          "texture": {
+            "method": "mask_texture_collapse_v1",
+            "count": 0,
+            "suspect_segments": [],
+            "comparison_size": [
+              1024,
+              768
+            ]
+          },
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              1707,
+              1280
+            ],
+            "max_tile_mae": 0.884,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            1707,
+            1280
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": {
+            "method": "masked_harmonic_rgb_v2",
+            "reference_grid": [
+              512,
+              384
+            ],
+            "reference_max_abs_delta": 208.0,
+            "reference_over_64_fraction": 0.01054,
+            "offset_min": -86.0,
+            "offset_max": 97.556
+          }
+        },
+        {
+          "file": "010.jpg",
+          "status": "passed",
+          "reason": "",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [],
+            "count": 0,
+            "comparison_size": [
+              1024,
+              768
+            ],
+            "source_unchanged_segments": 1
+          },
+          "texture": {
+            "method": "mask_texture_collapse_v1",
+            "count": 0,
+            "suspect_segments": [],
+            "comparison_size": [
+              1024,
+              768
+            ]
+          },
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              2048,
+              1536
+            ],
+            "max_tile_mae": 0.384,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            3264,
+            2448
+          ],
+          "peak_allocated_mib": 42108,
+          "harmonization": {
+            "method": "masked_harmonic_rgb_v2",
+            "reference_grid": [
+              512,
+              384
+            ],
+            "reference_max_abs_delta": 82.0,
+            "reference_over_64_fraction": 0.00018,
+            "offset_min": -19.833,
+            "offset_max": 64.778
+          }
+        }
+      ]
+    },
+    {
+      "strategy": "harmonic",
+      "seconds": 50.716,
+      "job": "6778e3217f6b43858c70bcb476dbca8d",
+      "state": "completed",
+      "source_unchanged": true,
+      "quality_counts": {
+        "review": 1
+      },
+      "failed": 0,
+      "tag": "repair-candidate-final",
+      "cases": [
+        {
+          "file": "054.jpg",
+          "status": "review",
+          "reason": "残留数字水印（下方）",
+          "boundary": {
+            "method": "mask_boundary_lighting_v1",
+            "suspect_segments": [],
+            "count": 0,
+            "comparison_size": [
+              1024,
+              768
+            ],
+            "source_unchanged_segments": 0
+          },
+          "texture": {
+            "method": "mask_texture_collapse_v1",
+            "count": 0,
+            "suspect_segments": [],
+            "comparison_size": [
+              1024,
+              768
+            ]
+          },
+          "outside": {
+            "tiles": 0,
+            "boxes": [],
+            "comparison_size": [
+              2048,
+              1536
+            ],
+            "max_tile_mae": 0.284,
+            "method": "local_outside_overlay_v1"
+          },
+          "size": [
+            3008,
+            2256
+          ],
+          "peak_allocated_mib": 38349,
+          "harmonization": {
+            "method": "masked_harmonic_rgb_v2",
+            "reference_grid": [
+              512,
+              66
+            ],
+            "reference_max_abs_delta": 230.0,
+            "reference_over_64_fraction": 0.11915,
+            "offset_min": -202.444,
+            "offset_max": 220.222
+          }
+        }
+      ]
+    }
+  ],
+  "cpu_ablation": [
+    {
+      "file": "010.jpg",
+      "strategy": "feather",
+      "seconds": 0.329,
+      "boundary": {
+        "method": "mask_boundary_lighting_v1",
+        "suspect_segments": [
+          {
+            "side": "right",
+            "box": [
+              0.380859375,
+              0.89453125,
+              0.40234375,
+              0.95703125
+            ],
+            "luma_step": -43.078
+          },
+          {
+            "side": "top",
+            "box": [
+              0.0078125,
+              0.55859375,
+              0.0546875,
+              0.5872395833333334
+            ],
+            "luma_step": -12.961
+          },
+          {
+            "side": "top",
+            "box": [
+              0.0234375,
+              0.55859375,
+              0.0703125,
+              0.5872395833333334
+            ],
+            "luma_step": -13.4
+          },
+          {
+            "side": "top",
+            "box": [
+              0.0390625,
+              0.55859375,
+              0.0859375,
+              0.5872395833333334
+            ],
+            "luma_step": -13.376
+          },
+          {
+            "side": "top",
+            "box": [
+              0.0546875,
+              0.55859375,
+              0.1015625,
+              0.5872395833333334
+            ],
+            "luma_step": -12.901
+          },
+          {
+            "side": "top",
+            "box": [
+              0.2109375,
+              0.55859375,
+              0.2578125,
+              0.5872395833333334
+            ],
+            "luma_step": -15.133
+          },
+          {
+            "side": "top",
+            "box": [
+              0.2265625,
+              0.55859375,
+              0.2734375,
+              0.5872395833333334
+            ],
+            "luma_step": -15.228
+          },
+          {
+            "side": "top",
+            "box": [
+              0.2890625,
+              0.55859375,
+              0.3359375,
+              0.5872395833333334
+            ],
+            "luma_step": -15.433
+          },
+          {
+            "side": "top",
+            "box": [
+              0.3046875,
+              0.55859375,
+              0.3515625,
+              0.5872395833333334
+            ],
+            "luma_step": -14.022
+          }
+        ],
+        "count": 9,
+        "comparison_size": [
+          1024,
+          768
+        ],
+        "source_unchanged_segments": 0
+      },
+      "outside": {
+        "tiles": 0,
+        "boxes": [],
+        "comparison_size": [
+          2048,
+          1536
+        ],
+        "max_tile_mae": 0.384,
+        "method": "local_outside_overlay_v1"
+      },
+      "harmonization": null
+    },
+    {
+      "file": "010.jpg",
+      "strategy": "harmonic",
+      "seconds": 1.032,
+      "boundary": {
+        "method": "mask_boundary_lighting_v1",
+        "suspect_segments": [],
+        "count": 0,
+        "comparison_size": [
+          1024,
+          768
+        ],
+        "source_unchanged_segments": 1
+      },
+      "outside": {
+        "tiles": 0,
+        "boxes": [],
+        "comparison_size": [
+          2048,
+          1536
+        ],
+        "max_tile_mae": 0.384,
+        "method": "local_outside_overlay_v1"
+      },
+      "harmonization": {
+        "method": "masked_harmonic_rgb_v2",
+        "reference_grid": [
+          512,
+          384
+        ],
+        "reference_max_abs_delta": 82.0,
+        "reference_over_64_fraction": 0.00018,
+        "offset_min": -19.833,
+        "offset_max": 64.778
+      }
+    },
+    {
+      "file": "057.jpg",
+      "strategy": "feather",
+      "seconds": 0.047,
+      "boundary": {
+        "method": "mask_boundary_lighting_v1",
+        "suspect_segments": [],
+        "count": 0,
+        "comparison_size": [
+          1024,
+          768
+        ],
+        "source_unchanged_segments": 0
+      },
+      "outside": {
+        "tiles": 0,
+        "boxes": [],
+        "comparison_size": [
+          1707,
+          1280
+        ],
+        "max_tile_mae": 0.884,
+        "method": "local_outside_overlay_v1"
+      },
+      "harmonization": null
+    },
+    {
+      "file": "057.jpg",
+      "strategy": "harmonic",
+      "seconds": 0.405,
+      "boundary": {
+        "method": "mask_boundary_lighting_v1",
+        "suspect_segments": [],
+        "count": 0,
+        "comparison_size": [
+          1024,
+          768
+        ],
+        "source_unchanged_segments": 1
+      },
+      "outside": {
+        "tiles": 0,
+        "boxes": [],
+        "comparison_size": [
+          1707,
+          1280
+        ],
+        "max_tile_mae": 0.884,
+        "method": "local_outside_overlay_v1"
+      },
+      "harmonization": {
+        "method": "masked_harmonic_rgb_v2",
+        "reference_grid": [
+          512,
+          384
+        ],
+        "reference_max_abs_delta": 208.0,
+        "reference_over_64_fraction": 0.01054,
+        "offset_min": -86.0,
+        "offset_max": 97.556
+      }
+    }
+  ],
+  "controls": {
+    "cases": 35,
+    "bad": 24,
+    "good_or_observed_plausible": 11,
+    "bad_false_pass": [],
+    "good_false_review": [],
+    "errors": 0,
+    "review_versions": {
+      "2026-11-01.boundary-texture-v5": 35
+    },
+    "selected": [
+      {
+        "case": "prior_dark_seam",
+        "status": "review",
+        "reason": "修补边界存在沿矩形方向的明暗突变，需复核。",
+        "boundary_count": 8,
+        "texture_count": 0
+      },
+      {
+        "case": "prior_excavator_observed",
+        "status": "passed",
+        "reason": "",
+        "boundary_count": 0,
+        "texture_count": 0
+      },
+      {
+        "case": "physical_sign_inside_blur",
+        "status": "review",
+        "reason": "修补区在矩形边界附近出现纹理或清晰度骤降，需复核。",
+        "boundary_count": 0,
+        "texture_count": 13
+      },
+      {
+        "case": "physical_brand_inside_blur",
+        "status": "review",
+        "reason": "修补区在矩形边界附近出现纹理或清晰度骤降，需复核。",
+        "boundary_count": 0,
+        "texture_count": 10
+      }
+    ]
+  },
+  "performance": [
+    {
+      "label": "baseline-hot",
+      "tag": "lighting-final-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 120.473,
+      "job": "67790958ce7746ddb274a61bc289ff6f",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": true,
+      "repair_blending": "harmonic",
+      "quality_seconds": 0,
+      "bad_sizes": 0,
+      "quality_oom_splits_max": 0,
+      "peak_allocated_mib": 42108,
+      "quality_errors": []
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "lighting-final-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 191.076,
+      "job": "b7f6c48ff64f41b6b365e784bf890f37",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 63,
+        "review": 1
+      },
+      "retry_attempts": 14,
+      "retry_exhausted": 1,
+      "preserve_background": true,
+      "repair_blending": "harmonic",
+      "quality_seconds": 163.539,
+      "bad_sizes": 0,
+      "quality_oom_splits_max": 0,
+      "peak_allocated_mib": 42108,
+      "quality_errors": []
+    }
+  ],
+  "deployment": {
+    "gpus": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "quality_backend": "independent",
+    "quality_verifier": true,
+    "batch_size": 1,
+    "batch_window": 4,
+    "detection_batch_size": 2,
+    "adaptive_dispatch": true,
+    "quantization": "float8",
+    "dtype": "bfloat16",
+    "compile_scope": "projections",
+    "compile_dynamic": true,
+    "vae_tiling": false,
+    "cpu_threads": 1
+  },
+  "measured_functional_revision": "0623298",
+  "candidate_selection_revision": "b7fb041",
+  "candidate_selection_additional_test": {
+    "job": "6778e3217f6b43858c70bcb476dbca8d",
+    "file": "054.jpg",
+    "best_attempt": 2,
+    "quality_attempts": 3,
+    "retry_exhausted": true,
+    "status": "review",
+    "residual_regions": [],
+    "outside_repair_change_tiles": 0
+  }
+}

@@ -1,4 +1,4 @@
-> 最新检验、自动返工及完整部署参数见 [质量流程](quality-review.md)、[完整参数表](deployment-parameters.md) 和 [本轮实测](quality-performance-2026-10-31.md)。
+> 最新检验、自动返工及完整部署参数见 [质量流程](quality-review.md)、[完整参数表](deployment-parameters.md) 和 [最新修补验收实测](review-repair-2026-11-01.md)（此前[大样本测试](quality-performance-2026-10-31.md)）。
 
 > 当前界面见 [工作流说明](workflows.md)，新一轮整图吞吐实验见 [深度调优报告](deep-tuning.md)。
 
