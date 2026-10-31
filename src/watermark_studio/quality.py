@@ -488,6 +488,38 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
         tokenizer.padding_side = previous
 
 
+REPAIR_NATURALNESS_PROMPT = """图1是完整结果照片，图2是原水印所在位置及邻近环境的放大局部。
+只检查修补的自然性，不把真实标牌、机械品牌或原来存在的阴影当成缺陷。
+boundary_consistent：不同物体和材质跨修补边界的亮度、颜色连续，没有矩形暗块、亮块或突变。
+texture_consistent：同一焦平面和同类材质的纹理、噪声、清晰度一致，没有局部磨皮、
+成片模糊、抹痕、重复纹理或突然丢失细节。注意修补区域内部，不仅看边缘。
+自然平静水面、原有景深和真实物体的边缘本身不算修补缺陷；结合整图判断。
+geometry_consistent：栏杆、道路、机械边缘、人物手脚等连续且合理，没有错位、断裂或变形。
+uncertain：有细节看不清或无法判断则为true，不得默认合格。
+返回JSON，以上四项为布尔值，area使用整张照片的方位：
+none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。不要解释。"""
+
+
+def repair_naturalness_chats(pairs, known):
+    from .images import context_box, pixel_box
+
+    chats, indexes = [], []
+    for index, ((before, after), regions) in enumerate(zip(pairs, known)):
+        if isinstance(regions, Exception) or not regions:
+            continue
+        region=max(regions,key=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1]))
+        if (region.box[2]-region.box[0])*(region.box[3]-region.box[1])<.02:
+            continue
+        box=context_box(pixel_box(region.box,after.size),after.size,.25)
+        chats.append([{"role":"user","content":[
+            {"type":"image","image":preview(after,512)},
+            {"type":"image","image":preview(after.crop(box),1024)},
+            {"type":"text","text":REPAIR_NATURALNESS_PROMPT},
+        ]}])
+        indexes.append(index)
+    return chats,indexes
+
+
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12):
     from .detection import locate_watermarks_batch
@@ -536,13 +568,30 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         content_chats, ("content_preserved", "uncertain"),
         encoder, processor, device, max_tokens,
     )
+    local_checks, natural_seconds = {}, 0
+    if detail_patches:
+        natural_chats, natural_indexes = repair_naturalness_chats(pairs,known)
+        if natural_chats:
+            checks,natural_seconds = _structured_vqa(
+                natural_chats,("boundary_consistent","texture_consistent","geometry_consistent","uncertain"),
+                encoder,processor,device,max_tokens,
+            )
+            local_checks=dict(zip(natural_indexes,checks))
     verdicts, residual_candidates = [], []
     for index, (check, comparison, (before, after), boxes) in enumerate(zip(inspected, compared, pairs, boxes_list)):
         data = {k: check[k] for k in ("watermark_removed", "natural")}
         data["content_preserved"] = comparison["content_preserved"]
         data["uncertain"] = check["uncertain"] or comparison["uncertain"]
+        local_check=local_checks.get(index)
+        if local_check:
+            data["natural"] = data["natural"] and all(local_check[k] for k in
+                ("boundary_consistent","texture_consistent","geometry_consistent"))
+            data["uncertain"] = data["uncertain"] or local_check["uncertain"]
         data["area"] = check.get("area", "none") if not check["watermark_removed"] or not check["natural"] else comparison.get("area", "none")
         verdict = parse_review(json.dumps(data))
+        if local_check:
+            verdict["repair_naturalness"] = local_check
+            verdict["repair_naturalness_seconds"] = round(natural_seconds/len(local_checks),3)
         verdict["model_status"] = verdict["status"]
         verdict["model_uncertain"] = verdict["uncertain"]
         verdict["model_reason"] = verdict["reason"]
@@ -554,7 +603,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["deterministic_warnings"] = [w["message"] for w in warnings]
             verdict["reason"] = (verdict["reason"]+" "+" ".join(w["message"] for w in warnings)).strip()[:400]
         verdict.update(
-            seconds=round((output_seconds+content_seconds)/len(pairs), 3),
+            seconds=round((output_seconds+content_seconds)/len(pairs) + (natural_seconds/len(local_checks) if local_check else 0), 3),
             batch_seconds=round(output_seconds+content_seconds, 3), batch_size=len(pairs),
             output_inspection_seconds=round(output_seconds/len(pairs), 3),
             content_comparison_seconds=round(content_seconds/len(pairs), 3),
@@ -584,7 +633,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["seconds"] = round(verdict["seconds"]+verdict["local_comparison_seconds"], 3)
         verdict["source_scan_seconds"] = round(source_seconds if index in missing else 0, 3)
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
-        verdict["review_version"] = "2026-11-01.source-detail-seam-v3"
+        verdict["review_version"] = "2026-11-01.local-texture-v4"
         candidate = verdict["status"] != "error" and (verdict["status"] == "passed" or (
             verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"]))
         verdicts.append(verdict)
