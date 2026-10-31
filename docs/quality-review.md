@@ -21,10 +21,12 @@ bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
 服务仅监听回环地址。客户端在WSL启动，以SSH转发连接开发机，不在Windows加载模型：
 
 ~~~bash
-uv run --no-sync watermark-studio --ssh-host cdu_dev
+uv run --no-sync watermark-studio --ssh-host cdu_dev \
+  --preserve-background --quality-check --quality-auto-retry --quality-batch-size 2
 ~~~
 
-勾选检验、自动返工、原图保护后再提交。它们默认均关闭，遵守布尔开关约定。
+客户端可手工勾选检验、自动返工、原图保护；以上启动命令显式预选这三项，不会自动提交。
+不传这些开关时默认均关闭，遵守布尔开关约定。
 本次交付只部署服务，由用户在客户端提交全量任务。
 
 ~~~bash
@@ -74,7 +76,8 @@ preserve_background仍将完整图像送入编辑模型，自动定位所有数�
 quality_auto_retry启用后：
 - 每张图第一轮正常凑批；不合格项进入独立FIFO返工队列，首轮队列优先。
 - 从输入原图重新进行自动局部编辑，包含所有检测出的原始水印；不对已生成结果累积修补。
-- 将检验发现的残留位置回传，与原图自动检测的所有水印区域合并，避免重复漏掉同一块。
+- 将检验发现的残留位置回传，先在原图局部确认，再与原图自动检测的所有水印区域合并，避免重复漏掉同一块。
+  原图中未确认有数字水印的位置不会因为输出提示而直接扩大重画范围。
   对已拒绝但尚无坐标的残留图额外做一次定位；该定位不会把拒绝改成通过。
 - 改变种子、采用quality_retry_resolution输入预算；单张自定义框选保留原区域约束。
 - 检验错误先对已有最佳候选重新检验；不因为一次检验失败就盲目重画。

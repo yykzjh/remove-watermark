@@ -136,3 +136,24 @@ def test_batch_layout_does_not_reserve_single_preview_space():
     assert window.tabs.height() == batch_height
     assert not window.region_controls.isVisible()
     window.close()
+
+def test_explicit_quality_launch_defaults_do_not_submit_job():
+    from types import SimpleNamespace
+
+    from watermark_studio.desktop import apply_processing_defaults
+
+    app = QApplication.instance() or QApplication([])
+    api = FakeApi()
+    window = MainWindow(api, {"capacity": 20, "roots": ["/mnt"], "backend": "qwen",
+                              "stage": "ready", "job": None, "quality_verifier": True})
+    apply_processing_defaults(window, SimpleNamespace(
+        preserve_background=True, quality_check=True, quality_auto_retry=True,
+        quality_batch_size=2, input_dir="/mnt/input", output_dir="/mnt/output",
+    ))
+    assert window.preserve_background.isChecked()
+    assert window.quality_check.isChecked() and window.quality_retry.isChecked()
+    assert window.quality_batch.value() == 2
+    assert window.input_dir.text() == "/mnt/input" and window.output_dir.text() == "/mnt/output"
+    assert not any(call[1:3] == ("POST", "/jobs") for call in api.calls)
+    app.processEvents()
+    window.close()

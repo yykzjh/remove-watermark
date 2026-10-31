@@ -631,6 +631,18 @@ def default_ssh_program():
     return "ssh"
 
 
+def apply_processing_defaults(window, args):
+    """Explicit launch flags prefill controls; submitting always remains a user action."""
+    window.preserve_background.setChecked(args.preserve_background)
+    window.quality_check.setChecked(args.quality_check)
+    window.quality_retry.setChecked(args.quality_auto_retry)
+    window.quality_batch.setValue(args.quality_batch_size)
+    if args.input_dir:
+        window.input_dir.setText(args.input_dir)
+    if args.output_dir:
+        window.output_dir.setText(args.output_dir)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Linux desktop; launch a local service or connect remotely"
@@ -645,7 +657,15 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--remote-port", type=int, default=8765)
     parser.add_argument("--poll-seconds", type=int, default=5)
+    parser.add_argument("--quality-check", action="store_true", help="Preselect quality review")
+    parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
+    parser.add_argument("--preserve-background", action="store_true", help="Preselect original background protection")
+    parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
+    parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
+    parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")
     args = parser.parse_args()
+    if args.quality_auto_retry and not args.quality_check:
+        parser.error("--quality-auto-retry requires --quality-check")
     app = QApplication(sys.argv[:1])
     app.setStyleSheet(STYLE)
     splash = Startup()
@@ -731,6 +751,7 @@ def main():
         stage = state["stage"]
         if stage == "ready" and window is None:
             window = MainWindow(api, state)
+            apply_processing_defaults(window, args)
             window.show()
             splash.close()
         elif stage == "failed":

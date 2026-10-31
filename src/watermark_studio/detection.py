@@ -152,6 +152,36 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
     return outputs
 
 
+def confirm_source_hints(image, regions, hints, encoder, processor, device,
+                         resolution=1024, batch_size=1):
+    """Confirm output hints on original crops before enlarging the repair mask."""
+    from .images import context_box, pixel_box
+
+    crops, boxes = [], []
+    for hint in hints:
+        hint = Region.model_validate(hint)
+        x0, y0, x1, y1 = hint.box
+        if any(r.box[0] <= x0 and r.box[1] <= y0 and r.box[2] >= x1 and r.box[3] >= y1
+               for r in regions):
+            continue
+        box = context_box(pixel_box(hint.box, image.size), image.size, .75)
+        crops.append(image.crop(box))
+        boxes.append(box)
+    found = locate_watermarks_batch(crops, encoder, processor, device, resolution, batch_size)
+    confirmed = list(regions)
+    for box, result in zip(boxes, found):
+        if isinstance(result, Exception):
+            raise TypeError(f"Original hinted-area verification failed: {result}")
+        left, top, right, bottom = box
+        for region in result[0]:
+            x0, y0, x1, y1 = region.box
+            confirmed.append(Region(kind=region.kind, box=(
+                (left+x0*(right-left))/image.width, (top+y0*(bottom-top))/image.height,
+                (left+x1*(right-left))/image.width, (top+y1*(bottom-top))/image.height,
+            )))
+    return merge_regions(confirmed)
+
+
 def locate_watermarks(image, encoder, processor, device, resolution=1280):
     result = locate_watermarks_batch([image], encoder, processor, device, resolution)[0]
     if isinstance(result, Exception):

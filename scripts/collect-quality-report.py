@@ -16,7 +16,7 @@ report = {"dataset": {"image_files": status["images"], "valid_decoded": status["
                       "excluded_nonimages": len(manifest)-status["images"]},
           "performance": [], "controls": []}
 for tag in ("decomposed-64", "independent-8", "stage-batch-64",
-            "ablation-serial-64", "ablation-batched-64", "retry-64", "protected-retry-24", "retry-hints-64", "protected-v2-64"):
+            "ablation-serial-64", "ablation-batched-64", "retry-64", "protected-retry-24", "retry-hints-64", "protected-v2-64", "protected-v3-64"):
     f = root/("quality-benchmark-"+tag)/"results.jsonl"
     if f.exists():
         for line in f.read_text().splitlines():

@@ -6,7 +6,7 @@ import time
 import traceback
 
 from .config import DeploymentConfig, ProcessingConfig, Region
-from .detection import locate_watermarks_batch, merge_regions
+from .detection import confirm_source_hints, locate_watermarks_batch
 from .images import (
     atomic_copy,
     blend_patch,
@@ -128,6 +128,17 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             pipe.text_encoder, pipe.processor, pipe._execution_device,
             options.detection_resolution, config.detection_batch_size,
         )
+        for index, task in enumerate(detect_tasks):
+            if task.get("_extra_regions") and not isinstance(found[index], Exception):
+                try:
+                    regions, text = found[index]
+                    found[index] = (confirm_source_hints(
+                        decoded[task["relative"]][0], regions, task["_extra_regions"],
+                        pipe.text_encoder, pipe.processor, pipe._execution_device,
+                        max(1024, options.quality_resolution), config.detection_batch_size,
+                    ), text)
+                except (ValueError, TypeError, RuntimeError) as error:
+                    found[index] = error
         elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
         detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
     for task in tasks:
@@ -166,10 +177,6 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 if isinstance(found, Exception):
                     raise found
                 regions, _ = found
-                if task.get("_extra_regions"):
-                    regions = merge_regions(regions + [
-                        Region.model_validate(r) for r in task["_extra_regions"]
-                    ])
                 regions = [r for r in regions if options.remove_logo or r.kind != "logo"]
             else:
                 regions = regions_for(source, options)

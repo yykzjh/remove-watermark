@@ -53,3 +53,29 @@ def test_margin_covers_underestimated_panel_bottom():
     )[0]
     # The shifted fixture panel ends at y=561 in a 576 px image.
     assert region.box[3] * 576 > 560
+
+def test_retry_hint_must_be_confirmed_on_original_crop(monkeypatch):
+    from watermark_studio.config import Region
+    from watermark_studio.detection import confirm_source_hints
+    source = Image.new("RGB", (1000, 1000), "gray")
+    hint = {"kind": "logo", "box": (.8, .8, 1., 1.)}
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                        lambda images, *a: [([], "{}") for _ in images])
+    assert confirm_source_hints(source, [], [hint], None, None, None) == []
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                        lambda images, *a: [([Region(kind="logo", box=(.4,.4,.9,.9))], "{}")
+                                            for _ in images])
+    regions = confirm_source_hints(source, [], [hint], None, None, None)
+    assert regions[0].box == pytest.approx((.79, .79, .965, .965))
+
+
+def test_confirmed_source_region_does_not_need_another_gpu_scan(monkeypatch):
+    from watermark_studio.config import Region
+    from watermark_studio.detection import confirm_source_hints
+    called = []
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                        lambda images, *a: called.extend(images) or [])
+    known = [Region(kind="logo", box=(.7, .7, 1, 1))]
+    found = confirm_source_hints(Image.new("RGB", (100,100)), known,
+                                 [{"kind":"logo", "box":(.8,.8,.9,.9)}], None,None,None)
+    assert not called and found == known
