@@ -393,6 +393,7 @@ class MainWindow(QMainWindow):
         self.quality_retry.toggled.connect(self.retry_resolution.setEnabled)
         form.addRow("返工模型输入分辨率", self.retry_resolution)
         self.overwrite = QCheckBox("覆盖输出目录中的同名文件")
+        self.overwrite.setToolTip("同时开启检验和自动返工时，已有输出先检验，通过的沿用，只更新不通过的图像。")
         form.addRow(self.overwrite)
         self.extra_prompt = QLineEdit()
         self.extra_prompt.setPlaceholderText("可选：补充地面、人物衣着、建筑线条等场景说明")

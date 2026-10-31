@@ -1,0 +1,523 @@
+{
+  "dataset": {
+    "image_files": 38321,
+    "valid_decoded": 38319,
+    "source_zero_byte_files": 2,
+    "image_bytes": 82957960958,
+    "cloud_files": 38592,
+    "excluded_nonimages": 271
+  },
+  "performance": [
+    {
+      "label": "baseline-cold",
+      "tag": "decomposed-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 104.396,
+      "job": "d1cd25640144418ba519ef94465955fc",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-hot",
+      "tag": "decomposed-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 104.865,
+      "job": "29c90714fba643388043f752a506fe6b",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "decomposed-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 135.662,
+      "job": "dfec4bfb21454f918c942e90692d868e",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 57,
+        "review": 7
+      },
+      "quality_seconds": 91.471,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-cold",
+      "tag": "independent-8",
+      "images": 8,
+      "detail_patches": 4,
+      "seconds": 54.444,
+      "job": "35458006032c400b893b1cf0e81a467b",
+      "success": 8,
+      "failed": 0,
+      "quality_counts": {},
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-hot",
+      "tag": "independent-8",
+      "images": 8,
+      "detail_patches": 4,
+      "seconds": 53.425,
+      "job": "2b9b6cc3af0b43959cf0fc249f3bb194",
+      "success": 8,
+      "failed": 0,
+      "quality_counts": {},
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "independent-8",
+      "images": 8,
+      "detail_patches": 4,
+      "seconds": 66.523,
+      "job": "8c9a87aa144b4b6a8cec132fb64ce34c",
+      "success": 8,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 7,
+        "review": 1
+      },
+      "quality_seconds": 9.056,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-hot",
+      "tag": "stage-batch-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 87.781,
+      "job": "5bcfefb8d4ba4c93b67baa181e002477",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": false,
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "stage-batch-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 113.985,
+      "job": "4ed97ab632e149bc8c436f626eeb1449",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 57,
+        "review": 7
+      },
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": false,
+      "quality_seconds": 90.839,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-hot",
+      "tag": "ablation-serial-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 107.931,
+      "job": "696246401636450ba7af2d8fe228296b",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": false,
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "ablation-serial-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 136.676,
+      "job": "3285dc28c4c04cd7aaa2bcd851956674",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 57,
+        "review": 7
+      },
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": false,
+      "quality_seconds": 93.591,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-hot",
+      "tag": "ablation-batched-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 91.272,
+      "job": "7616dbc80e0a43f0a009ed91b42313e6",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": false,
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "ablation-batched-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 117.995,
+      "job": "01372e1f067b48ca925158f55bbdf1e1",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 57,
+        "review": 7
+      },
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": false,
+      "quality_seconds": 94.415,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "retry-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 144.175,
+      "job": "d974699898d14cf4a4c05f98312bc788",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 59,
+        "review": 5
+      },
+      "retry_attempts": 12,
+      "retry_exhausted": 5,
+      "preserve_background": false,
+      "quality_seconds": 119.728,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "protected-retry-24",
+      "images": 24,
+      "detail_patches": 4,
+      "seconds": 72.156,
+      "job": "9c882c0e6a7448c3943b6d6531f6a464",
+      "success": 24,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 22,
+        "review": 2
+      },
+      "retry_attempts": 5,
+      "retry_exhausted": 2,
+      "preserve_background": true,
+      "quality_seconds": 50.714,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-hot",
+      "tag": "protected-retry-24",
+      "images": 24,
+      "detail_patches": 4,
+      "seconds": 43.893,
+      "job": "9471b7f769a046ed8b0ce15ca1477703",
+      "success": 24,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": true,
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "baseline-hot",
+      "tag": "protected-v2-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 111.945,
+      "job": "b95ecf1c5cc541848695719d80d523c2",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": true,
+      "quality_seconds": 0,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "protected-v2-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 177.98,
+      "job": "2029bac648fd4493b22aa94f643bf085",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 58,
+        "review": 6
+      },
+      "retry_attempts": 13,
+      "retry_exhausted": 6,
+      "preserve_background": true,
+      "quality_seconds": 156.624,
+      "bad_sizes": 0
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "protected-v3-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 177.454,
+      "job": "9dd02bb8463c4f9dba5be6f8137e7214",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 62,
+        "review": 2
+      },
+      "retry_attempts": 9,
+      "retry_exhausted": 2,
+      "preserve_background": true,
+      "quality_seconds": 144.034,
+      "bad_sizes": 0
+    }
+  ],
+  "controls": [
+    {
+      "backend": "resident",
+      "details": 0,
+      "cases": 15,
+      "expected_bad": 11,
+      "bad_false_pass": [],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    },
+    {
+      "backend": "resident",
+      "details": 4,
+      "cases": 15,
+      "expected_bad": 11,
+      "bad_false_pass": [],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    },
+    {
+      "backend": "independent",
+      "details": 0,
+      "cases": 15,
+      "expected_bad": 11,
+      "bad_false_pass": [],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    },
+    {
+      "backend": "independent",
+      "details": 4,
+      "cases": 15,
+      "expected_bad": 11,
+      "bad_false_pass": [],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    }
+  ],
+  "environment": {
+    "torch": "2.14.1",
+    "diffusers": "0.41.0.dev0",
+    "transformers": "5.19.0",
+    "torchao": "0.18.0"
+  },
+  "code_revision": "fa19d898288af84fb633ffb9ea465c60cfed8bf0",
+  "combined_controls": [
+    {
+      "backend": "resident",
+      "mode": "combined",
+      "cases": 19,
+      "bad_false_pass": [
+        "removed_plus_faint_text_residue",
+        "removed_plus_localized_person_blur",
+        "removed_plus_small_edge_displacement",
+        "removed_plus_small_head_region_replaced"
+      ],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    },
+    {
+      "backend": "resident",
+      "mode": "combined-details",
+      "cases": 19,
+      "bad_false_pass": [
+        "removed_plus_faint_text_residue",
+        "removed_plus_localized_person_blur",
+        "removed_plus_small_edge_displacement",
+        "removed_plus_small_head_region_replaced"
+      ],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    },
+    {
+      "backend": "resident",
+      "mode": "combined-local-guard",
+      "cases": 21,
+      "bad_false_pass": [],
+      "clean_status": {
+        "passed": 6
+      },
+      "errors": 0
+    },
+    {
+      "backend": "independent",
+      "mode": "combined",
+      "cases": 19,
+      "bad_false_pass": [
+        "removed_plus_faint_text_residue",
+        "removed_plus_localized_person_blur",
+        "removed_plus_small_edge_displacement",
+        "removed_plus_small_head_region_replaced"
+      ],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    },
+    {
+      "backend": "independent",
+      "mode": "combined-details",
+      "cases": 19,
+      "bad_false_pass": [
+        "removed_plus_faint_text_residue",
+        "removed_plus_localized_person_blur",
+        "removed_plus_small_edge_displacement",
+        "removed_plus_small_head_region_replaced"
+      ],
+      "clean_status": {
+        "passed": 4
+      },
+      "errors": 0
+    },
+    {
+      "backend": "independent",
+      "mode": "combined-local-guard",
+      "cases": 21,
+      "bad_false_pass": [],
+      "clean_status": {
+        "passed": 6
+      },
+      "errors": 0
+    }
+  ],
+  "sampling_design": {
+    "samples": 1024,
+    "groups": 98,
+    "towns": 9,
+    "seed": 20261031
+  },
+  "sample_profile": {
+    "total": 1024,
+    "completed": 1024,
+    "worker_failures": 0,
+    "errors": 0,
+    "panel_style": {
+      "blue_gray": 787,
+      "none": 31,
+      "yellow_strip": 135,
+      "white_gray": 58,
+      "text_only": 13
+    },
+    "position": {
+      "bottom_left": 846,
+      "none": 31,
+      "bottom": 97,
+      "bottom_right": 42,
+      "top_left": 3,
+      "center": 3,
+      "left": 2
+    },
+    "logo": {
+      "True": 396,
+      "False": 628
+    },
+    "physical_text": {
+      "False": 1020,
+      "True": 4
+    },
+    "person_overlap": {
+      "False": 1014,
+      "True": 10
+    },
+    "indoor": {
+      "False": 1018,
+      "True": 6
+    },
+    "low_contrast": {
+      "False": 1023,
+      "True": 1
+    },
+    "small_text": {
+      "False": 976,
+      "True": 48
+    },
+    "uncertain": {
+      "False": 1024
+    }
+  },
+  "readonly": {
+    "test": "existing_outputs_readonly",
+    "images": 8,
+    "seconds": 12.574,
+    "unchanged": true,
+    "source_unchanged": true,
+    "retry_attempts": 0,
+    "quality_counts": {
+      "review": 8
+    },
+    "job": "3d6dd184b3ea499e80ed395c03823bcf"
+  },
+  "resume": {
+    "test": "existing_outputs_resume",
+    "images": 8,
+    "seconds": 33.208,
+    "unchanged": false,
+    "source_unchanged": true,
+    "retry_attempts": 8,
+    "quality_counts": {
+      "passed": 8
+    },
+    "job": "cb2d38b66a564de3b94abff1ea38659c"
+  }
+}
