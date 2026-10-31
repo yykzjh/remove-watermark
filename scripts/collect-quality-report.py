@@ -15,7 +15,7 @@ report = {"dataset": {"image_files": status["images"], "valid_decoded": status["
                       "image_bytes": status["bytes"]},
           "performance": [], "controls": []}
 for tag in ("decomposed-64", "independent-8", "stage-batch-64",
-            "ablation-serial-64", "ablation-batched-64", "retry-64", "protected-retry-24"):
+            "ablation-serial-64", "ablation-batched-64", "retry-64", "protected-retry-24", "retry-hints-64"):
     f = root/("quality-benchmark-"+tag)/"results.jsonl"
     if f.exists():
         for line in f.read_text().splitlines():
@@ -36,11 +36,32 @@ for backend in ("resident", "independent"):
             "errors": sum(r["status"] == "error" for r in rows)})
 report["environment"] = {name: version(name) for name in ("torch", "diffusers", "transformers", "torchao")}
 report["code_revision"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+report["combined_controls"] = []
+for backend in ("resident", "independent"):
+    for suffix in ("combined", "combined-details"):
+        f = root/"quality-benchmark"/("subtle-controls-"+backend+"-"+suffix)/"results.jsonl"
+        if not f.exists():
+            continue
+        rows = list({r["case"]: r for r in map(json.loads, f.read_text().splitlines())}.values())
+        report["combined_controls"].append({
+            "backend": backend, "mode": suffix, "cases": len(rows),
+            "bad_false_pass": [r["case"] for r in rows if r["expected"] == "review" and r["status"] == "passed"],
+            "clean_status": dict(collections.Counter(r["status"] for r in rows if r["expected"] == "passed")),
+            "errors": sum(r["status"] == "error" for r in rows),
+        })
 profile = root/"sample-review/profile-1024/summary.json"
 if profile.exists():
     report["sample_profile"] = json.loads(profile.read_text())
+    summary = report["sample_profile"]
+    if summary["completed"] == summary["total"] and not summary["worker_failures"]:
+        (profile.parent/"status.json").write_text(json.dumps({
+            "completed": summary["completed"], "total": summary["total"], "phase": "completed",
+        }))
 readonly = root/"quality-readonly-8/result.json"
 if readonly.exists():
     report["readonly"] = json.loads(readonly.read_text())
+resume = root/"quality-readonly-8/resume-result.json"
+if resume.exists():
+    report["resume"] = json.loads(resume.read_text())
 (root/"quality-validation-summary.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
 print(json.dumps(report, ensure_ascii=False))
