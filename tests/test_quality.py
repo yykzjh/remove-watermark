@@ -195,3 +195,25 @@ def test_quality_oom_releases_traceback_before_splitting(tmp_path, monkeypatch):
     rows=process_batch(tasks,ProcessingConfig(scope="full_image",quality_check=True,quality_batch_size=2),
                        DeploymentConfig(),pipe)
     assert all(r["quality"]["status"]=="passed" and r["quality_oom_splits"]==1 for r in rows)
+
+
+def test_material_context_is_per_image_and_does_not_leak_between_documents_and_outdoors(monkeypatch):
+    from PIL import Image
+
+    from watermark_studio.quality import verify_batch
+
+    observed=[]
+    def structured(chats,fields,*args):
+        observed.append(chats)
+        return [{field:field!="uncertain" for field in fields}|{"area":"none"} for _ in chats],.01
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                        lambda *a:[([],""),([],"")])
+    photo=Image.new("RGB",(200,180),"gray")
+    results=verify_batch([(photo,photo.copy()),(photo,photo.copy())],None,None,"cpu",
+        detail_patches=0,source_regions=[[],[]],
+        editor_context=[{"source_scene":"document"},{"source_scene":"outdoor"}])
+    for batch in observed:
+        texts=[" ".join(item.get("text","") for item in chat[0]["content"]) for chat in batch]
+        assert "完整原图是票据" in texts[0] and "完整原图是票据" not in texts[1]
+    assert [r["scene_context"] for r in results]==["document","outdoor"]

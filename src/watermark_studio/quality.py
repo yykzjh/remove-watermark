@@ -578,8 +578,11 @@ def scene_review_context(scene):
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
                  cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None):
-    from .detection import locate_watermarks_batch
+    from .detection import locate_watermarks_batch, source_scene
 
+    contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
+    if len(contexts)!=len(pairs):
+        raise ValueError("Editor context count mismatch")
     known = list(source_regions) if source_regions is not None else [None]*len(pairs)
     if len(known) != len(pairs):
         raise ValueError("Source-region count differs from image pairs")
@@ -589,14 +592,13 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         started = time.monotonic()
         detected = locate_watermarks_batch(
             [pairs[i][0] for i in missing], encoder, processor, device,
-            max(1024, resolution), detection_batch_size,
+            max(1024, resolution), detection_batch_size, True,
         )
         source_seconds = (time.monotonic()-started)/len(missing)
         for index, detection in zip(missing, detected):
             known[index] = detection if isinstance(detection, Exception) else detection[0]
-    contexts=editor_context or [{} for _ in pairs]
-    if len(contexts)!=len(pairs):
-        raise ValueError("Editor context count mismatch")
+            if not isinstance(detection,Exception):
+                contexts[index]["source_scene"]=source_scene(detection[1])
     output_chats, content_chats, boxes_list = [], [], []
     for pair_index, (before, after) in enumerate(pairs):
         aligned = after.resize(before.size, Image.Resampling.LANCZOS) if after.size != before.size else after

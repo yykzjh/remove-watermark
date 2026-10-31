@@ -1,6 +1,7 @@
 """First-generation acceptance, with retries/appeals off and fresh output roots."""
 import argparse
 import collections
+import hashlib
 import json
 import os
 import re
@@ -53,16 +54,20 @@ else:
     for name in args.exclude_benchmarks:
         if not re.fullmatch(r"[a-zA-Z0-9_-]+",name): parser.error("Invalid excluded benchmark name")
         seen.update(json.loads((root/name/"sources.json").read_text()))
+    seen_hashes={hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in seen if Path(p).is_file()}
     random.Random(args.seed).shuffle(candidates)
     paths=[]
     for p in candidates:
         if str(p) in seen or not p.is_file() or not p.stat().st_size:
             continue
+        digest=hashlib.sha256(p.read_bytes()).hexdigest()
+        if digest in seen_hashes: continue
         try:
             with Image.open(p) as im: im.load()
         except OSError:
             continue
         paths.append(p)
+        seen_hashes.add(digest)
         if len(paths)==args.images: break
     names=[f"{i:04d}"+p.suffix for i,p in enumerate(paths)]
 assert len(paths)==len(names) and paths
