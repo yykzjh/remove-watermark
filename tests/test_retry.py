@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -189,3 +190,23 @@ def test_best_candidate_penalizes_unresolved_local_change_and_flat_fill():
     assert quality_rank(safer) > quality_rank(unsafe)
     unsafe["quality"]["guard_codes"] = ["new_flat_fill"]
     assert quality_rank(safer) > quality_rank(unsafe)
+
+
+def test_retry_prefers_residual_free_candidate_without_passing_it(tmp_path):
+    cfg = DeploymentConfig(state_dir=str(tmp_path/"state"), backend="mock")
+    opts = ProcessingConfig(quality_check=True, quality_auto_retry=True, quality_max_attempts=2)
+    target = tmp_path/"output.png"
+    task = {"source": "original", "destination": str(target), "relative": "output.png"}
+    def process(tasks, *_):
+        attempt = int(tasks[0].get("_attempt", 1))
+        Path(tasks[0]["destination"]).write_bytes(str(attempt).encode())
+        q = verdict()
+        q["residual_regions"] = [{"kind": "logo", "box": [.8, .95, 1, 1]}] if attempt == 1 else []
+        return [{"file": "output.png", "ok": True, "quality": q}]
+    first = process_attempts([task], opts, cfg, None, {}, "job", process)[0]
+    final = process_attempts([first["_retry_task"]], opts, cfg, None, {}, "job", process)[0]
+    assert target.read_bytes() == b"2" and final["best_attempt"] == 2
+    assert final["quality"]["status"] == "review" and final["retry_exhausted"]
+    unsafe = {"ok": True, "quality": verdict(content=False)}
+    unsafe["quality"]["residual_regions"] = []
+    assert quality_rank(first) > quality_rank(unsafe)

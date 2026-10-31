@@ -22,6 +22,9 @@ def quality_rank(result):
         "repair_texture_collapse" not in q.get("guard_codes", []),
         q.get("watermark_removed") is True,
         q.get("natural") is True,
+        # Equal rejected candidates: prefer an explicitly empty residual scan.
+        # Never override content/naturalness guards or promote review to passed.
+        q.get("residual_regions") == [],
         q.get("status") != "error",
         q.get("uncertain") is False,
     )

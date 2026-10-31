@@ -19,7 +19,7 @@ for backend in ("resident","independent"):
                        ("status","watermark_removed","natural","content_preserved","uncertain","reason")}}
             for row in json.loads(path.read_text()) if "quality" in row
         ]
-for tag in ("repair-lighting","repair-lighting-v2","repair-lighting-final"):
+for tag in ("repair-lighting","repair-lighting-v2","repair-lighting-final","repair-candidate-final"):
     for strategy in ("feather","harmonic"):
         path=work/tag/(strategy+".json")
         if not path.exists():

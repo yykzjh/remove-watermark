@@ -14,13 +14,15 @@ parser=argparse.ArgumentParser()
 parser.add_argument("--url",default="http://127.0.0.1:18770")
 parser.add_argument("--tag",default="repair-lighting")
 parser.add_argument("--strategies",nargs="+",choices=["feather","harmonic"],default=["feather","harmonic"])
+parser.add_argument("--names",nargs="+",default=["010.jpg","057.jpg"])
+parser.add_argument("--quality-auto-retry",action="store_true")
 args=parser.parse_args()
 root=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")
 base=root/"quality-benchmark-protected-v3-64"
 work=root/"review-investigation"/args.tag
 inputs=work/"input"
 inputs.mkdir(parents=True,exist_ok=True)
-for name in ("010.jpg","057.jpg"):
+for name in args.names:
     if not (inputs/name).exists():
         os.link(base/"input"/name,inputs/name)
 def hashes():
@@ -35,7 +37,7 @@ for strategy in args.strategies:
     start=time.monotonic()
     job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(work/strategy),
         "options":{"concurrency":8,"resolution":1024,"preserve_background":True,"repair_blending":strategy,
-                   "quality_check":True,"quality_batch_size":2,"quality_detail_patches":4,"overwrite":True}})["id"]
+                   "quality_check":True,"quality_auto_retry":args.quality_auto_retry,"quality_batch_size":2,"quality_detail_patches":4,"overwrite":True}})["id"]
     while True:
         state=request(args.url,"/health")
         status=state["job"]
