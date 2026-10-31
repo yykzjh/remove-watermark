@@ -256,3 +256,54 @@ def test_neither_naturalness_view_can_override_a_rejection_from_the_other(monkey
     assert q["status"]=="review" and not q["natural"]
     assert q["output_checks"]["natural"]==output_natural
     assert q["reference_checks"]["natural"]==reference_natural
+
+
+
+def test_tiny_real_edit_is_not_confused_with_identity_but_other_vetoes_still_apply(monkeypatch):
+    from PIL import ImageDraw
+
+    from watermark_studio.config import Region
+    from watermark_studio.quality import verify_batch
+    source=Image.new("RGB",(1800,1400),(70,90,60))
+    ImageDraw.Draw(source).rectangle((1700,1320,1715,1330),fill="white")
+    clean=Image.new("RGB",source.size,(70,90,60))
+    region=Region(kind="logo",box=(.94,.94,.96,.96))
+    def inspect(chats,fields,*args):
+        return [{**{k:k!="uncertain" for k in fields},"area":"none"} for _ in chats],0
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",inspect)
+    monkeypatch.setattr("watermark_studio.evidence.attach_evidence",lambda *args,**kwargs:None)
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                        lambda images,*args:[([],"{}") for _ in images])
+    monkeypatch.setattr("watermark_studio.quality.repair_boundary_warnings",lambda *a,**k:{"count":0})
+    monkeypatch.setattr("watermark_studio.quality.repair_texture_warnings",lambda *a,**k:{"count":0})
+    # Only the former watermark footprint changed; the global cue is diluted.
+    assert any(w["code"]=="nearly_unchanged" for w in deterministic_warnings(source,clean))
+    q=verify_batch([(source,clean)],None,None,"cpu",detail_patches=0,source_regions=[[region]])[0]
+    assert q["localized_edit_support"]["supported"] and q["status"]=="passed"
+    assert q.get("residual_regions")==[]  # A new scan is still required before passing.
+    monkeypatch.setattr("watermark_studio.quality.repair_texture_warnings",
+                        lambda *a,**k:{"count":1,"suspect_segments":[]})
+    q=verify_batch([(source,clean)],None,None,"cpu",detail_patches=0,source_regions=[[region]])[0]
+    assert q["status"]=="review" and "repair_texture_collapse" in q["guard_codes"]
+
+
+def test_localized_change_requires_every_small_overlay_not_outside_noise_or_large_masks():
+    from PIL import ImageDraw
+
+    from watermark_studio.config import Region
+    from watermark_studio.quality import localized_small_edit_support
+    before=Image.new("RGB",(1000,800),(80,90,60))
+    ImageDraw.Draw(before).rectangle((900,700,919,719),fill="white")
+    regions=[Region(kind="logo",box=(.89,.86,.93,.92))]
+    outside={"tiles":0,"max_tile_mae":.1}
+    assert not localized_small_edit_support(before,before.copy(),regions,outside)["supported"]
+    after=Image.new("RGB",before.size,(80,90,60))
+    assert localized_small_edit_support(before,after,regions,outside)["supported"]
+    unchanged=Region(kind="logo",box=(.01,.01,.03,.03))
+    assert not localized_small_edit_support(before,after,regions+[unchanged],outside)["supported"]
+    assert not localized_small_edit_support(before,after,regions,{"tiles":1,"max_tile_mae":2})["supported"]
+    assert not localized_small_edit_support(before,after,[Region(box=(0,0,.5,.5))],outside)["supported"]
+    import numpy as np
+    noise=Image.fromarray(np.minimum(np.asarray(before,dtype=np.int16)+1,255).astype(np.uint8))
+    assert not localized_small_edit_support(before,noise,regions,
+                                            {"tiles":0,"max_tile_mae":.5})["supported"]

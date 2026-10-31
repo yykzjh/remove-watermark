@@ -117,6 +117,33 @@ def deterministic_warnings(before, after):
     return warnings
 
 
+def localized_small_edit_support(before, after, regions, outside):
+    """Disambiguate a diluted whole-photo change cue, never certify removal."""
+    from .images import pixel_box
+
+    areas=[(r.box[2]-r.box[0])*(r.box[3]-r.box[1]) for r in regions]
+    report={"method":"localized_small_edit_support_v1","changes_only_not_quality":True,
+            "supported":False,"regions":[],"source_area":round(sum(areas),6)}
+    if not areas or sum(areas)>.035 or outside.get("tiles",1):
+        return report
+    aligned=after if after.size==before.size else after.resize(before.size,Image.Resampling.LANCZOS)
+    threshold=max(1.5,3*outside.get("max_tile_mae",0))
+    report["minimum_mae"]=round(threshold,4)
+    for region in regions:
+        box=pixel_box(region.box,before.size)
+        patches=[]
+        for image in (before,aligned):
+            patch=image.crop(box).convert("RGB")
+            patch.thumbnail((256,256),Image.Resampling.LANCZOS)
+            patches.append(np.asarray(patch.filter(ImageFilter.GaussianBlur(.55)),dtype=np.float32))
+        delta=np.abs(patches[0]-patches[1]).mean(axis=2)
+        mae=float(delta.mean());changed=float((delta>6).mean())
+        report["regions"].append({"box":list(region.box),"mae":round(mae,4),
+            "changed_fraction":round(changed,6),"significant":mae>threshold and changed>.03})
+    report["supported"]=all(r["significant"] for r in report["regions"])
+    return report
+
+
 def outside_repair_changes(before, after, regions, resolution=2048, feather=12):
     """Conservative local change cue outside known overlays, tolerant of JPEG noise.
 
@@ -709,7 +736,18 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         verdict["model_status"] = verdict["status"]
         verdict["model_uncertain"] = verdict["uncertain"]
         verdict["model_reason"] = verdict["reason"]
+        regions=known[index]
+        local_started=time.monotonic()
+        local=None if isinstance(regions,Exception) else outside_repair_changes(
+            before,after,regions,feather=feather)
         warnings = deterministic_warnings(before, after)
+        if local is not None and any(w["code"]=="nearly_unchanged" for w in warnings):
+            support=localized_small_edit_support(before,after,regions,local)
+            verdict["localized_edit_support"]=support
+            if support["supported"]:
+                # Correct a wrong measurement scope only. Exact identity, model
+                # rejection, seams, texture, content and fresh residual checks stay.
+                warnings=[w for w in warnings if w["code"]!="nearly_unchanged"]
         if warnings:
             if verdict["status"] == "passed":
                 verdict.update(status="review", uncertain=True)
@@ -730,8 +768,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         if isinstance(regions, Exception):
             verdict.update(status="error", reason=f"Original overlay scan: {regions}"[:400])
         else:
-            started = time.monotonic()
-            local = outside_repair_changes(before, after, regions, feather=feather)
+            started = local_started
             verdict["outside_repair_change"] = local
             verdict["source_regions"] = [r.model_dump() if hasattr(r, "model_dump") else r for r in regions]
             seam_photo = after if after.size == before.size else after.resize(before.size, Image.Resampling.LANCZOS)
