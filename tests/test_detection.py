@@ -23,7 +23,7 @@ def test_detection_schema_padding_and_invalid_results():
 def test_no_detection_copies_original_bytes_without_claiming_restoration(tmp_path, monkeypatch):
     source, target = tmp_path/"original.jpg", tmp_path/"result.jpg"
     Image.new("RGB", (50, 40), (110, 90, 60)).save(source)
-    monkeypatch.setattr("watermark_studio.worker.locate_watermarks", lambda *args: ([], "{}"))
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch", lambda images, *args: [([], "{}") for _ in images])
     import sys
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
         reset_peak_memory_stats=lambda: None, synchronize=lambda: None,

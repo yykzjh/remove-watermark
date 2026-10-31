@@ -26,6 +26,7 @@ class Runtime:
         self.workers = []
         self.job = None
         self.pending = deque()
+        self.retry_pending = deque()
         self.ctx = mp.get_context("spawn")
         self.events = self.ctx.Queue()
         self.threads = []
@@ -137,7 +138,18 @@ class Runtime:
 
     def _record(self, result):
         job = self.job
+        retry = result.pop("_retry_task", None)
+        if result.get("quality_attempts", 1) > 1:
+            job["retry_attempts"] = job.get("retry_attempts", 0) + 1
+        if retry is not None and job["state"] in {"running", "paused"}:
+            self.retry_pending.append(retry)
+            with (self.state_dir / job["id"] / "retry-events.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(result, ensure_ascii=False) + "\n")
+            self._persist()
+            return
         job["completed"] += 1
+        if result.get("retry_exhausted"):
+            job["retry_exhausted"] = job.get("retry_exhausted", 0) + 1
         job["succeeded" if result["ok"] else "failed"] += 1
         if result.get("action") == "existing_output_verified":
             job["existing_outputs"] = job.get("existing_outputs", 0) + 1
@@ -173,19 +185,25 @@ class Runtime:
                 job["service_failure"] = self.error
             else:
                 for worker in self.workers:
-                    if not self.pending or busy >= job["options"]["concurrency"]:
+                    if not (self.pending or self.retry_pending) or busy >= job["options"]["concurrency"]:
                         break
                     if worker["state"] == "idle":
                         available = min(
                             sum(w["state"] == "idle" for w in self.workers),
                             job["options"]["concurrency"] - busy,
                         )
+                        active_queue = self.pending if self.pending else self.retry_pending
                         count = min(
                             self.config.batch_size * self.config.batch_window,
-                            (len(self.pending) + available - 1) // available,
+                            (len(active_queue) + available - 1) // available,
                             max(1, (job["options"]["concurrency"] - busy) // available),
                         )
-                        task = [self.pending.popleft() for _ in range(count)]
+                        if active_queue is self.retry_pending:
+                            count = 1
+                        elif self.config.adaptive_dispatch:
+                            count = min(count, max(self.config.batch_size,
+                                (len(active_queue) + len(self.workers) - 1) // len(self.workers)))
+                        task = [active_queue.popleft() for _ in range(count)]
                         worker["state"], worker["task"] = "busy", task
                         worker["queue"].put(
                             {"job": job["id"], "tasks": task, "options": job["options"]}
@@ -193,10 +211,11 @@ class Runtime:
                         busy += count
         if job["state"] == "cancelling" and busy == 0:
             job["state"] = "failed" if job.get("service_failure") else "cancelled"
-            job["unprocessed"] = len(self.pending)
+            job["unprocessed"] = len(self.pending) + len(self.retry_pending)
             self.pending.clear()
+            self.retry_pending.clear()
             self._finish()
-        elif not self.pending and busy == 0 and job["state"] in {"running", "paused"}:
+        elif not self.pending and not self.retry_pending and busy == 0 and job["state"] in {"running", "paused"}:
             job["state"] = "completed"
             self._finish()
 
@@ -209,6 +228,11 @@ class Runtime:
             temp.replace(root / "summary.json")
 
     def _finish(self):
+        counts = self.job.get("quality_counts", {})
+        self.job["acceptance_complete"] = bool(
+            self.job["options"]["quality_check"] and self.job["total"] > 0
+            and counts.get("passed", 0) == self.job["total"] and not self.job["invalid"]
+        )
         self.job["finished_at"] = time.time()
         self._persist()
 
@@ -360,6 +384,7 @@ class Runtime:
                 "capacity": self.config.capacity,
                 "inflight_images": sum(len(w["task"]) for w in self.workers if w["state"] == "busy"),
                 "pending_images": len(self.pending),
+                "pending_retries": len(self.retry_pending),
                 "worker_count": self.config.worker_count,
                 "recommended_concurrency": min(
                     self.config.capacity,

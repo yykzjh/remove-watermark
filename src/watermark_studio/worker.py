@@ -6,7 +6,7 @@ import time
 import traceback
 
 from .config import DeploymentConfig, ProcessingConfig, Region
-from .detection import locate_watermarks
+from .detection import locate_watermarks_batch
 from .images import (
     atomic_copy,
     blend_patch,
@@ -107,10 +107,34 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     if cuda:
         import torch
         torch.cuda.reset_peak_memory_stats()
+    detections, decoded = {}, {}
+    needs_detection = cuda and (
+        (options.scope == "full_image" and options.preserve_background)
+        or (options.scope == "regions" and options.preset == "auto")
+    )
+    if needs_detection:
+        detect_tasks = []
+        for task in tasks:
+            if task.get("reuse_existing"):
+                continue
+            try:
+                decoded[task["relative"]] = load_photo(task["source"])
+                detect_tasks.append(task)
+            except (OSError, ValueError):
+                pass  # Normal per-file handling below records the decoding failure.
+        started_detection = time.monotonic()
+        found = locate_watermarks_batch(
+            [decoded[t["relative"]][0] for t in detect_tasks],
+            pipe.text_encoder, pipe.processor, pipe._execution_device,
+            options.detection_resolution, config.detection_batch_size,
+        )
+        elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
+        detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
     for task in tasks:
         state = None
         try:
-            source, exif, icc, alpha = load_photo(task["source"])
+            source, exif, icc, alpha = (decoded.pop(task["relative"]) if task["relative"] in decoded
+                                       else load_photo(task["source"]))
             if options.quality_check:
                 source_images[task["relative"]] = source
             if task.get("reuse_existing"):
@@ -127,22 +151,23 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 regions = []
             elif options.scope == "full_image":
                 if options.preserve_background:
-                    protected_regions, _ = locate_watermarks(
-                        source, pipe.text_encoder, pipe.processor, pipe._execution_device,
-                        options.detection_resolution,
-                    )
+                    found, _ = detections[task["relative"]]
+                    if isinstance(found, Exception):
+                        raise found
+                    protected_regions, _ = found
                     regions = [Region(box=(0, 0, 1, 1))] if protected_regions else []
                 else:
                     regions = [Region(box=(0, 0, 1, 1))]
             elif options.preset == "auto":
-                regions, _ = locate_watermarks(
-                    source, pipe.text_encoder, pipe.processor, pipe._execution_device,
-                    options.detection_resolution,
-                )
+                found, _ = detections[task["relative"]]
+                if isinstance(found, Exception):
+                    raise found
+                regions, _ = found
                 regions = [r for r in regions if options.remove_logo or r.kind != "logo"]
             else:
                 regions = regions_for(source, options)
-            detected = round(time.monotonic() - detection_start, 3)
+            detected = round(detections[task["relative"]][1] if task["relative"] in detections
+                             else time.monotonic() - detection_start, 3)
             if not regions:
                 if options.output_width:
                     if alpha is not None:
@@ -295,6 +320,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
                     options.quality_resolution, options.quality_max_tokens,
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
+                    detection_batch_size=config.detection_batch_size,
                 )
                 for task, verdict in zip(group, reviews):
                     size = ([options.output_width, options.output_height] if options.output_width
@@ -364,9 +390,10 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate, q
         if request is None:
             return
         try:
-            results = process_batch(
+            from .retry import process_attempts
+            results = process_attempts(
                 request["tasks"], ProcessingConfig.model_validate(request["options"]), config, pipe,
-                batch_limits,
+                batch_limits, request["job"], process_batch,
             )
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             traceback.print_exc()

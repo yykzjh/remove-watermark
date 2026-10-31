@@ -1,0 +1,114 @@
+"""Per-image original-based retry attempts with durable best-candidate selection."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+from .images import atomic_copy
+
+
+def quality_rank(result):
+    """Conservative ordering, never trade visible content for removal alone."""
+    q = result.get("quality", {})
+    return (
+        bool(result.get("ok")),
+        q.get("status") == "passed",
+        q.get("content_preserved") is True,
+        q.get("watermark_removed") is True,
+        q.get("natural") is True,
+        q.get("status") != "error",
+        q.get("uncertain") is False,
+    )
+
+
+def retry_allowed(result, options, attempt):
+    return (
+        options.quality_auto_retry and result.get("quality", {}).get("status") in {"review", "error"}
+        and (options.quality_max_attempts == 0 or attempt < options.quality_max_attempts)
+    )
+
+
+def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
+    """Runtime schedules rounds; this function performs exactly one attempt per input."""
+    if not options.quality_auto_retry:
+        return process(tasks, options, config, pipe, batch_limits)
+    outputs = []
+    # Keep normal first-pass batching; retries have compatible per-request settings.
+    prepared, records = [], []
+    for task in tasks:
+        if task.get("reuse_existing") and not task.get("_retry"):
+            records.append((task, None, None))
+            prepared.append(task)
+            continue
+        token = hashlib.sha256(task["relative"].encode()).hexdigest()
+        folder = Path(config.state_dir).expanduser() / job / "candidates" / token
+        folder.mkdir(parents=True, exist_ok=True)
+        suffix = Path(task["destination"]).suffix
+        candidate = folder / ("candidate" + suffix)
+        best = folder / ("best" + suffix)
+        history = folder / "attempts.json"
+        saved = json.loads(history.read_text()) if history.exists() else {"attempts": [], "best": None}
+        prepared.append(task | {"destination": str(candidate), "reuse_existing": False})
+        records.append((task, (folder, candidate, best, history), saved))
+    attempt = int(tasks[0].get("_attempt", 1))
+    settings = options.model_copy(deep=True)
+    settings.overwrite = True
+    if tasks[0].get("_retry"):
+        settings.seed = (settings.seed + 104729 * (attempt - 1)) % (2**32)
+        settings.resolution = options.quality_retry_resolution
+        settings.quality_batch_size = 1
+        if not (options.scope == "regions" and options.preset == "custom"):
+            settings.scope, settings.preset, settings.regions = "regions", "auto", []
+        settings.extra_prompt = (
+            options.extra_prompt + "\n精确清除所有数字覆盖层及淡色文字、边框和小图标。"
+            "只自然重建被遮挡区域，保留原来可见的人体、测量读数及真实印刷文字；"
+            "避免模糊、重复纹理、直线错位、衣物和肢体变形。"
+        ).strip()
+        # A verifier error first rechecks the best candidate instead of regenerating.
+        if tasks[0].get("_recheck"):
+            prepared[0]["destination"] = str(records[0][1][2])
+            prepared[0]["reuse_existing"] = True
+    results = process(prepared, settings, config, pipe, batch_limits)
+    for (task, paths, saved), result in zip(records, results):
+        if paths is None:
+            result["retry_blocked"] = "existing_output_read_only"
+            result["quality_attempts"] = 1
+            outputs.append(result)
+            continue
+        folder, candidate, best, history = paths
+        current_attempt = int(task.get("_attempt", 1))
+        record = {"attempt": current_attempt, "quality": result.get("quality"),
+                  "ok": result["ok"], "action": result.get("action"), "error": result.get("error")}
+        saved["attempts"].append(record)
+        chosen_path = best if task.get("_recheck") else candidate
+        previous = saved["best"]
+        if result["ok"] and (previous is None or quality_rank(result) > quality_rank(previous)):
+            if chosen_path != best:
+                atomic_copy(chosen_path, best, True)
+            saved["best"] = result
+        selected = dict(saved["best"] or result)
+        selected.update(quality_attempts=current_attempt, attempt_history=saved["attempts"][-20:],
+                        best_attempt=saved.get("best_attempt", 1))
+        if saved["best"] is result:
+            saved["best_attempt"] = current_attempt
+            selected["best_attempt"] = current_attempt
+        if saved["best"] is not None:
+            atomic_copy(best, task["destination"], options.overwrite or bool(task.get("_retry")))
+        again = retry_allowed(selected, options, current_attempt)
+        selected["retry_exhausted"] = bool(
+            not again and selected.get("quality", {}).get("status") in {"review", "error"}
+        )
+        if again:
+            selected["_retry_task"] = task | {
+                "_retry": True, "_attempt": current_attempt + 1,
+                "_recheck": selected.get("quality", {}).get("status") == "error",
+            }
+        temp = history.with_suffix(".tmp")
+        temp.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+        temp.replace(history)
+        if not again:
+            best.unlink(missing_ok=True)
+        candidate.unlink(missing_ok=True)
+        outputs.append(selected)
+    return outputs

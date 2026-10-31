@@ -87,27 +87,65 @@ def parse_detection(
     return regions
 
 
-def locate_watermarks(image, encoder, processor, device, resolution=1280):
+def locate_watermarks_batch(images, encoder, processor, device, resolution=1280, batch_size=1):
+    """Bounded independent requests; preserve ordering and isolate per-image errors."""
     import torch
 
-    preview = image.copy()
-    preview.thumbnail((resolution, resolution))
-    messages = [{"role": "user", "content": [
-        {"type": "image", "image": preview},
-        {"type": "text", "text": DETECTION_PROMPT},
-    ]}]
-    inputs = processor.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=True,
-        return_dict=True, return_tensors="pt",
-    )
-    inputs.pop("token_type_ids", None)
-    inputs = inputs.to(device)
-    with torch.inference_mode():
-        generated = encoder.generate(
-            **inputs, max_new_tokens=512, do_sample=False, use_cache=True,
-        )
-    text = processor.batch_decode(
-        generated[:, inputs.input_ids.shape[1]:], skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
-    )[0]
-    return parse_detection(text), text
+    outputs = []
+    def run(group):
+        previous = processor.tokenizer.padding_side
+        try:
+            processor.tokenizer.padding_side = "left"
+            chats = []
+            for image in group:
+                preview = image.copy()
+                preview.thumbnail((resolution, resolution))
+                chats.append([{"role": "user", "content": [
+                    {"type": "image", "image": preview},
+                    {"type": "text", "text": DETECTION_PROMPT},
+                ]}])
+            inputs = processor.apply_chat_template(
+                chats, tokenize=True, add_generation_prompt=True,
+                processor_kwargs={"padding": True}, return_dict=True, return_tensors="pt",
+            )
+            inputs.pop("token_type_ids", None)
+            inputs = inputs.to(device)
+            with torch.inference_mode():
+                generated = encoder.generate(
+                    **inputs, max_new_tokens=512, do_sample=False, use_cache=True,
+                )
+            texts = processor.batch_decode(
+                generated[:, inputs.input_ids.shape[1]:], skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )
+            if len(texts) != len(group):
+                raise ValueError("Detection output count differs from requests")
+            results = []
+            for text in texts:
+                try:
+                    results.append((parse_detection(text), text))
+                except (ValueError, TypeError, KeyError) as error:
+                    results.append(error)
+            return results
+        except Exception as error:  # noqa: BLE001 - isolate image and memory failures
+            message = f"{type(error).__name__}: {error}"[:400]
+            split = len(group) > 1
+        finally:
+            processor.tokenizer.padding_side = previous
+        # Exception tensors must be released before retrying smaller groups.
+        torch.cuda.empty_cache()
+        if split:
+            mid = len(group)//2
+            return run(group[:mid]) + run(group[mid:])
+        return [RuntimeError(message)]
+
+    for offset in range(0, len(images), batch_size):
+        outputs.extend(run(images[offset:offset+batch_size]))
+    return outputs
+
+
+def locate_watermarks(image, encoder, processor, device, resolution=1280):
+    result = locate_watermarks_batch([image], encoder, processor, device, resolution)[0]
+    if isinstance(result, Exception):
+        raise result
+    return result

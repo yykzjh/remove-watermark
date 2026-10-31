@@ -17,6 +17,8 @@ HELP = {
     "gpus": "Comma-separated physical GPU indices, e.g. 1,2,3",
     "batch_size": "Maximum independent edits per GPU forward, 1..16",
     "batch_window": "Images gathered per worker = batch size times window, 1..8",
+    "adaptive_dispatch": "Shrink worker windows near job tail to balance remaining work",
+    "detection_batch_size": "Maximum compatible VLM detection images per forward, 1..4; OOM splits",
     "batch_bucketing": "Group edits by identical inference dimensions within the window",
     "oom_split_batch": "Recursively split a batch on CUDA OOM; singleton failure is reported",
     "replicas_per_gpu": "Full model copies per GPU, 1..4; multiplies VRAM use",

@@ -28,6 +28,9 @@ def main():
     parser.add_argument("--output-height", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--quality-check", action="store_true")
+    parser.add_argument("--quality-auto-retry", action="store_true")
+    parser.add_argument("--quality-max-attempts", type=int, default=3, help="0: until pass or cancel")
+    parser.add_argument("--quality-retry-resolution", type=int, default=768)
     parser.add_argument("--preserve-background", action="store_true")
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
@@ -47,6 +50,9 @@ def main():
                 "output_height": args.output_height,
                 "overwrite": args.overwrite,
                 "quality_check": args.quality_check,
+                "quality_auto_retry": args.quality_auto_retry,
+                "quality_max_attempts": args.quality_max_attempts,
+                "quality_retry_resolution": args.quality_retry_resolution,
                 "preserve_background": args.preserve_background,
                 "quality_resolution": args.quality_resolution,
                 "quality_batch_size": args.quality_batch_size,

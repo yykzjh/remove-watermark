@@ -349,8 +349,8 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
 
 
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
-                 reviewer="resident", detail_patches=4):
-    from .detection import locate_watermarks
+                 reviewer="resident", detail_patches=4, detection_batch_size=1):
+    from .detection import locate_watermarks_batch
 
     output_chats, content_chats, boxes_list = [], [], []
     for before, after in pairs:
@@ -382,7 +382,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         content_chats, ("content_preserved", "uncertain"),
         encoder, processor, device, max_tokens,
     )
-    verdicts = []
+    verdicts, residual_candidates = [], []
     for check, comparison, (before, after), boxes in zip(inspected, compared, pairs, boxes_list):
         data = {k: check[k] for k in ("watermark_removed", "natural")}
         data["content_preserved"] = comparison["content_preserved"]
@@ -409,10 +409,21 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         )
         candidate = verdict["status"] == "passed" or (
             verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"])
+        verdicts.append(verdict)
         if candidate:
-            started = time.monotonic()
-            try:
-                regions, _ = locate_watermarks(after, encoder, processor, device, resolution)
+            residual_candidates.append((verdict, after))
+    if residual_candidates:
+        started = time.monotonic()
+        scanned = locate_watermarks_batch(
+            [after for _, after in residual_candidates], encoder, processor, device,
+            resolution, detection_batch_size,
+        )
+        seconds = (time.monotonic()-started)/len(residual_candidates)
+        for (verdict, _), detection in zip(residual_candidates, scanned):
+            if isinstance(detection, Exception):
+                verdict.update(status="error", reason=f"Residual scan: {detection}"[:400])
+            else:
+                regions, _ = detection
                 verdict["residual_regions"] = [r.model_dump() for r in regions]
                 if regions:
                     verdict.update(status="review", watermark_removed=False,
@@ -420,9 +431,6 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 elif verdict.get("guard_codes") == ["identical"]:
                     verdict.update(status="passed", uncertain=verdict["model_uncertain"],
                                    reason=verdict["model_reason"])
-            except Exception as error:  # noqa: BLE001 - failed scan never means pass
-                verdict.update(status="error", reason=f"Residual scan: {error}"[:400])
-            verdict["residual_scan_seconds"] = round(time.monotonic()-started, 3)
-            verdict["seconds"] = round(verdict["seconds"]+verdict["residual_scan_seconds"], 3)
-        verdicts.append(verdict)
+            verdict["residual_scan_seconds"] = round(seconds, 3)
+            verdict["seconds"] = round(verdict["seconds"]+seconds, 3)
     return verdicts

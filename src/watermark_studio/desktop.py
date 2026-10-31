@@ -373,6 +373,25 @@ class MainWindow(QMainWindow):
         self.quality_details.setToolTip("自动挑选变化及结构明显的局部进行放大对照；不能覆盖所有细节。0表示仅整图检验。")
         self.quality_check.toggled.connect(self.quality_details.setEnabled)
         form.addRow("放大细节片数量", self.quality_details)
+        self.quality_retry = QCheckBox("检验不通过时自动返工（始终从原图重做）")
+        self.quality_retry.setEnabled(False)
+        self.quality_check.toggled.connect(self.quality_retry.setEnabled)
+        self.quality_check.toggled.connect(lambda checked: self.quality_retry.setChecked(False) if not checked else None)
+        form.addRow(self.quality_retry)
+        self.quality_attempts = QSpinBox()
+        self.quality_attempts.setRange(0, 20)
+        self.quality_attempts.setValue(3)
+        self.quality_attempts.setSpecialValueText("直到通过或取消")
+        self.quality_attempts.setEnabled(False)
+        self.quality_retry.toggled.connect(self.quality_attempts.setEnabled)
+        form.addRow("最多尝试次数（含首次）", self.quality_attempts)
+        self.retry_resolution = QComboBox()
+        for size in (512, 768, 1024, 1280, 1536, 2048):
+            self.retry_resolution.addItem(str(size), size)
+        self.retry_resolution.setCurrentIndex(1)
+        self.retry_resolution.setEnabled(False)
+        self.quality_retry.toggled.connect(self.retry_resolution.setEnabled)
+        form.addRow("返工模型输入分辨率", self.retry_resolution)
         self.overwrite = QCheckBox("覆盖输出目录中的同名文件")
         form.addRow(self.overwrite)
         self.extra_prompt = QLineEdit()
@@ -486,6 +505,9 @@ class MainWindow(QMainWindow):
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
                 quality_check=self.quality_check.isChecked(),
+                quality_auto_retry=self.quality_retry.isChecked(),
+                quality_max_attempts=self.quality_attempts.value(),
+                quality_retry_resolution=self.retry_resolution.currentData(),
                 preserve_background=self.preserve_background.isChecked(),
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
@@ -572,7 +594,8 @@ class MainWindow(QMainWindow):
             f"输出成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
             f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}  "
             f"在途 {state.get('inflight_images', 0)}  "
-            f"检验通过 {qc.get('passed', 0)}  待复核 {qc.get('review', 0)}  检验错误 {qc.get('error', 0)}"
+            f"检验通过 {qc.get('passed', 0)}  待复核 {qc.get('review', 0)}  检验错误 {qc.get('error', 0)}  "
+            f"返工次数 {job.get('retry_attempts', 0)}  返工排队 {state.get('pending_retries', 0)}"
         )
         self.current.setText(job.get("current", ""))
         self.errors.setPlainText(

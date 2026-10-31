@@ -15,11 +15,14 @@ parser.add_argument("--tag", default="")
 parser.add_argument("--images", type=int, default=24)
 parser.add_argument("--concurrency", type=int, default=20)
 parser.add_argument("--preserve-background", action="store_true")
+parser.add_argument("--quality-auto-retry", action="store_true")
+parser.add_argument("--quality-max-attempts", type=int, default=3)
+parser.add_argument("--url", default="http://127.0.0.1:18770")
 parser.add_argument("--detail-patches", type=int, default=4)
 parser.add_argument("--profiles", nargs="+")
 parser.add_argument("--contact", action="store_true")
 args = parser.parse_args()
-url = "http://127.0.0.1:18770"
+url = args.url
 root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031") / ("quality-benchmark" + ("-" + args.tag if args.tag else ""))
 inputs = root / "input"
 inputs.mkdir(parents=True, exist_ok=True)
@@ -78,7 +81,8 @@ for label, enabled, resolution, batch in profiles:
     job_id = request(url, "/jobs", {
         "input_dir": str(inputs), "output_dir": str(root / label),
         "options": {"concurrency": args.concurrency, "resolution": 1024, "overwrite": True,
-                    "quality_check": enabled, "preserve_background": args.preserve_background, "quality_resolution": resolution,
+                    "quality_check": enabled, "quality_auto_retry": enabled and args.quality_auto_retry,
+                    "quality_max_attempts": args.quality_max_attempts, "preserve_background": args.preserve_background, "quality_resolution": resolution,
                     "quality_batch_size": batch, "quality_detail_patches": args.detail_patches},
     })["id"]
     while True:
@@ -94,6 +98,9 @@ for label, enabled, resolution, batch in profiles:
     record = {"label": label, "tag": args.tag, "images": args.images, "detail_patches": args.detail_patches, "seconds": round(time.monotonic()-started, 3),
               "job": job_id, "success": job["succeeded"], "failed": job["failed"],
               "quality_counts": job.get("quality_counts", {}),
+              "retry_attempts": job.get("retry_attempts", 0),
+              "retry_exhausted": job.get("retry_exhausted", 0),
+              "preserve_background": args.preserve_background,
               "quality_seconds": round(sum(r.get("quality", {}).get("seconds", 0) for r in rows), 3),
               "bad_sizes": sum(Image.open(inputs/r["file"]).size != Image.open(root/label/r["file"]).size
                                for r in rows if r["ok"]),

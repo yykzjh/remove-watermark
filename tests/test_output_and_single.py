@@ -101,7 +101,8 @@ def test_summary_checkpoint_interval_keeps_final_progress(tmp_path):
     from watermark_studio.runtime import Runtime
     runtime = Runtime(DeploymentConfig(backend="mock", state_dir=str(tmp_path), report_interval=3))
     runtime.job = {"id": "checkpoint", "completed": 0, "succeeded": 0, "failed": 0,
-                   "errors": [], "no_watermark": 0}
+                   "errors": [], "no_watermark": 0, "options": {"quality_check": False},
+                   "total": 2, "invalid": 0}
     runtime._persist()
     for i in range(2):
         runtime._record({"file": str(i), "ok": True})

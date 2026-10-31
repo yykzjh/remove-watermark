@@ -17,6 +17,8 @@ exec bash scripts/start-server.sh \
   --gpus 0,1,2,3,4,5,6,7 \
   --batch-size 1 \
   --batch-window 4 \
+  --adaptive-dispatch \
+  --detection-batch-size 2 \
   --batch-bucketing \
   --oom-split-batch \
   --replicas-per-gpu 1 \

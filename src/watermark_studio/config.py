@@ -43,6 +43,9 @@ class ProcessingConfig(BaseModel):
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
     preserve_background: bool = False
     quality_check: bool = False
+    quality_auto_retry: bool = False
+    quality_max_attempts: int = Field(default=3, ge=0, le=20)
+    quality_retry_resolution: Literal[512, 768, 1024, 1280, 1536, 2048] = 768
     quality_resolution: int = Field(default=768, ge=384, le=1280, multiple_of=32)
     quality_batch_size: int = Field(default=1, ge=1, le=4)
     quality_max_tokens: int = Field(default=128, ge=64, le=256)
@@ -57,6 +60,8 @@ class ProcessingConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_regions(self):
+        if self.quality_auto_retry and not self.quality_check:
+            raise ValueError("自动返工需要启用质量检验")
         if bool(self.output_width) != bool(self.output_height):
             raise ValueError("输出宽高必须同时填写，或同时为 0 保留原图尺寸")
         if self.output_width * self.output_height > 64_000_000:
@@ -97,6 +102,8 @@ class DeploymentConfig(BaseModel):
     batch_size: int = Field(default=2, ge=1, le=16)
     batch_window: int = Field(default=4, ge=1, le=8)
     batch_bucketing: bool = False
+    adaptive_dispatch: bool = False
+    detection_batch_size: int = Field(default=1, ge=1, le=4)
     oom_split_batch: bool = False
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
     quality_verifier: bool = False
