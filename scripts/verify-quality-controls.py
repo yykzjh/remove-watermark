@@ -10,13 +10,16 @@ import torch
 from PIL import Image, ImageDraw, ImageOps
 from transformers import Qwen3VLForConditionalGeneration, Qwen3VLProcessor
 
+from watermark_studio.download import download_model
 from watermark_studio.quality import review_batch
 
-snapshot = Path.home()/".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
+snapshot = Path(download_model(
+    "Qwen/Qwen3-VL-4B-Instruct", "modelscope", "master", "~/.cache/watermark-models",
+))
 encoder = Qwen3VLForConditionalGeneration.from_pretrained(
-    snapshot/"text_encoder", dtype=torch.bfloat16, local_files_only=True,
+    snapshot, dtype=torch.bfloat16, local_files_only=True,
 ).to("cuda").eval()
-processor = Qwen3VLProcessor.from_pretrained(snapshot/"processor", local_files_only=True)
+processor = Qwen3VLProcessor.from_pretrained(snapshot, local_files_only=True)
 root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/quality-benchmark")
 sources = sorted((root/"input").glob("*"))
 cases = []
@@ -34,8 +37,8 @@ for resolution in (512, 768, 1024):
     for label, before, after in cases:
         started = time.monotonic()
         review = review_batch([(before, after)], encoder, processor, "cuda", resolution)[0]
-        row = {"case": label, "resolution": resolution, "seconds": round(time.monotonic()-started, 3),
+        row = {"case": label, "model": "Qwen/Qwen3-VL-4B-Instruct", "resolution": resolution, "seconds": round(time.monotonic()-started, 3),
                **review}
-        with (root/"controls.jsonl").open("a") as out:
+        with (root/"controls-independent.jsonl").open("a") as out:
             out.write(json.dumps(row, ensure_ascii=False)+"\n")
         print(json.dumps(row, ensure_ascii=False), flush=True)
