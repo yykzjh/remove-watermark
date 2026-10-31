@@ -1,0 +1,234 @@
+{
+  "date": "2026-11-01",
+  "control_revision": "0ba018c",
+  "deployment_revision": "be52b45",
+  "injected_initial_verdict": true,
+  "real_models": true,
+  "controls": [
+    {
+      "case": "physical_brand",
+      "expected_correction": true,
+      "injected_initial_verdict": true,
+      "final_status": "passed",
+      "seconds": 13.37,
+      "review_status": "corrected",
+      "reason": "preserved_physical_text_confirmed_by_both_models",
+      "pixel_evidence": [
+        {
+          "unchanged": true,
+          "mae": 0.5566,
+          "p95": 1.3333,
+          "changed_fraction": 0.0
+        }
+      ],
+      "editor_flags": [
+        {
+          "physical_scene_text": true,
+          "digital_overlay": false,
+          "object_attachment": true,
+          "surface_evidence": true,
+          "uncertain": false,
+          "format_recovered": true
+        }
+      ],
+      "validator_flags": [
+        {
+          "physical_scene_text": true,
+          "digital_overlay": false,
+          "object_attachment": true,
+          "surface_evidence": true,
+          "uncertain": false,
+          "format_recovered": true
+        }
+      ],
+      "global_reinspection": {
+        "watermark_removed": true,
+        "natural": true,
+        "uncertain": false,
+        "area": "center"
+      },
+      "remaining_regions": []
+    },
+    {
+      "case": "physical_sign",
+      "expected_correction": true,
+      "injected_initial_verdict": true,
+      "final_status": "passed",
+      "seconds": 9.909,
+      "review_status": "corrected",
+      "reason": "preserved_physical_text_confirmed_by_both_models",
+      "pixel_evidence": [
+        {
+          "unchanged": true,
+          "mae": 0.1727,
+          "p95": 1.0,
+          "changed_fraction": 0.0
+        }
+      ],
+      "editor_flags": [
+        {
+          "physical_scene_text": true,
+          "digital_overlay": false,
+          "object_attachment": true,
+          "surface_evidence": true,
+          "uncertain": false,
+          "format_recovered": true
+        }
+      ],
+      "validator_flags": [
+        {
+          "physical_scene_text": true,
+          "digital_overlay": false,
+          "object_attachment": true,
+          "surface_evidence": true,
+          "uncertain": false,
+          "format_recovered": true
+        }
+      ],
+      "global_reinspection": {
+        "watermark_removed": true,
+        "natural": true,
+        "uncertain": false,
+        "area": "center"
+      },
+      "remaining_regions": []
+    },
+    {
+      "case": "retained_tiny_camera_code",
+      "expected_correction": false,
+      "injected_initial_verdict": true,
+      "final_status": "review",
+      "seconds": 2.743,
+      "review_status": "unresolved",
+      "reason": "editor_did_not_establish_physical_text",
+      "pixel_evidence": [
+        {
+          "unchanged": true,
+          "mae": 0.2782,
+          "p95": 1.0,
+          "changed_fraction": 0.0
+        }
+      ],
+      "editor_flags": [
+        {
+          "physical_scene_text": false,
+          "digital_overlay": true,
+          "object_attachment": false,
+          "surface_evidence": false,
+          "uncertain": true,
+          "format_recovered": true
+        }
+      ],
+      "validator_flags": [],
+      "global_reinspection": null,
+      "remaining_regions": null
+    },
+    {
+      "case": "unchanged_synthetic_digital_panel",
+      "expected_correction": false,
+      "injected_initial_verdict": true,
+      "final_status": "review",
+      "seconds": 1.942,
+      "review_status": "unresolved",
+      "reason": "editor_did_not_establish_physical_text",
+      "pixel_evidence": [
+        {
+          "unchanged": true,
+          "mae": 0.0004,
+          "p95": 0.0,
+          "changed_fraction": 0.0
+        }
+      ],
+      "editor_flags": [
+        {
+          "physical_scene_text": false,
+          "digital_overlay": true,
+          "object_attachment": false,
+          "surface_evidence": false,
+          "uncertain": true
+        }
+      ],
+      "validator_flags": [],
+      "global_reinspection": null,
+      "remaining_regions": null
+    },
+    {
+      "case": "known_original_panel",
+      "expected_correction": false,
+      "injected_initial_verdict": true,
+      "final_status": "review",
+      "seconds": 0.0,
+      "review_status": "skipped",
+      "reason": "overlaps_original_overlay_or_feather",
+      "pixel_evidence": null,
+      "editor_flags": [],
+      "validator_flags": [],
+      "global_reinspection": null,
+      "remaining_regions": null
+    }
+  ],
+  "performance_revision": "39b6aa8",
+  "performance": [
+    {
+      "label": "baseline-hot",
+      "tag": "cross-review-v7-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 118.988,
+      "job": "c9ec6edb83a24d918ed0359b2e08d883",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": true,
+      "repair_blending": "harmonic",
+      "cross_review_attempts": 0,
+      "cross_review_corrected": 0,
+      "cross_review_errors": 0,
+      "cross_review_seconds": 0,
+      "explained_attempts": 0,
+      "explanation_errors": 0,
+      "explanation_seconds": 0,
+      "explanation_oom_splits_max": 0,
+      "feedback_retries": 0,
+      "quality_seconds": 0,
+      "bad_sizes": 0,
+      "quality_oom_splits_max": 0,
+      "peak_allocated_mib": 42108,
+      "quality_errors": []
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "cross-review-v7-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 189.555,
+      "job": "ebb551dffc9b461cb0ffaa82a5d671b5",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 61,
+        "review": 3
+      },
+      "retry_attempts": 13,
+      "retry_exhausted": 3,
+      "preserve_background": true,
+      "repair_blending": "harmonic",
+      "cross_review_attempts": 4,
+      "cross_review_corrected": 0,
+      "cross_review_errors": 0,
+      "cross_review_seconds": 11.551,
+      "explained_attempts": 16,
+      "explanation_errors": 0,
+      "explanation_seconds": 17.474,
+      "explanation_oom_splits_max": 0,
+      "feedback_retries": 13,
+      "quality_seconds": 185.168,
+      "bad_sizes": 0,
+      "quality_oom_splits_max": 0,
+      "peak_allocated_mib": 42108,
+      "quality_errors": []
+    }
+  ]
+}

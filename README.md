@@ -16,6 +16,8 @@
 
 最新修补与检验配方：`bash scripts/launch-throughput-quality.sh`，默认独立 Qwen3-VL 检验、调和明暗衔接及局部阴影/纹理检查；未通过项输出可见依据和位置，逐张回传下一轮返工。客户端须显式启用原图保护、检验、自动返工；见[流程](docs/quality-review.md)和[两张待复核图的修复实测](docs/review-repair-2026-11-01.md)。
 
+编辑侧可提出实物文字纠正说明，由独立验证器按原图证据复核；显式启用 `--quality-cross-review`，明暗/纹理疑点不能豁免。见[争议复核实测](docs/cross-review-2026-11-01.md)。
+
 ## 启动参数与调优
 
 完整参数脚本：[scripts/launch-server.sh](scripts/launch-server.sh)。支持通过启动命令选择 single/data 并行、GPU 列表及全部部署选项；先用 --print-config 查看最终设置。详细参数表、完整脚本、任务配置和调优顺序见 [启动与调优指南](docs/startup-and-tuning.md)。

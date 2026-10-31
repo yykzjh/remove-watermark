@@ -99,6 +99,8 @@ explanation_seconds单独计时，并计入quality_total_seconds与端到端wall
 
 ## 编辑侧纠正说明与独立复核
 
+真实模型对照、预算与完整指标见[争议复核实测](cross-review-2026-11-01.md)。
+
 显式启用 --quality-cross-review（API: quality_cross_review=true），默认不传=false。必须同时启用quality_check；推荐independent后端，复用已加载的编辑侧视觉语言编码器，不新增权重。
 
 仅对残留文字争议启动：自然度/可见内容保持为true、uncertain=false、没有任何程序guard。最多2个精确位置，不能与已确认原水印及羽化范围重叠；该处原图/结果像素还须在严格JPEG噪声容限内一致。仅“原图也有”不构成实物文字证据。
