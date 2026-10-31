@@ -224,34 +224,6 @@ def test_material_context_is_per_image_and_does_not_leak_between_documents_and_o
     assert [r["scene_context"] for r in results]==["document","outdoor"]
 
 
-@pytest.mark.parametrize("visible,expected",[(False,"passed"),(True,"review")])
-def test_new_inset_cues_need_visual_confirmation_and_cannot_exempt_confirmed_damage(monkeypatch,visible,expected):
-    from watermark_studio.config import Region
-    from watermark_studio.quality import verify_batch
-
-    def structured(chats,fields,*args):
-        return [{f: (visible if f=="defect_visible" else f!="uncertain") for f in fields}|{"area":"none"}
-                for _ in chats],.01
-    def seam(*args,**kwargs):
-        return {"count":int(kwargs.get("inset_search",False)),
-                "suspect_segments":[{"box":[.2,.2,.3,.3],"side":"left","luma_step":5}]}
-    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
-    monkeypatch.setattr("watermark_studio.quality.repair_boundary_warnings",seam)
-    monkeypatch.setattr("watermark_studio.quality.repair_texture_warnings",
-                        lambda *a,**k:{"count":0,"suspect_segments":[]})
-    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
-    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[([],"")])
-    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda chats,*a:[
-        {"status":"ok","assessment":"no_clear_defect","summary":"No clear defect","findings":[]} for _ in chats])
-    photo=Image.new("RGB",(400,300),"gray")
-    q=verify_batch([(photo,photo.copy())],None,None,"cpu",detail_patches=0,
-                   source_regions=[[Region(box=(.15,.15,.5,.5))]])[0]
-    assert q["status"]==expected
-    assert q["repair_cue_assessment"]["model"]["defect_visible"]==visible
-    # Even a simultaneous natural_boundary=true cannot excuse defect_visible=true.
-    assert ("repair_inset_confirmed" in q.get("guard_codes",[]))==visible
-
-
 def test_low_amplitude_inset_rectangles_are_only_soft_candidates_and_real_existing_edges_are_retained():
     from PIL import ImageDraw
 
@@ -266,3 +238,21 @@ def test_low_amplitude_inset_rectangles_are_only_soft_candidates_and_real_existi
     assert repair_boundary_warnings(after,regions,before=source)["count"]==0
     assert repair_boundary_warnings(after,regions,before=source,inset_search=True,minimum_step=4)["count"]>0
     assert repair_boundary_warnings(after,regions,before=after,inset_search=True,minimum_step=4)["count"]==0
+
+
+@pytest.mark.parametrize("output_natural,reference_natural",[(True,False),(False,True)])
+def test_neither_naturalness_view_can_override_a_rejection_from_the_other(monkeypatch,output_natural,reference_natural):
+    from watermark_studio.quality import verify_batch
+    def structured(chats,fields,*args):
+        natural=reference_natural if "content_preserved" in fields else output_natural
+        return [{f:(natural if f=="natural" else f!="uncertain") for f in fields}|{"area":"none"}
+                for _ in chats],.01
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda chats,*a:[
+        {"status":"ok","assessment":"no_clear_defect","summary":"No clear defect","findings":[]} for _ in chats])
+    photo=Image.new("RGB",(400,300),"gray")
+    q=verify_batch([(photo,photo.copy())],None,None,"cpu",detail_patches=0,source_regions=[[]])[0]
+    assert q["status"]=="review" and not q["natural"]
+    assert q["output_checks"]["natural"]==output_natural
+    assert q["reference_checks"]["natural"]==reference_natural

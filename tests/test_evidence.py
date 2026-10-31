@@ -103,7 +103,7 @@ def test_empty_residual_scan_or_explanation_cannot_overrule_model_rejection(monk
         calls.append(fields)
         if "watermark_removed" in fields:
             return [{"watermark_removed":not reject,"natural":True,"uncertain":False,"area":"none"}],.1
-        return [{"content_preserved":True,"uncertain":False,"area":"none"}],.1
+        return [{"content_preserved":True,"natural":True,"uncertain":False,"area":"none"}],.1
     monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
     monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[([],"empty scan")])
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[

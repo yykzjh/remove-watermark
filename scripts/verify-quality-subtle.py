@@ -177,7 +177,7 @@ if args.compare_details:
     original_vqa = quality._structured_vqa
     active_pair = None
     def with_details(chats, fields, *arguments):
-        if fields == ("content_preserved", "uncertain"):
+        if "content_preserved" in fields:
             sheets, _ = quality.detail_sheets(*active_pair, 4)
             content = chats[0][0]["content"]
             for item, sheet in zip(content[:2], sheets):

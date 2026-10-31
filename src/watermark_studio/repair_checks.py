@@ -1,4 +1,4 @@
-"""Conservative rectangle-aligned tone/texture cues with source-pixel safeguards."""
+"""Offline rectangle-cue prototype; calibration found false positives, not a production veto."""
 from __future__ import annotations
 
 import numpy as np

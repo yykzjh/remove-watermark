@@ -193,6 +193,8 @@ def _explanation_chats(pairs, verdicts, resolution):
         content.extend([{"type":"text","text":"下图是完整去水印结果。只根据此结果判断残留与修补缺陷；真实标牌/机械字样必须保留。"},
                         {"type":"image","image":preview(aligned,min(resolution,512))}])
         candidates = [f["box"] for f in local_findings(verdict) if f["box"]]
+        if verdict.get("reference_checks",{}).get("natural") is False and verdict.get("reference_detail_box"):
+            candidates.append(verdict["reference_detail_box"])
         candidates += verdict.get("detail_boxes", [])
         used = []
         for raw in candidates:
@@ -269,6 +271,8 @@ def attach_evidence(pairs, verdicts, encoder, processor, device, resolution, max
         verdict["evidence"]=local_findings(verdict)
         verdict["judgment_basis"]={"model_checks":verdict.get("model_checks",{}),
             "detail_boxes":verdict.get("detail_boxes",[]),
+            "output_checks":verdict.get("output_checks",{}),"reference_checks":verdict.get("reference_checks",{}),
+            "reference_detail_box":verdict.get("reference_detail_box"),
             "local_guard_codes":verdict.get("guard_codes",[]),
             "residual_scan_performed":"residual_regions" in verdict,
             "residual_groups":len(verdict.get("residual_regions",[]))}
