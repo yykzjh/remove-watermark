@@ -40,6 +40,16 @@ Do not copy a preset verdict. Unchanged watermarked images MUST fail watermark_r
 An obvious colored fill, missing object or changed person MUST fail the relevant checks."""
 
 
+RESIDENT_PROMPT = """图1是原图，图2是去水印结果。严格验收图2：
+1. 所有数字水印、蓝灰信息卡、黄底文字、今日水印和小字是否完全消失？
+2. 修补是否自然，有无纯色填块、模糊、接缝、人体畸形？
+3. 原来可见的人物、机械、真实标牌、道路、植物、泥水和履带痕迹是否保持不变？
+水印还在则watermark_removed=false，有涂块则natural=false，删改主体则content_preserved=false。
+只允许合理重建被水印遮挡部分，不能更改原来可见内容。
+返回JSON，字段watermark_removed、natural、content_preserved、uncertain为布尔值，
+reason为具体问题和位置。不确定就明确标记，不要默认通过。"""
+
+
 def parse_review(text):
     text = text.strip()
     if text.startswith("```"):
@@ -86,14 +96,14 @@ def deterministic_warnings(before, after):
     return warnings
 
 
-def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128):
+def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128, prompt=None, reviewer="independent"):
     import torch
 
     started = time.monotonic()
     chats = [[{"role": "user", "content": [
         {"type": "image", "image": preview(before, resolution)},
         {"type": "image", "image": preview(after, resolution)},
-        {"type": "text", "text": PROMPT},
+        {"type": "text", "text": prompt or PROMPT},
     ]}] for before, after in pairs]
     tokenizer = processor.tokenizer
     old_padding = tokenizer.padding_side
@@ -133,5 +143,5 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         results.append(result | {"seconds": round(elapsed / len(pairs), 3),
             "batch_seconds": round(elapsed, 3), "batch_size": len(pairs),
             "resolution": resolution, "pixel_mae": pixel_change(before, after),
-            "method": "independent_qwen3_vl"})
+            "method": reviewer + "_qwen3_vl"})
     return results

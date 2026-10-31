@@ -8,7 +8,9 @@ from .config import Region
 DETECTION_PROMPT = """Find every digitally overlaid watermark in this photograph, anywhere
 in the image, at any size. Do not assume a fixed corner or template.
 Targets include construction/site information panels with blue headers and white
-Chinese text, translucent gray panels with black Chinese text, dates, locations,
+Chinese text, translucent gray or white panels with black Chinese text, yellow
+bands with black lettering, yellow-highlighted rows, green/blue house-shaped app
+icons, white/red date or location text, dates, locations,
 remarks, and camera-app logos such as 今日水印. Include 相机, 真实时间, 防伪码,
 all small codes, dashes, icons, shadows and label backgrounds beneath or beside a logo.
 For each connected overlay group return one tight bounding rectangle containing the

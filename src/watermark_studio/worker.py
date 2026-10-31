@@ -246,7 +246,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
         results[task["relative"]] = result
     if options.quality_check:
-        from .quality import review_batch
+        from .quality import RESIDENT_PROMPT, review_batch
         pending = []
         for task in tasks:
             result = results[task["relative"]]
@@ -263,8 +263,22 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 reviews = review_batch(
                     pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
                     options.quality_resolution, options.quality_max_tokens,
+                    prompt=RESIDENT_PROMPT if config.quality_backend == "resident" else None,
+                    reviewer=config.quality_backend,
                 )
                 for task, verdict in zip(group, reviews):
+                    if config.quality_backend == "resident" and verdict["status"] == "passed":
+                        residual_start = time.monotonic()
+                        after = load_photo(task["destination"])[0]
+                        regions, _ = locate_watermarks(
+                            after, pipe.text_encoder, pipe.processor, pipe._execution_device,
+                            options.quality_resolution,
+                        )
+                        verdict["residual_scan_seconds"] = round(time.monotonic() - residual_start, 3)
+                        verdict["residual_regions"] = [r.model_dump() for r in regions]
+                        if regions:
+                            verdict.update(status="review", watermark_removed=False,
+                                           reason="Output residual-watermark scan found digital overlays.")
                     results[task["relative"]]["quality"] = verdict
             except Exception as error:  # noqa: BLE001 - quality failures must never become passes
                 if isinstance(error, torch.cuda.OutOfMemoryError) and len(group) > 1:
@@ -314,6 +328,8 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate, q
                 pipe._quality_processor = Qwen3VLProcessor.from_pretrained(
                     quality_path, local_files_only=True,
                 )
+            elif pipe is not None and config.quality_verifier:
+                pipe._quality_encoder, pipe._quality_processor = pipe.text_encoder, pipe.processor
         events.put({"type": "ready", "worker": index})
     except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
         traceback.print_exc()

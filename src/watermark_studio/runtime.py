@@ -57,7 +57,7 @@ class Runtime:
                 snapshot_name = Path(model_path).name
                 if len(snapshot_name) == 40 and all(c in "0123456789abcdef" for c in snapshot_name):
                     self.model_revision = snapshot_name
-                if self.config.quality_verifier:
+                if self.config.quality_verifier and self.config.quality_backend == "independent":
                     quality_path = download_model(
                         self.config.quality_model, self.config.model_source,
                         self.config.quality_revision, self.config.cache_dir,
@@ -360,6 +360,7 @@ class Runtime:
                 "batch_window": self.config.batch_window,
                 "quality_verifier": self.config.quality_verifier,
                 "quality_model": self.config.quality_model,
+                "quality_backend": self.config.quality_backend,
                 "optimization": {
                     "dtype": self.config.dtype, "quantization": self.config.quantization,
                     "compile": self.config.compile, "compile_scope": self.config.compile_scope,
