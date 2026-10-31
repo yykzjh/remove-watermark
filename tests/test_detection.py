@@ -92,6 +92,12 @@ def test_confirmed_source_region_does_not_need_another_gpu_scan(monkeypatch):
     (['{"watermarks":[{"kind":"text","box":[800,800,990,990]}]}',
       '{"watermarks":[{"kind":"logo","box":[0,0,1000,1000]}]}'],2,False),
     (['{"watermarks":[{"kind":"panel","box":[0,0,1000,1000]}]}'],1,False),
+    (['{"watermarks":[{"kind":"logo","box":[800,800,990,1022]}]}',
+      '{"watermarks":[{"kind":"logo","box":[800,800,990,1000]}]}'],2,True),
+    (['{"watermarks":[{"kind":"logo","box":[800,800,990,1022]}]}',
+      '{"watermarks":[{"kind":"logo","box":[800,800,990,1022]}]}'],2,False),
+    (['{"watermarks":[{"kind":"logo","box":[800,800,990,1022]}]}',
+      '{"watermarks":[{"kind":"panel","box":[0,0,1000,1000]}]}'],2,False),
 ])
 def test_locator_repairs_only_malformed_format_once_and_never_defaults_to_empty(monkeypatch,replies,expected_calls,valid):
     import sys

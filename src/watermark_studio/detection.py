@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from .config import Region
 
@@ -28,7 +29,7 @@ If no digital overlay is visible return {"watermarks":[]}. Do not invent boxes."
 
 
 class DetectionSchemaError(ValueError):
-    """A category outside the JSON schema; discard and request one fresh scan."""
+    """A malformed protocol reply; discard and request one fresh scan."""
 
 
 def parse_detection(
@@ -49,7 +50,11 @@ def parse_detection(
             raise DetectionSchemaError(f"自动检测返回了未知水印类型: {str(kind)[:40]}")
         coords = item["box"]
         if len(coords) != 4 or any(type(v) not in (int, float) for v in coords):
-            raise ValueError("自动检测坐标格式错误")
+            raise DetectionSchemaError("自动检测坐标格式错误")
+        x0,y0,x1,y1=coords
+        if (not all(math.isfinite(v) for v in coords) or
+                not 0<=x0<x1<=1000 or not 0<=y0<y1<=1000):
+            raise DetectionSchemaError("自动检测坐标必须有序且在0..1000内；不得裁切或猜测")
         raw = Region(kind=kind, box=tuple(v / 1000 for v in coords))
         x0, y0, x1, y1 = raw.box
         if (x1 - x0) * (y1 - y0) > 0.8:
@@ -121,7 +126,9 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
                         '\nReturn compact JSON only, with at most 8 distinct groups. No prose, no repeated entries, '
                         'no markdown. Each kind MUST be exactly logo or panel, never text/code/watermark. '
                         'Keep the original visual standard: physical text is not a digital overlay; '
-                        'do not invent boxes. Use watermarks and integer 0..1000 box coordinates.' if format_retry else "")},
+                        'do not invent boxes. Use watermarks and integer 0..1000 box coordinates; '
+                        'every coordinate must be between 0 and 1000, with x0<x1 and y0<y1. '
+                        'Inspect the original image afresh; never clamp or reuse invalid coordinates.' if format_retry else "")},
                 ]}])
             inputs = processor.apply_chat_template(
                 chats, tokenize=True, add_generation_prompt=True,
@@ -159,7 +166,7 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
                             recovered=(regions,json.dumps(data))
                         results.append(recovered)
                 except ValueError as error:
-                    results.append(error)  # Geometry/area vetoes are not format repair.
+                    results.append(error)  # An oversized but well-formed repair mask is never format repair.
             return results
         except Exception as error:  # noqa: BLE001 - isolate image and memory failures
             message = f"{type(error).__name__}: {error}"[:400]
