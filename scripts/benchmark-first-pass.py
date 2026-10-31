@@ -16,7 +16,7 @@ from watermark_studio.cli import request
 parser=argparse.ArgumentParser()
 parser.add_argument("--url",default="http://127.0.0.1:8765")
 parser.add_argument("--tag",required=True)
-parser.add_argument("--subset",choices=["hard","all","holdout","replay"],default="hard")
+parser.add_argument("--subset",choices=["hard","all","holdout","replay","frozen"],default="hard")
 parser.add_argument("--images",type=int,default=64)
 parser.add_argument("--seed",type=int,default=20261101)
 parser.add_argument("--exclude-benchmarks",nargs="*",default=[])
@@ -24,6 +24,7 @@ parser.add_argument("--cross-review",action="store_true")
 parser.add_argument("--generation-only",action="store_true")
 parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
 parser.add_argument("--files",nargs="*")
+parser.add_argument("--source-job",help="Completed job ID for a frozen source replay; requires --files")
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
@@ -47,6 +48,23 @@ elif args.subset=="replay":
           "001.jpg","002.jpg","010.jpg","057.jpg","063.jpg"]
     names=hard+sorted(bad)+controls
     paths=[base/"input"/name for name in hard]+[old/"input"/name for name in sorted(bad)+controls]
+elif args.subset=="frozen":
+    if not args.source_job or not re.fullmatch(r"[a-f0-9]{32}",args.source_job) or not args.files:
+        parser.error("Frozen replay requires a completed --source-job and explicit --files")
+    folder=Path.home()/".local/state/watermark-studio"/args.source_job
+    snapshot=json.loads((folder/"summary.json").read_text())
+    if snapshot["state"]!="completed":
+        parser.error("Source job must be completed")
+    frozen=Path(snapshot["input_dir"]).resolve()
+    records=[json.loads(line) for line in (folder/"results.jsonl").read_text().splitlines()]
+    available={r["file"] for r in records}
+    if not set(args.files).issubset(available) or len(set(args.files))!=len(args.files):
+        parser.error("Frozen source names must exist and be unique")
+    paths=[(frozen/name).resolve() for name in args.files]
+    if any(not p.is_relative_to(frozen) or not p.is_file() for p in paths):
+        parser.error("Frozen sources must stay inside the original input root")
+    names=list(args.files)
+    # Flattening is never allowed: nested replay inputs retain their exact names.
 else:
     data=root/"八标照片集"
     manifest=json.loads((data/".download-state/manifest.json").read_text())
@@ -78,6 +96,7 @@ if args.files:
     paths=[p for p,n in selected]; names=[n for p,n in selected]
 assert len(paths)==len(names) and paths
 for p,name in zip(paths,names):
+    (inputs/name).parent.mkdir(parents=True,exist_ok=True)
     if not (inputs/name).exists(): os.link(p,inputs/name)
 (work/"sources.json").write_text(json.dumps([str(p) for p in paths],ensure_ascii=False))
 while request(args.url,"/health")["stage"]!="ready": time.sleep(2)
