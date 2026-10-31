@@ -92,13 +92,13 @@ if not fixture.exists():
                               np.asarray(after.crop(target),dtype=float)).mean()
                 if change<2: continue  # No meaningful injected defect in a uniform patch.
             filename=f"{index:02d}-{kind}.png"
-            before.save(inputs/filename)
+            before.save(inputs/filename,compress_level=1)
             if kind=="exact_jpeg":
                 # Preserve a PNG container while carrying actual JPEG quantization.
                 import io
                 encoded=io.BytesIO();after.save(encoded,format="JPEG",quality=97,subsampling=0)
                 after=Image.open(io.BytesIO(encoded.getvalue())).convert("RGB")
-            after.save(outputs/filename)
+            after.save(outputs/filename,compress_level=1)
             records.append({"file":filename,"background":name,"kind":kind,"expected":expected})
     for quality in (65,55,45,35):
         contact.save(work/"background-contact.jpg",quality=quality)
