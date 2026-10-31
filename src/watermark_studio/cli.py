@@ -65,7 +65,10 @@ def main():
             )
             previous = update
         if job["state"] in {"completed", "failed", "cancelled", "interrupted"}:
-            raise SystemExit(0 if job["state"] == "completed" and not job["failed"] else 1)
+            if job["state"] != "completed" or job["failed"]:
+                raise SystemExit(1)
+            counts = job.get("quality_counts", {})
+            raise SystemExit(2 if counts.get("review", 0) or counts.get("error", 0) else 0)
         time.sleep(2)
 
 

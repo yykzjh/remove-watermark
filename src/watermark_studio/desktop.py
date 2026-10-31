@@ -357,6 +357,12 @@ class MainWindow(QMainWindow):
         self.quality_resolution.setEnabled(False)
         self.quality_check.toggled.connect(self.quality_resolution.setEnabled)
         form.addRow("检验预览长边（像素）", self.quality_resolution)
+        self.quality_batch = QSpinBox()
+        self.quality_batch.setRange(1, 4)
+        self.quality_batch.setValue(1)
+        self.quality_batch.setEnabled(False)
+        self.quality_check.toggled.connect(self.quality_batch.setEnabled)
+        form.addRow("每卡检验凑批上限", self.quality_batch)
         self.overwrite = QCheckBox("覆盖输出目录中的同名文件")
         form.addRow(self.overwrite)
         self.extra_prompt = QLineEdit()
@@ -471,6 +477,7 @@ class MainWindow(QMainWindow):
                 remove_logo=True,
                 quality_check=self.quality_check.isChecked(),
                 quality_resolution=self.quality_resolution.currentData(),
+                quality_batch_size=self.quality_batch.value(),
                 overwrite=self.overwrite.isChecked(),
                 output_width=self.output_width.value() if self.output_mode.currentIndex() else 0,
                 output_height=self.output_height.value() if self.output_mode.currentIndex() else 0,

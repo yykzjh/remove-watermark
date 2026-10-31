@@ -158,3 +158,5 @@ uv run --no-sync ruff check src tests
 测试使用明确标记的 mock 后端，它只复制图像来验证队列、目录、UI 和错误处理，不代表模型推理效果。
 
 部署实测、八卡并发验收及当前限制见 [docs/deployment-validation.md](docs/deployment-validation.md)。
+
+去水印后可启用原图/输出质量检验，检查水印残留、修补自然度与内容一致性。参数、记录和局限见 [质量检验说明](docs/quality-review.md)。
