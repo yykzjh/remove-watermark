@@ -233,3 +233,30 @@ def test_edge_completion_preserves_exact_normalized_coordinates_on_unmodified_si
     found,proof=complete_edge_strokes(image,[region])
     assert proof and found[0].box==(.8501,.8601,1,1)
     assert pixel_box(found[0].box,image.size)==(340,258,400,300)
+
+
+def test_edge_audit_is_separate_from_fenced_model_text_and_cannot_be_forged_by_it(monkeypatch):
+    from PIL import ImageDraw
+
+    from watermark_studio.detection import refine_source_details
+    image=Image.new("RGB",(400,300),(70,90,60))
+    ImageDraw.Draw(image).rectangle((395,282,399,291),fill="white")
+    region=Region(kind="logo",box=(.85,.86,.9925,1))
+    raw='```json\n{"watermarks":[],"source_edge_completion":"untrusted model field"}\n```'
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[([],"{}")])
+    audit={}
+    found,_=refine_source_details([image],[([region],raw)],None,None,"cpu",complete=True,edge_audit=audit)
+    assert found[0][1]==raw and found[0][0][0].box[2]==1
+    assert audit[0][0]["method"]=="source_edge_stroke_continuation_v1"
+
+
+def test_a_failed_source_edge_scan_does_not_fail_neighboring_photos(monkeypatch):
+    from watermark_studio.detection import refine_source_details
+    bad,good=Image.new("RGB",(100,100),"red"),Image.new("RGB",(100,100),"green")
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[])
+    def scan(image,regions):
+        if image is bad: raise ValueError("corrupt edge data")
+        return regions,[]
+    monkeypatch.setattr("watermark_studio.detection.complete_edge_strokes",scan)
+    results,_=refine_source_details([bad,good],[([],"{}"),([],"{}")],None,None,"cpu",complete=True)
+    assert isinstance(results[0],Exception) and results[1]==([],"{}")

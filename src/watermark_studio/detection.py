@@ -233,7 +233,7 @@ COMPLETENESS_PROMPT = (
 
 
 def refine_source_details(images, detections, encoder, processor, device, resolution=1280,
-                          batch_size=1, *, complete=False):
+                          batch_size=1, *, complete=False, edge_audit=None):
     """Bounded source-only scans; complete small clusters without fixed corners."""
     jobs,crops=[],[]
     area=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1])
@@ -302,11 +302,13 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
             if isinstance(result,Exception):
                 continue
             regions,raw=result
-            regions,evidence=complete_edge_strokes(image,regions)
-            if evidence:
-                data=json.loads(raw)
-                data["source_edge_completion"]=evidence
-                output[index]=(regions,json.dumps(data))
+            try:
+                regions,evidence=complete_edge_strokes(image,regions)
+                output[index]=(regions,raw)
+                if edge_audit is not None:
+                    edge_audit[index]=evidence
+            except Exception as error:  # noqa: BLE001 - isolate one source, never accept an incomplete scan
+                output[index]=RuntimeError(f"Source edge scan failed: {type(error).__name__}: {error}")
     return output,{i:sum(index==i for index,_,_ in jobs) for i in range(len(images))}
 
 
