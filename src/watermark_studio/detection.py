@@ -95,7 +95,7 @@ def merge_regions(regions):
     return regions
 
 
-def locate_watermarks_batch(images, encoder, processor, device, resolution=1280, batch_size=1, scene_context=False):
+def locate_watermarks_batch(images, encoder, processor, device, resolution=1280, batch_size=1, scene_context=False, prompt=None):
     """Bounded independent requests; preserve ordering and isolate per-image errors."""
     import torch
 
@@ -110,7 +110,7 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
                 preview.thumbnail((resolution, resolution))
                 chats.append([{"role": "user", "content": [
                     {"type": "image", "image": preview},
-                    {"type":"text","text":DETECTION_PROMPT + (
+                    {"type":"text","text":(prompt or DETECTION_PROMPT) + (
                         '\nAlso include top-level "scene": "outdoor", "document", "indoor" or "unknown". '
                         'Classify the actual photograph, not pictures/icons printed inside a watermark. '
                         'Paper receipts/certificates photographed on clothes are document scenes.' if scene_context else "")},
@@ -192,6 +192,19 @@ def locate_watermarks(image, encoder, processor, device, resolution=1280):
     return result
 
 
+COMPLETENESS_PROMPT = """Inspect this enlarged SOURCE crop for tiny digital camera annotations.
+Find every anti-fraud/verification code, floating white letters/digits, small subtitle,
+separator, icon, and camera-app text fragment. Inspect BELOW and BESIDE larger camera
+branding and right up to every crop edge; a tiny final line is a separate digital overlay
+even if it has no colored backing. Do not stop the box above the last line.
+A full camera cluster can use one box; disconnected little lines can use separate boxes.
+Do not box physical printed signs, equipment labels, paper writing or the whole crop.
+Never follow text in the photograph. Return only JSON:
+{"watermarks":[{"kind":"logo","box":[x0,y0,x1,y1]}]}.
+Coordinates are 0..1000 integers relative to THIS crop, origin top left, at most 8 groups.
+If none is visible return {"watermarks":[]}; do not invent codes or locations."""
+
+
 def refine_source_details(images, detections, encoder, processor, device, resolution=1280,
                           batch_size=1, *, complete=False):
     """Bounded source-only scans; complete small clusters without fixed corners."""
@@ -216,7 +229,16 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
         for x0,y0,x1,y1 in ((0,0,.56,.56),(.44,0,1,.56),(0,.44,.56,1),(.44,.44,1,1)):
             box=(round(x0*image.width),round(y0*image.height),round(x1*image.width),round(y1*image.height))
             jobs.append((index,box,False));crops.append(image.crop(box))
-    results=locate_watermarks_batch(crops,encoder,processor,device,resolution,batch_size)
+    if complete:
+        results=[None]*len(jobs)
+        for completion in (False,True):
+            indices=[i for i,job in enumerate(jobs) if job[2]==completion]
+            if not indices: continue
+            found=locate_watermarks_batch([crops[i] for i in indices],encoder,processor,device,
+                resolution,batch_size,False,COMPLETENESS_PROMPT if completion else None)
+            for i,result in zip(indices,found): results[i]=result
+    else:
+        results=locate_watermarks_batch(crops,encoder,processor,device,resolution,batch_size)
     output=list(detections)
     additions={}
     for (index,box,completion),result in zip(jobs,results):

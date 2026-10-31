@@ -21,6 +21,7 @@ parser.add_argument("--images",type=int,default=64)
 parser.add_argument("--seed",type=int,default=20261101)
 parser.add_argument("--exclude-benchmarks",nargs="*",default=[])
 parser.add_argument("--cross-review",action="store_true")
+parser.add_argument("--files",nargs="*")
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
@@ -70,6 +71,9 @@ else:
         seen_hashes.add(digest)
         if len(paths)==args.images: break
     names=[f"{i:04d}"+p.suffix for i,p in enumerate(paths)]
+if args.files:
+    selected=[(p,n) for p,n in zip(paths,names) if n in args.files]
+    paths=[p for p,n in selected]; names=[n for p,n in selected]
 assert len(paths)==len(names) and paths
 for p,name in zip(paths,names):
     if not (inputs/name).exists(): os.link(p,inputs/name)
