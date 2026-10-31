@@ -209,10 +209,16 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 box = pixel_box(region.box, source.size)
                 crop = context_box(box, source.size, options.context)
                 reference = source.crop(crop)
+                extra_prompt = options.extra_prompt
+                if task.get("_retry_feedback"):
+                    from .evidence import local_retry_guidance
+                    local_guidance = local_retry_guidance(task["_retry_feedback"], crop, source.size)
+                    if local_guidance:
+                        extra_prompt += "\n本次实际模型输入中的返工位置：\n" + local_guidance
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
-                    "prompt": (build_full_prompt(options.extra_prompt) if options.scope == "full_image"
-                               else build_prompt(region.kind, box, crop, options.extra_prompt)),
+                    "prompt": (build_full_prompt(extra_prompt) if options.scope == "full_image"
+                               else build_prompt(region.kind, box, crop, extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
                     "size": dimensions(reference, options.resolution),
                 })

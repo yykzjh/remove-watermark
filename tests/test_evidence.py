@@ -146,3 +146,13 @@ def test_explanation_separates_output_defects_from_reference_content_changes():
         images=[item["image"] for item in chats[0][0]["content"] if item["type"]=="image"]
         assert len(images)==count
         assert images[0].getpixel((0,0))==((128,128,128) if preserved else (0,0,255))
+
+
+def test_retry_locations_are_projected_into_actual_crop_without_cross_region_leaks():
+    from watermark_studio.evidence import local_retry_guidance
+
+    findings=[{"issue":"rectangular_shadow","box":[.2,.4,.4,.8]},
+              {"issue":"residual_text","box":[.8,.8,.9,.9]}]
+    prompt=local_retry_guidance(findings,(100,100,500,500),(1000,500))
+    assert "当前输入裁切图0..1坐标 0.2500,0.2500,0.7500,0.7500" in prompt
+    assert "明暗和色温台阶" in prompt and "细小防伪码" not in prompt

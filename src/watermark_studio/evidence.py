@@ -151,6 +151,30 @@ def retry_guidance(findings):
     return "\n".join(dict.fromkeys(lines))
 
 
+
+def local_retry_guidance(findings, crop, image_size):
+    """Project complete-photo evidence into the actual model crop; omit other areas."""
+    left,top,right,bottom=crop
+    width,height=image_size
+    local=[]
+    for item in findings[:6]:
+        if not isinstance(item,dict) or item.get("issue") not in REPAIR_ACTIONS:
+            continue
+        try:
+            box=valid_box(item.get("box"))
+        except ValueError:
+            continue
+        if box is not None:
+            x0,y0,x1,y1=box
+            x0,y0,x1,y1=max(left,x0*width),max(top,y0*height),min(right,x1*width),min(bottom,y1*height)
+            if x0>=x1 or y0>=y1:
+                continue
+            box=[(x0-left)/(right-left),(y0-top)/(bottom-top),
+                 (x1-left)/(right-left),(y1-top)/(bottom-top)]
+        local.append({"issue":item["issue"],"box":box})
+    return retry_guidance(local).replace("完整原图0..1坐标","当前输入裁切图0..1坐标")
+
+
 def _explanation_chats(pairs, verdicts, resolution):
     from .quality import preview
 

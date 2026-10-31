@@ -80,10 +80,11 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             "只自然重建被遮挡区域，保留原来可见的人体、测量读数及真实印刷文字；"
             "避免模糊、重复纹理、直线错位、衣物和肢体变形。"
         ).strip()
-        from .evidence import retry_guidance
-        guidance = retry_guidance(tasks[0].get("_retry_feedback", []))
+        from .evidence import REPAIR_ACTIONS, feedback_from_quality
+        validated = feedback_from_quality({"evidence": tasks[0].get("_retry_feedback", [])})
+        guidance = "\n".join(dict.fromkeys(REPAIR_ACTIONS[item["issue"]] for item in validated))
         if guidance:
-            settings.extra_prompt += ("\n上轮检验定位的返工重点（坐标属于完整原图，不是当前裁切图）：\n" + guidance +
+            settings.extra_prompt += ("\n上轮检验定位的返工重点（具体位置在当前裁切图提示中给出）：\n" + guidance +
                                       "\n始终从原图重做，只修改确认的数字覆盖层；不能为通过检验删除真实内容或降低标准。")
         # A verifier error first rechecks the best candidate instead of regenerating.
         if tasks[0].get("_recheck"):

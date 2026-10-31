@@ -229,7 +229,8 @@ def test_concrete_quality_evidence_is_recorded_and_used_on_original_retry(tmp_pa
     first=process_attempts([task],opts,cfg,None,{},"job",process)[0]
     assert first["_retry_task"]["_retry_feedback"][0]["issue"]=="rectangular_shadow"
     final=process_attempts([first["_retry_task"]],opts,cfg,None,{},"job",process)[0]
-    assert "明暗和色温台阶" in prompts[1] and "0.1000,0.5000,0.4000,0.9000" in prompts[1]
+    assert "明暗和色温台阶" in prompts[1]
+    assert "0.1000,0.5000,0.4000,0.9000" not in prompts[1]  # Full-photo coordinates are projected per edit.
     assert final["attempt_history"][1]["repair_feedback_used"][0]["issue"]=="rectangular_shadow"
     assert final["attempt_history"][1]["repair_feedback_attempt"]==1
     saved=json.loads(next((tmp_path/"state").rglob("attempts.json")).read_text())
