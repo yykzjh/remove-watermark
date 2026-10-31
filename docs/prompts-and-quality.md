@@ -50,3 +50,8 @@ perspective and weathered edge; preserve the adjacent grass and existing shoe ou
 - [Turbo 模型卡](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo)：默认 8 步采样网格、CFG=1、KV cache。
 - [Diffusers QwenImage21Pipeline](https://huggingface.co/docs/diffusers/main/api/pipelines/qwenimage21)：image 列表表示共享多参考图，不是独立照片批次；接口没有原生 mask_image。本项目使用裁剪与局部合成。
 - [Qwen 官方仓库](https://github.com/QwenLM/Qwen-Image-2.1)：模型及用法背景。
+
+
+## 首轮局部处理的材质约束
+
+focused/thorough 使用 build_focused_prompt 和 build_small_overlay_prompt；从完整原图读取受限场景类别，局部依据实际材质重建，避免将票据下的衣物补成泥土/草地。thorough补查源图细码，不依赖检验后反复返工。所有局部从原图生成，说明只作受限场景和位置提示，不可覆盖检验标准。默认whole保留旧整图提示作为对照。参数、废弃候选、独立抽样和耗时见[首轮质量报告](first-pass-quality-2026-11-01.md)。

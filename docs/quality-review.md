@@ -22,17 +22,18 @@ bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
 
 ~~~bash
 uv run --no-sync watermark-studio --ssh-host cdu_dev \
-  --preserve-background --quality-check --quality-auto-retry --quality-cross-review --quality-batch-size 2
+  --preserve-background --first-pass-mode thorough --input-resolution 1024 \
+  --quality-check --quality-auto-retry --quality-cross-review --quality-batch-size 2
 ~~~
 
-客户端可手工勾选检验、自动返工、原图保护；以上启动命令显式预选这三项，不会自动提交。
+客户端可手工勾选检验、自动返工、原图保护；以上启动命令显式预选，并选择首轮精细处理与源图细节定位，不会自动提交。首轮策略的成对测试与代价见[首轮质量报告](first-pass-quality-2026-11-01.md)。
 不传这些开关时默认均关闭，遵守布尔开关约定。
 本次交付只部署服务，由用户在客户端提交全量任务。
 
 ~~~bash
 uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
   --concurrency 20 --input-resolution 1024 \
-  --preserve-background --quality-check --quality-resolution 768 \
+  --preserve-background --first-pass-mode thorough --quality-check --quality-resolution 768 \
   --quality-batch-size 2 --quality-detail-patches 4 \
   --quality-auto-retry --quality-max-attempts 3 --quality-retry-resolution 768
 ~~~
@@ -113,7 +114,7 @@ quality.cross_review保存编辑侧说明、独立侧依据、原图像素比较
 
 ## 原图保护与返工
 
-preserve_background仍将完整图像送入编辑模型，自动定位所有数字覆盖层后，
+preserve_background在whole策略下将完整图像送入编辑模型；focused/thorough自动从原图逐组编辑，thorough有条件补充源图细节定位，见[首轮质量对照](first-pass-quality-2026-11-01.md)。自动定位所有数字覆盖层后，
 只把对应区域及羽化边缘合成回原图。默认 repair_blending=harmonic：只用所有水印外的原图/生成图颜色差，做多尺度调和延拓，校正修补区域的低频明暗和颜色；最后羽化衔接。水印内像素不作校正参考，不改变几何坐标。feather 保留为仅羽化的对照模式。桌面可选择“修补明暗衔接”，CLI 使用 --repair-blending harmonic|feather。工作图像中其余像素保留；JPEG重新编码会有量化差异。
 无检测区域时复制原文件或按指定输出尺寸缩放。定位错误仍可能漏水印或包含真实物体，需结合检验。
 

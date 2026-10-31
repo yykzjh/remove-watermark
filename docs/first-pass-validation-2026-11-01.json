@@ -1,0 +1,223 @@
+{
+  "holdout": [
+    {
+      "profile": "whole-1024",
+      "job": "69f8626fe4184e87b5c647f9ab05cf3b",
+      "code_revision": "23e68d9",
+      "seconds": 288.706,
+      "first_counts": {
+        "passed": 108,
+        "review": 20
+      },
+      "first_pass_rate": 0.84375,
+      "processing_failed": 0,
+      "model_inferences": 122,
+      "input_budgets": {
+        "1024": 122
+      },
+      "source_detail_views": 0,
+      "bad_sizes": 0,
+      "quality_errors": 0,
+      "peak_allocated_mib": 42108
+    },
+    {
+      "profile": "thorough-1024",
+      "job": "efa09f33ea8d42c092f7552fc20831ba",
+      "code_revision": "23e68d9",
+      "seconds": 313.942,
+      "first_counts": {
+        "passed": 118,
+        "review": 10
+      },
+      "first_pass_rate": 0.92188,
+      "processing_failed": 0,
+      "model_inferences": 233,
+      "input_budgets": {
+        "1024": 122,
+        "512": 111
+      },
+      "source_detail_views": 96,
+      "bad_sizes": 0,
+      "quality_errors": 0,
+      "peak_allocated_mib": 41957
+    }
+  ],
+  "paired": {
+    "improved": [
+      "0050.jpg",
+      "0035.jpg",
+      "0014.jpg",
+      "0074.jpg",
+      "0083.jpg",
+      "0097.jpg",
+      "0000.jpg",
+      "0032.jpg",
+      "0057.jpg",
+      "0072.jpg",
+      "0079.jpg"
+    ],
+    "regressed": [
+      "0018.jpg"
+    ],
+    "both_review": [
+      "0049.jpg",
+      "0016.jpg",
+      "0002.jpg",
+      "0009.jpg",
+      "0055.jpg",
+      "0095.jpg",
+      "0113.jpg",
+      "0115.jpg",
+      "0119.jpg"
+    ],
+    "both_passed": 107
+  },
+  "remaining": [
+    {
+      "file": "0049.jpg",
+      "reason": "修补边界存在沿矩形方向的明暗突变，需复核。 依据：无可见缺陷，结果图像素清晰，无残留或修补痕迹（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": [
+        "repair_boundary_step"
+      ]
+    },
+    {
+      "file": "0016.jpg",
+      "reason": "修补区在矩形边界附近出现纹理或清晰度骤降，需复核。 依据：无明显残留或修补缺陷，真实内容完整保留（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": [
+        "repair_texture_collapse"
+      ]
+    },
+    {
+      "file": "0002.jpg",
+      "reason": "输出残留水印扫描发现数字覆盖层。 依据：无明显残留或修补缺陷，标牌文字清晰可见（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": []
+    },
+    {
+      "file": "0009.jpg",
+      "reason": "残留数字水印（右上） 依据：无明显残留或修补缺陷，标牌文字清晰可见（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": []
+    },
+    {
+      "file": "0018.jpg",
+      "reason": "输出残留水印扫描发现数字覆盖层。 依据：无明显残留或修补缺陷，标牌文字清晰可见（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": []
+    },
+    {
+      "file": "0055.jpg",
+      "reason": "残留数字水印（中部） 依据：无可见残留或修补缺陷，标牌文字完整清晰（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": []
+    },
+    {
+      "file": "0095.jpg",
+      "reason": "修补区在矩形边界附近出现纹理或清晰度骤降，需复核。 依据：无明显残留或修补缺陷，真实内容完整保留（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": [
+        "repair_texture_collapse"
+      ]
+    },
+    {
+      "file": "0113.jpg",
+      "reason": "残留数字水印（中部） 依据：无明显残留或修补缺陷，真实内容完整保留（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": []
+    },
+    {
+      "file": "0115.jpg",
+      "reason": "修补边界存在沿矩形方向的明暗突变，需复核。 依据：无可见缺陷，标牌与背景均清晰保留（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": [
+        "repair_boundary_step"
+      ]
+    },
+    {
+      "file": "0119.jpg",
+      "reason": "修补边界存在沿矩形方向的明暗突变，需复核。 依据：无明显残留或修补缺陷，标牌/文字未被遮挡（说明未确认缺陷，与原拒绝存在分歧，保留复核）",
+      "guards": [
+        "repair_boundary_step"
+      ]
+    }
+  ],
+  "end_to_end_64": {
+    "records": [
+      {
+        "label": "baseline-hot",
+        "tag": "first-pass-neutral-final64",
+        "images": 64,
+        "detail_patches": 4,
+        "seconds": 141.744,
+        "job": "f5d6f7584a594deab16b8f8e46177f3e",
+        "success": 64,
+        "failed": 0,
+        "quality_counts": {},
+        "retry_attempts": 0,
+        "retry_exhausted": 0,
+        "first_pass_mode": "thorough",
+        "first_pass_counts": {
+          "unchecked": 64
+        },
+        "first_pass_existing": 0,
+        "preserve_background": true,
+        "repair_blending": "harmonic",
+        "cross_review_attempts": 0,
+        "cross_review_corrected": 0,
+        "cross_review_errors": 0,
+        "cross_review_seconds": 0,
+        "explained_attempts": 0,
+        "explanation_errors": 0,
+        "explanation_seconds": 0,
+        "explanation_oom_splits_max": 0,
+        "feedback_retries": 0,
+        "quality_seconds": 0,
+        "bad_sizes": 0,
+        "quality_oom_splits_max": 0,
+        "peak_allocated_mib": 41957,
+        "quality_errors": [],
+        "code_revision": "512a23b",
+        "remaining": []
+      },
+      {
+        "label": "quality-768-b2",
+        "tag": "first-pass-neutral-final64",
+        "images": 64,
+        "detail_patches": 4,
+        "seconds": 190.083,
+        "job": "67fceccfc231407e87f6b9deab66b868",
+        "success": 64,
+        "failed": 0,
+        "quality_counts": {
+          "passed": 63,
+          "review": 1
+        },
+        "retry_attempts": 3,
+        "retry_exhausted": 1,
+        "first_pass_mode": "thorough",
+        "first_pass_counts": {
+          "passed": 62,
+          "review": 2
+        },
+        "first_pass_existing": 0,
+        "preserve_background": true,
+        "repair_blending": "harmonic",
+        "cross_review_attempts": 0,
+        "cross_review_corrected": 0,
+        "cross_review_errors": 0,
+        "cross_review_seconds": 0,
+        "explained_attempts": 4,
+        "explanation_errors": 0,
+        "explanation_seconds": 3.761,
+        "explanation_oom_splits_max": 0,
+        "feedback_retries": 3,
+        "quality_seconds": 129.674,
+        "bad_sizes": 0,
+        "quality_oom_splits_max": 0,
+        "peak_allocated_mib": 41957,
+        "quality_errors": [],
+        "code_revision": "512a23b",
+        "remaining": [
+          {
+            "file": "054.jpg",
+            "reason": "残留数字水印（左上） 依据：无可见缺陷，标牌文字完整保留，无残留或修补痕迹（说明未确认缺陷，与原拒绝存在分歧，保留复核）"
+          }
+        ]
+      }
+    ]
+  },
+  "linux_tests_passed": 156
+}
