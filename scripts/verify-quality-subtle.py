@@ -4,13 +4,15 @@ import json
 import os
 from pathlib import Path
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("QUALITY_TEST_GPU", "1")
 
 import torch
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from transformers import Qwen3VLForConditionalGeneration, Qwen3VLProcessor
 
 from watermark_studio.quality import verify_batch
+
+torch.set_num_threads(1)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--backend", choices=["resident", "independent"], default="resident")
