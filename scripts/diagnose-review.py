@@ -1,6 +1,12 @@
 """Small diagnostic previews of the two explicitly requested review cases."""
+import argparse
 from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageOps
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--export", action="store_true")
+args = parser.parse_args()
 
 root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/quality-benchmark-protected-v3-64")
 for name in ("010.jpg", "057.jpg"):
@@ -8,6 +14,17 @@ for name in ("010.jpg", "057.jpg"):
     for folder in ("input", "quality-768-b2"):
         with Image.open(root/folder/name) as im:
             photos.append(ImageOps.exif_transpose(im).convert("RGB"))
+    if args.export:
+        for label, photo in zip(("original", "output"), photos):
+            preview=ImageOps.contain(photo,(1280,1280))
+            target=Path(".run")/f"review-{name[:-4]}-{label}.jpg"
+            for q in (80,70,60,50,40,30):
+                preview.save(target,quality=q,optimize=True)
+                if target.stat().st_size<=98304:
+                    break
+            assert target.stat().st_size<=98304
+            print(target.name,target.stat().st_size)
+        continue
     canvas = Image.new("RGB", (768, 840), "white")
     draw = ImageDraw.Draw(canvas)
     for column, image in enumerate(photos):
