@@ -245,6 +245,41 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
         results[task["relative"]] = result
+    if options.quality_check:
+        from .quality import review_batch
+        pending = []
+        for task in tasks:
+            result = results[task["relative"]]
+            if not result["ok"]:
+                result["quality"] = {"status": "skipped", "reason": "processing_failed"}
+            elif not cuda:
+                result["quality"] = {"status": "skipped", "reason": "mock_backend"}
+            else:
+                pending.append(task)
+
+        def review(group):
+            try:
+                pairs = [(load_photo(t["source"])[0], load_photo(t["destination"])[0]) for t in group]
+                reviews = review_batch(
+                    pairs, pipe.text_encoder, pipe.processor, pipe._execution_device,
+                    options.quality_resolution, options.quality_max_tokens,
+                )
+                for task, verdict in zip(group, reviews):
+                    results[task["relative"]]["quality"] = verdict
+            except Exception as error:  # noqa: BLE001 - quality failures must never become passes
+                if isinstance(error, torch.cuda.OutOfMemoryError) and len(group) > 1:
+                    torch.cuda.empty_cache()
+                    mid = len(group) // 2
+                    review(group[:mid])
+                    review(group[mid:])
+                else:
+                    for task in group:
+                        results[task["relative"]]["quality"] = {
+                            "status": "error", "reason": f"{type(error).__name__}: {error}"[:400],
+                        }
+
+        for offset in range(0, len(pending), options.quality_batch_size):
+            review(pending[offset:offset + options.quality_batch_size])
     if cuda:
         torch.cuda.synchronize()
     metrics = {

@@ -347,6 +347,16 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setObjectName("muted")
         form.addRow(note)
+        self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
+        self.quality_check.setToolTip("对照原图与最终输出；待复核或检验错误不会计为检验通过。图像仍会保存。")
+        form.addRow(self.quality_check)
+        self.quality_resolution = QComboBox()
+        for size in (512, 768, 1024, 1280):
+            self.quality_resolution.addItem(str(size), size)
+        self.quality_resolution.setCurrentIndex(1)
+        self.quality_resolution.setEnabled(False)
+        self.quality_check.toggled.connect(self.quality_resolution.setEnabled)
+        form.addRow("检验预览长边（像素）", self.quality_resolution)
         self.overwrite = QCheckBox("覆盖输出目录中的同名文件")
         form.addRow(self.overwrite)
         self.extra_prompt = QLineEdit()
@@ -459,6 +469,8 @@ class MainWindow(QMainWindow):
                 preset=self.preset.currentData() if single else "auto",
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
+                quality_check=self.quality_check.isChecked(),
+                quality_resolution=self.quality_resolution.currentData(),
                 overwrite=self.overwrite.isChecked(),
                 output_width=self.output_width.value() if self.output_mode.currentIndex() else 0,
                 output_height=self.output_height.value() if self.output_mode.currentIndex() else 0,
@@ -538,7 +550,7 @@ class MainWindow(QMainWindow):
             f"{names.get(self.job_state, self.job_state)}  ·  {job['completed']}/{total}  "
             f"成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
             f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}  "
-            f"在途 {state.get('inflight_images', 0)}"
+            f"在途 {state.get('inflight_images', 0)}  检验 {job.get('quality_counts', {})}"
         )
         self.current.setText(job.get("current", ""))
         self.errors.setPlainText(

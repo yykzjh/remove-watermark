@@ -27,6 +27,10 @@ def main():
     parser.add_argument("--output-width", type=int, default=0)
     parser.add_argument("--output-height", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--quality-check", action="store_true")
+    parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
+    parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
+    parser.add_argument("--quality-max-tokens", type=int, default=128)
     args = parser.parse_args()
     request(
         args.url,
@@ -40,6 +44,10 @@ def main():
                 "output_width": args.output_width,
                 "output_height": args.output_height,
                 "overwrite": args.overwrite,
+                "quality_check": args.quality_check,
+                "quality_resolution": args.quality_resolution,
+                "quality_batch_size": args.quality_batch_size,
+                "quality_max_tokens": args.quality_max_tokens,
 
             },
         },
@@ -52,7 +60,7 @@ def main():
             print(
                 f"{job['state']}: {job['completed']}/{job['total']}; "
                 f"success={job['succeeded']}, no_watermark={job.get('no_watermark', 0)}, "
-                f"failed={job['failed']}",
+                f"failed={job['failed']}, quality={job.get('quality_counts', {})}",
                 flush=True,
             )
             previous = update
