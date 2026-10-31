@@ -107,6 +107,8 @@ for label, enabled, resolution, batch in profiles:
               "quality_seconds": round(sum(r.get("quality_total_seconds", r.get("quality", {}).get("seconds", 0)) for r in rows), 3),
               "bad_sizes": sum(Image.open(inputs/r["file"]).size != Image.open(root/label/r["file"]).size
                                for r in rows if r["ok"]),
+              "quality_oom_splits_max": max((r.get("quality_oom_splits",0) for r in rows),default=0),
+              "peak_allocated_mib": max((r.get("peak_allocated_mib",0) for r in rows),default=0),
               "quality_errors": [r["quality"] for r in rows
                                  if r.get("quality", {}).get("status") == "error"][:2]}
     with (root / "results.jsonl").open("a") as output:

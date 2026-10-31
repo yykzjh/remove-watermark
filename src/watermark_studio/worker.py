@@ -236,6 +236,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         key = edit["size"] if config.batch_bucketing else (run, edit["size"])
         buckets[key].append(edit)
     oom_retries = 0
+    quality_oom_splits = 0
 
     def execute(group):
         nonlocal oom_retries
@@ -327,6 +328,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 pending.append(task)
 
         def review(group):
+            nonlocal quality_oom_splits
+            failure, split, is_oom = "", False, False
             try:
                 pairs = [
                     (source_images[t["relative"]], existing_images[t["relative"]]
@@ -353,17 +356,22 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     if not verdict["dimensions_match"] and verdict["status"] != "error":
                         verdict.update(status="review", reason=(verdict["reason"]+" 输出尺寸与所选设置不符。").strip())
                     results[task["relative"]]["quality"] = verdict
+                return
             except Exception as error:  # noqa: BLE001 - quality failures must never become passes
-                if isinstance(error, torch.cuda.OutOfMemoryError) and len(group) > 1:
-                    torch.cuda.empty_cache()
-                    mid = len(group) // 2
-                    review(group[:mid])
-                    review(group[mid:])
-                else:
-                    for task in group:
-                        results[task["relative"]]["quality"] = {
-                            "status": "error", "reason": f"{type(error).__name__}: {error}"[:400],
-                        }
+                is_oom = isinstance(error, torch.cuda.OutOfMemoryError)
+                split = is_oom and len(group) > 1
+                failure = f"{type(error).__name__}: {error}"[:400]
+            # Leave the exception handler before retrying: traceback frames can own GPU tensors.
+            if is_oom:
+                torch.cuda.empty_cache()
+            if split:
+                quality_oom_splits += 1
+                mid = len(group)//2
+                review(group[:mid])
+                review(group[mid:])
+            else:
+                for task in group:
+                    results[task["relative"]]["quality"] = {"status":"error","reason":failure}
 
         for offset in range(0, len(pending), options.quality_batch_size):
             review(pending[offset:offset + options.quality_batch_size])
@@ -373,7 +381,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         "window_seconds": round(time.monotonic() - start, 3), "window_images": len(tasks),
         "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,
         "peak_reserved_mib": round(torch.cuda.max_memory_reserved()/2**20) if cuda else 0,
-        "oom_retries": oom_retries,
+        "oom_retries": oom_retries, "quality_oom_splits": quality_oom_splits,
     }
     return [results[task["relative"]] | metrics for task in tasks]
 

@@ -159,3 +159,39 @@ def test_quality_size_check_uses_display_orientation(tmp_path, monkeypatch, orie
     assert result["quality"]["dimensions_match"]
     assert result["quality"]["display_output_size"] == ([40, 60] if orientation >= 5 else [60, 40])
     assert result["output_size"] == [60, 40]
+
+def test_quality_oom_releases_traceback_before_splitting(tmp_path, monkeypatch):
+    import sys
+    import weakref
+    from types import SimpleNamespace
+
+    from watermark_studio.config import DeploymentConfig
+    from watermark_studio.worker import process_batch
+
+    class OOM(Exception):
+        pass
+    class HeldTensor:
+        pass
+    refs=[]
+    def verify(pairs,*a,**kw):
+        if len(pairs)>1:
+            held=HeldTensor()
+            refs.append(weakref.ref(held))
+            raise OOM("simulated batch memory pressure")
+        assert refs[0]() is None
+        return [{"status":"passed","reason":""}]
+    monkeypatch.setattr("watermark_studio.quality.verify_batch",verify)
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,
+        max_memory_allocated=lambda:0,max_memory_reserved=lambda:0,
+        empty_cache=lambda:None,OutOfMemoryError=OOM,
+    )))
+    tasks=[]
+    for name in ("a.png","b.png"):
+        path=tmp_path/name
+        Image.new("RGB",(64,48),"blue").save(path)
+        tasks.append({"source":str(path),"destination":str(path),"relative":name,"reuse_existing":True})
+    pipe=SimpleNamespace(_quality_encoder=None,_quality_processor=None,_execution_device="cpu")
+    rows=process_batch(tasks,ProcessingConfig(scope="full_image",quality_check=True,quality_batch_size=2),
+                       DeploymentConfig(),pipe)
+    assert all(r["quality"]["status"]=="passed" and r["quality_oom_splits"]==1 for r in rows)
