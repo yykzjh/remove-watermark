@@ -140,7 +140,8 @@ def file_hashes(cases):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--source-job",required=True)
+    parser.add_argument("--source-job")
+    parser.add_argument("--controls-only",action="store_true",help="Grade only known control pairs; no candidate source job")
     parser.add_argument("--tag",required=True)
     parser.add_argument("--profile",choices=["4b-bf16","8b-nf4"],required=True)
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
@@ -150,8 +151,13 @@ def main():
     parser.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
     parser.add_argument("--models-root",type=Path,default=Path.home()/".cache/watermark-models/models")
     args=parser.parse_args()
-    if not re.fullmatch(r"[a-zA-Z0-9_-]+",args.tag) or not re.fullmatch(r"[a-f0-9]{32}",args.source_job):
-        parser.error("Simple tag and exact job ID required")
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+",args.tag):
+        parser.error("Simple tag required")
+    if args.controls_only:
+        if args.source_job or not args.controls:
+            parser.error("--controls-only requires --controls and excludes --source-job")
+    elif not args.source_job or not re.fullmatch(r"[a-f0-9]{32}",args.source_job):
+        parser.error("Exact completed source job ID required")
     gpus=[int(v) for v in args.gpus.split(",")]
     if len(set(gpus))!=len(gpus) or not gpus or min(gpus)<0:
         parser.error("Distinct nonnegative GPU indices required")
@@ -166,7 +172,9 @@ def main():
         raise RuntimeError("Stop the inference server before the standalone verifier benchmark")
     target=args.state_dir/"verifier-benchmarks"/args.tag/args.profile
     target.mkdir(parents=True,exist_ok=False)
-    cases=(known_control_cases(args.controls) if args.controls else [])+frozen_job_cases(args.state_dir,args.source_job)
+    cases=known_control_cases(args.controls) if args.controls else []
+    if not args.controls_only:
+        cases+=frozen_job_cases(args.state_dir,args.source_job)
     before=file_hashes(cases)
     model=args.models_root/("Qwen--Qwen3-VL-4B-Instruct" if args.profile=="4b-bf16"
                            else "Qwen--Qwen3-VL-8B-Instruct")/"snapshots/master"
