@@ -138,6 +138,11 @@ class Runtime:
             verdict = result["quality"]["status"]
             counts = job.setdefault("quality_counts", {})
             counts[verdict] = counts.get(verdict, 0) + 1
+            if verdict in {"review", "error"}:
+                job["quality_issues"] = (job.get("quality_issues", []) + [{
+                    "file": result["file"], "status": verdict,
+                    "reason": result["quality"].get("reason", ""),
+                }])[-20:]
         job["current"] = result["file"]
         if not result["ok"]:
             job["errors"] = (job["errors"] + [{"file": result["file"], "error": result["error"]}])[
@@ -247,6 +252,7 @@ class Runtime:
                 "succeeded": 0,
                 "no_watermark": 0,
                 "quality_counts": {},
+                "quality_issues": [],
                 "failed": 0,
                 "skipped": 0,
                 "invalid": 0,

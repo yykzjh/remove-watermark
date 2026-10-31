@@ -546,15 +546,18 @@ class MainWindow(QMainWindow):
         total = job["total"]
         self.progress.setRange(0, 0 if self.job_state == "scanning" else max(1, total))
         self.progress.setValue(job["completed"])
+        qc = job.get("quality_counts", {})
         self.metrics.setText(
             f"{names.get(self.job_state, self.job_state)}  ·  {job['completed']}/{total}  "
             f"成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
             f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}  "
-            f"在途 {state.get('inflight_images', 0)}  检验 {job.get('quality_counts', {})}"
+            f"在途 {state.get('inflight_images', 0)}  "
+            f"检验通过 {qc.get('passed', 0)}  待复核 {qc.get('review', 0)}  检验错误 {qc.get('error', 0)}"
         )
         self.current.setText(job.get("current", ""))
         self.errors.setPlainText(
-            "\n".join(f"{e['file']}: {e['error']}" for e in job.get("errors", []))
+            "\n".join([f"{e['file']}: {e['error']}" for e in job.get("errors", [])]
+                      + [f"检验待复核 {e['file']}: {e['reason']}" for e in job.get("quality_issues", [])])
         )
 
 
