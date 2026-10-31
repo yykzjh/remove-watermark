@@ -117,7 +117,7 @@ def deterministic_warnings(before, after):
     return warnings
 
 
-def outside_repair_changes(before, after, regions, resolution=2048):
+def outside_repair_changes(before, after, regions, resolution=2048, feather=12):
     """Conservative local change cue outside known overlays, tolerant of JPEG noise.
 
     This is not a semantic score. A hit requires review even if the VLM says pass.
@@ -131,11 +131,12 @@ def outside_repair_changes(before, after, regions, resolution=2048):
     delta = np.abs(arrays[0]-arrays[1]).mean(axis=2)
     valid = np.ones((size[1], size[0]), dtype=bool)
     # Include feather and JPEG block effects around the detector's padded boxes.
+    padding = round(feather*scale)+8
     for region in regions:
         box = region.box if hasattr(region, "box") else region["box"]
         l, t, r, b = box
-        x0, y0 = max(0, int(l*size[0])-12), max(0, int(t*size[1])-12)
-        x1, y1 = min(size[0], int(r*size[0])+13), min(size[1], int(b*size[1])+13)
+        x0, y0 = max(0, int(l*size[0])-padding), max(0, int(t*size[1])-padding)
+        x1, y1 = min(size[0], int(r*size[0])+padding+1), min(size[1], int(b*size[1])+padding+1)
         valid[y0:y1, x0:x1] = False
     block = 32
     h, w = size[1]//block*block, size[0]//block*block
@@ -386,7 +387,7 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
 
 
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
-                 reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None):
+                 reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12):
     from .detection import locate_watermarks_batch
 
     known = list(source_regions) if source_regions is not None else [None]*len(pairs)
@@ -463,7 +464,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict.update(status="error", reason=f"Original overlay scan: {regions}"[:400])
         else:
             started = time.monotonic()
-            local = outside_repair_changes(before, after, regions)
+            local = outside_repair_changes(before, after, regions, feather=feather)
             verdict["outside_repair_change"] = local
             verdict["source_regions"] = [r.model_dump() if hasattr(r, "model_dump") else r for r in regions]
             verdict["local_comparison_seconds"] = round(time.monotonic()-started, 3)

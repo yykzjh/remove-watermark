@@ -324,10 +324,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
                     options.quality_resolution, options.quality_max_tokens,
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
-                    detection_batch_size=config.detection_batch_size,
+                    detection_batch_size=config.detection_batch_size, feather=options.feather,
                     source_regions=[
                         detections[t["relative"]][0][0] if t["relative"] in detections
                         and not isinstance(detections[t["relative"]][0], Exception)
+                        else options.regions if options.scope == "regions" and options.preset == "custom"
                         else None for t in group
                     ],
                 )

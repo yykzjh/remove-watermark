@@ -35,7 +35,12 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
   --quality-auto-retry --quality-max-attempts 3 --quality-retry-resolution 768
 ~~~
 
-## 三阶段检验
+## 检验流程
+
+先获得原图数字覆盖层位置；原图保护阶段已有的定位会直接复用。
+再对水印以外位置进行局部差异检查，容忍高质量JPEG编码噪声和所选输出缩放，
+把细微模糊、错位、替换或新增淡字等疑点保守标成待复核，而不是让VLM的通过判断覆盖它。
+无法完成原图定位时记检验错误；误定位、重新编码和极小细节仍可能造成误报或漏报。
 
 1. 只看输出整图及自动选择的放大细节：判断残留水印与修补自然度。
 2. 对照原图与输出整图：检查原来可见的人物、道路、工程构件、测量信息等是否被改变。
@@ -44,7 +49,7 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
 分开检查避免模型将原图水印误当输出残留，或把正常删除水印误判为破坏内容。
 结构化输出使用有限JSON令牌约束；不以提示词中的示例true作为默认结果。
 另检查完全不变、近乎不变及新出现的大面积纯色等异常；这些是保守保护条件，不是质量分数。
-原图确实无水印且模型检查通过、扫描为空时，完全不变的结果可以通过。
+原图确实无水印且模型检查通过、扫描为空时，完全不变的结果可以通过；原图定位若已发现水印，则不能仅凭低清残留扫描为空放行。
 
 - quality_resolution：预览长边，默认768。提高至1024/1280便于看小字，但增加耗时与显存。
 - quality_batch_size：每卡一次检验的图片对上限，默认1，支持1..4；可从2试起，OOM拆分。
@@ -52,6 +57,9 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
 - quality_max_tokens：64..256，默认128。截断、解析错误、调用失败均记error。
 - --detection-batch-size：部署时设置源图/残留扫描凑批上限1..4，默认1；配方设2。
 - resident后端复用主模型的Qwen3-VL视觉语言编码器，不新增权重。
+- 局部差异检查最多在2048长边分析，屏蔽原水印位置及少量羽化/编码边界。
+  它是保守疑点检查，不是语义准确率或质量分数；未启用原图保护的整图重绘可能触发大量待复核。
+  建议结合preserve_background，减少原来可见的内容变化并复用定位结果。
 - independent后端另加载Qwen3-VL-4B-Instruct，额外占用显存；本机已验证同卡可用。
   使用 --quality-backend independent，--quality-model支持已下载本地路径。
   不能用图像生成pipeline仅更换提示词来可靠输出验收JSON；这里调用具有文本解码能力的视觉语言模型。
@@ -95,6 +103,8 @@ quality_auto_retry启用后：
 quality.status：passed / review / error / skipped；后面三种都不能充当通过。
 quality_attempts含首次；best_attempt记录最佳输出来自哪次；attempt_history保留最近20次展示。
 quality_total_seconds累计所有尝试的检验耗时；全任务开销以wall time衡量。
+outside_repair_change记录局部检查的疑点数量和框；source_regions记录原图覆盖层；
+source_scan_seconds/local_comparison_seconds为额外阶段计时。
 acceptance_complete只有所有已扫描输入都检验通过且无无效图时才为true。
 “输出成功”和“处理结束”不代表全部验收通过。
 CLI退出码0=完成且无待复核或检验错误（也可能未开启检验），1=处理/任务失败，2=待复核或检验错误。

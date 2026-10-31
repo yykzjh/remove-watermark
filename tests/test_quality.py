@@ -120,3 +120,13 @@ def test_local_guard_tolerates_requested_output_resize_and_jpeg():
     assert outside_repair_changes(before, after, [])["tiles"] == 0
     after = before.resize((512, 384), Image.Resampling.LANCZOS)
     assert outside_repair_changes(before, after, [])["tiles"] == 0
+
+def test_local_guard_accounts_for_actual_composition_feather():
+    from watermark_studio.config import Region
+    from watermark_studio.images import composite_protected
+    from watermark_studio.quality import outside_repair_changes
+    before = Image.new("RGB", (512, 384), "blue")
+    regions = [Region(box=(.4, .4, .6, .6))]
+    after = composite_protected(before, Image.new("RGB", before.size, "red"), regions, feather=64)
+    assert outside_repair_changes(before, after, regions, feather=64)["tiles"] == 0
+    assert outside_repair_changes(before, after, regions, feather=0)["tiles"] > 0
