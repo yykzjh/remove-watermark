@@ -57,3 +57,50 @@ def test_small_overlay_prompt_is_focused_and_preserves_physical_scene():
     text=build_small_overlay_prompt((80,90,100,100),(60,70,100,100))
     assert "verification code" in text and "real physical printing" in text
     assert "50.0%..100.0%" in text
+
+
+def test_focused_generation_uses_original_views_separate_budgets_and_original_output_size(tmp_path,monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from PIL import ImageDraw
+
+    from watermark_studio.worker import process_batch
+
+    source=tmp_path/"source.png";target=tmp_path/"result.png"
+    image=Image.new("RGB",(800,600),"gray")
+    ImageDraw.Draw(image).rectangle((0,420,319,599),fill="blue")
+    ImageDraw.Draw(image).rectangle((680,570,799,599),fill="white")
+    image.save(source);original=source.read_bytes()
+    regions=[Region(kind="panel",box=(0,.7,.4,1)),Region(kind="panel",box=(.85,.95,1,1))]
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a:[(regions,"detected")])
+    monkeypatch.setattr("watermark_studio.batching.dimensions",lambda image,resolution:(resolution,resolution))
+    observed=[]
+    def generate(pipe,items,resolution,*args):
+        observed.extend((resolution,item["image"].size,item["prompt"]) for item in items)
+        return [Image.new("RGB",(16,16),"gray") for _ in items]
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,
+        max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
+    pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu")
+    r=process_batch([{"source":str(source),"destination":str(target),"relative":"source.png"}],
+        ProcessingConfig(scope="full_image",preserve_background=True,first_pass_mode="focused"),
+        DeploymentConfig(),pipe)[0]
+    assert r["ok"] and r["model_inferences"]==2
+    assert sorted(x[0] for x in observed)==[512,1024]
+    assert any("verification code" in x[2] for x in observed if x[0]==512)
+    assert Image.open(target).size==(800,600) and source.read_bytes()==original
+
+
+def test_fine_harmonization_keeps_unoccluded_pixels_and_does_not_change_geometry():
+    import numpy as np
+
+    from watermark_studio.images import composite_protected
+    before=Image.new("RGB",(420,300),(90,100,80))
+    generated=Image.new("RGB",before.size,(60,70,50))
+    regions=[Region(box=(.1,.7,.4,1))]
+    after=composite_protected(before,generated,regions,12,"harmonic-fine")
+    assert after.size==before.size
+    assert np.array_equal(np.asarray(before)[:150],np.asarray(after)[:150])
+    assert max(abs(a-b) for a,b in zip(after.getpixel((100,270)),before.getpixel((100,270))))<=1

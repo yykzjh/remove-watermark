@@ -34,7 +34,7 @@ def main():
     parser.add_argument("--quality-retry-resolution", type=int, default=768)
     parser.add_argument("--preserve-background", action="store_true")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough"],default="whole")
-    parser.add_argument("--repair-blending", choices=["feather","harmonic"], default="harmonic")
+    parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--quality-max-tokens", type=int, default=128)

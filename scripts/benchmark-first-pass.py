@@ -16,6 +16,7 @@ parser.add_argument("--url",default="http://127.0.0.1:8765")
 parser.add_argument("--tag",required=True)
 parser.add_argument("--subset",choices=["hard","all","holdout"],default="hard")
 parser.add_argument("--images",type=int,default=64)
+parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
 root=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")
@@ -58,7 +59,7 @@ for profile in args.profiles:
     started=time.monotonic()
     job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(target),"options":{
         "concurrency":20,"resolution":budget,"preserve_background":True,"first_pass_mode":mode,
-        "repair_blending":"harmonic","quality_check":True,"quality_batch_size":2,
+        "repair_blending":args.blending,"quality_check":True,"quality_batch_size":2,
         "quality_detail_patches":4,"overwrite":True}})["id"]
     while True:
         state=request(args.url,"/health");status=state["job"]
@@ -69,7 +70,7 @@ for profile in args.profiles:
     rows=[json.loads(line) for line in (Path.home()/".local/state/watermark-studio"/job/"results.jsonl").read_text().splitlines()]
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
     record={"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
-        "seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
+        "blending":args.blending,"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
         "first_pass_rate":round(counts["passed"]/len(paths),5),"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),
         "input_budgets":dict(collections.Counter(str(n) for r in rows for n in r.get("model_input_budgets",[]))),

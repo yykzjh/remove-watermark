@@ -202,6 +202,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 results[task["relative"]] = {
                     "file": task["relative"], "ok": True, "regions": [],
                     "action": "no_watermark_detected" if cuda else "mock_copy",
+                    "first_pass_mode":options.first_pass_mode,
+                    "source_detail_views":detail_counts.get(task["relative"],0),
+                    "model_inferences":0,"model_input_budgets":[],
                     "detection_seconds": detected, "output_size": output_size,
                     "background_preserved": bool(protected_regions is not None),
                 }

@@ -175,7 +175,7 @@ def context_box(box, size, factor):
     return (max(0, x0 - dx), max(0, y0 - dy), min(size[0], x1 + dx), min(size[1], y1 + dy))
 
 
-def harmonize_repair(original, generated, regions):
+def harmonize_repair(original, generated, regions, reference_resolution=512):
     """Fit a smooth RGB offset from unoccluded pixels, never from watermark pixels.
 
     Coarse-to-fine harmonic extension uses Neumann boundaries at image edges.
@@ -192,12 +192,15 @@ def harmonize_repair(original, generated, regions):
         original.save(folder/"original.png",compress_level=1)
         generated.save(folder/"generated.png",compress_level=1)
         (folder/"regions.json").write_text(json.dumps([r.model_dump() for r in regions]))
-    highest_scale=min(1,512/max(original.size))
+    highest_scale=min(1,reference_resolution/max(original.size))
     highest_size=(max(4,round(original.width*highest_scale)),max(4,round(original.height*highest_scale)))
     source_pyramid=original.convert("RGB").resize(highest_size,Image.Resampling.BOX)
     candidate_pyramid=generated.convert("RGB").resize(highest_size,Image.Resampling.BOX)
     previous = None
-    for longest, iterations in ((16, 96), (32, 64), (64, 40), (128, 24), (256, 24), (512, 16)):
+    levels=[(16,96),(32,64),(64,40),(128,24),(256,24),(512,16)]
+    if reference_resolution>=1024:
+        levels.append((1024,16))
+    for longest, iterations in levels:
         scale = min(1, longest/max(original.size))
         size = (max(4, round(original.width*scale)), max(4, round(original.height*scale)))
         source = np.asarray(source_pyramid.resize(size, Image.Resampling.BOX), dtype=np.float32)
@@ -276,7 +279,7 @@ def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: i
     alpha = alpha * alpha * (3 - 2 * alpha)
     mask = Image.fromarray(np.uint8(np.round(alpha * 255)))
     resized = patch.convert("RGB").resize((cx1 - cx0, cy1 - cy0), Image.Resampling.LANCZOS)
-    if blending == "harmonic":
+    if blending in {"harmonic","harmonic-fine"}:
         from .config import Region
         local = Region(box=((x0-cx0)/(cx1-cx0), (y0-cy0)/(cy1-cy0),
                             (x1-cx0)/(cx1-cx0), (y1-cy0)/(cy1-cy0)))
@@ -288,7 +291,7 @@ def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: i
                 excluded.append(Region(box=((left-cx0)/(cx1-cx0),(top-cy0)/(cy1-cy0),
                                             (right-cx0)/(cx1-cx0),(bottom-cy0)/(cy1-cy0))))
         reference=reference_original if reference_original is not None else original
-        resized = harmonize_repair(reference.crop(crop), resized, excluded)
+        resized = harmonize_repair(reference.crop(crop),resized,excluded,1024 if blending=="harmonic-fine" else 512)
     result = original.copy()
     result.paste(resized, (cx0, cy0), mask)
     if "harmonization" in resized.info:
@@ -414,8 +417,8 @@ def composite_protected(original, generated, regions, feather=12, blending="feat
     """Keep the source outside automatically detected overlay masks."""
     if original.size != generated.size:
         raise ValueError("Protected composition requires source-sized generated image")
-    if blending == "harmonic":
-        generated = harmonize_repair(original, generated, regions)
+    if blending in {"harmonic","harmonic-fine"}:
+        generated = harmonize_repair(original,generated,regions,1024 if blending=="harmonic-fine" else 512)
     result = original.copy()
     w, h = original.size
     result.info.update({k:v for k,v in generated.info.items() if k=="harmonization"})
