@@ -110,6 +110,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     states, results, edits = [], {}, []
     source_images, existing_images = {}, {}
     cuda = config.backend != "mock"
+    focused_auto = options.first_pass_mode != "whole" and (
+        options.scope == "full_image" or options.preset == "auto"
+    )
     if cuda:
         import torch
         torch.cuda.reset_peak_memory_stats()
@@ -225,7 +228,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             states.append(state)
             core_regions=[]
             scene="unknown"
-            if options.scope=="full_image" and options.first_pass_mode!="whole":
+            if focused_auto:
                 from .detection import parse_detection, source_scene
                 scene=source_scene(detections[task["relative"]][0][1])
                 try:
@@ -244,7 +247,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     local_guidance = local_retry_guidance(task["_retry_feedback"], crop, source.size)
                     if local_guidance:
                         extra_prompt += "\n本次实际模型输入中的返工位置：\n" + local_guidance
-                focused = options.scope=="full_image" and options.first_pass_mode!="whole"
+                focused = focused_auto
                 small = focused and (region.box[2]-region.box[0])*(region.box[3]-region.box[1])<.035
                 budget = min(options.resolution,512) if small else options.resolution
                 cores=[pixel_box(r.box,source.size) for r in core_regions

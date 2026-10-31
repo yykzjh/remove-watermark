@@ -59,7 +59,8 @@ def test_small_overlay_prompt_is_focused_and_preserves_physical_scene():
     assert "50.0%..100.0%" in text
 
 
-def test_focused_generation_uses_original_views_separate_budgets_and_original_output_size(tmp_path,monkeypatch):
+@pytest.mark.parametrize("scope,budget", [("full_image",1024),("regions",768)])
+def test_focused_generation_uses_original_views_separate_budgets_and_original_output_size(tmp_path,monkeypatch,scope,budget):
     import sys
     from types import SimpleNamespace
 
@@ -73,7 +74,9 @@ def test_focused_generation_uses_original_views_separate_budgets_and_original_ou
     ImageDraw.Draw(image).rectangle((680,570,799,599),fill="white")
     image.save(source);original=source.read_bytes()
     regions=[Region(kind="panel",box=(0,.7,.4,1)),Region(kind="panel",box=(.85,.95,1,1))]
-    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a:[(regions,"detected")])
+    import json
+    raw=json.dumps({"scene":"document","watermarks":[{"kind":r.kind,"box":[v*1000 for v in r.box]} for r in regions]})
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a:[(regions,raw)])
     monkeypatch.setattr("watermark_studio.batching.dimensions",lambda image,resolution:(resolution,resolution))
     observed=[]
     def generate(pipe,items,resolution,*args):
@@ -85,10 +88,12 @@ def test_focused_generation_uses_original_views_separate_budgets_and_original_ou
         max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
     pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu")
     r=process_batch([{"source":str(source),"destination":str(target),"relative":"source.png"}],
-        ProcessingConfig(scope="full_image",preserve_background=True,first_pass_mode="focused"),
+        ProcessingConfig(scope=scope,preset="auto",remove_logo=True,resolution=budget,
+                         preserve_background=True,first_pass_mode="focused"),
         DeploymentConfig(),pipe)[0]
     assert r["ok"] and r["model_inferences"]==2
-    assert sorted(x[0] for x in observed)==[512,1024]
+    assert sorted(x[0] for x in observed)==[512,budget]
+    assert all("document/receipt scene" in x[2] for x in observed)
     assert any("verification code" in x[2] for x in observed if x[0]==512)
     assert Image.open(target).size==(800,600) and source.read_bytes()==original
 
