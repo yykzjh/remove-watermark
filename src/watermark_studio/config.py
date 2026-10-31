@@ -41,6 +41,7 @@ class ProcessingConfig(BaseModel):
     preset: Literal["gray", "blue", "auto", "custom"] = "auto"
     regions: list[Region] = Field(default_factory=list, max_length=8)
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
+    preserve_background: bool = False
     quality_check: bool = False
     quality_resolution: int = Field(default=768, ge=384, le=1280, multiple_of=32)
     quality_batch_size: int = Field(default=1, ge=1, le=4)

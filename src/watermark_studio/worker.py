@@ -10,6 +10,7 @@ from .detection import locate_watermarks
 from .images import (
     atomic_copy,
     blend_patch,
+    composite_protected,
     context_box,
     load_photo,
     pixel_box,
@@ -121,10 +122,18 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 }
                 continue
             detection_start = time.monotonic()
+            protected_regions = None
             if not cuda:
                 regions = []
             elif options.scope == "full_image":
-                regions = [Region(box=(0, 0, 1, 1))]
+                if options.preserve_background:
+                    protected_regions, _ = locate_watermarks(
+                        source, pipe.text_encoder, pipe.processor, pipe._execution_device,
+                        options.detection_resolution,
+                    )
+                    regions = [Region(box=(0, 0, 1, 1))] if protected_regions else []
+                else:
+                    regions = [Region(box=(0, 0, 1, 1))]
             elif options.preset == "auto":
                 regions, _ = locate_watermarks(
                     source, pipe.text_encoder, pipe.processor, pipe._execution_device,
@@ -142,16 +151,17 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 else:
                     atomic_copy(task["source"], task["destination"], options.overwrite)
                     from PIL import Image
-                    with Image.open(task["source"]) as raw:
-                        output_size = list(raw.size)
+                    output_size = list(source.size)
                 results[task["relative"]] = {
                     "file": task["relative"], "ok": True, "regions": [],
                     "action": "no_watermark_detected" if cuda else "mock_copy",
                     "detection_seconds": detected, "output_size": output_size,
+                    "background_preserved": bool(protected_regions is not None),
                 }
                 continue
             state = {"task": task, "source": source, "result": source.copy(), "exif": exif, "icc": icc,
-                         "alpha": alpha, "regions": regions, "detection_seconds": detected,
+                         "alpha": alpha, "regions": regions, "protected_regions": protected_regions,
+                         "detection_seconds": detected,
                          "batches": [], "failed": None}
             states.append(state)
             stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
@@ -231,6 +241,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 state["result"] = edit["patch"].convert("RGB").resize(
                     state["source"].size, Image.Resampling.LANCZOS
                 )
+                if state["protected_regions"] is not None:
+                    state["result"] = composite_protected(
+                        state["source"], state["result"], state["protected_regions"], options.feather,
+                    )
             else:
                 state["result"] = blend_patch(
                     state["result"], edit["patch"], edit["box"], edit["crop"], options.feather
@@ -241,6 +255,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "file": task["relative"], "ok": not bool(state["failed"]),
             "regions": [r.model_dump() for r in state["regions"]],
             "detection_seconds": state["detection_seconds"], "batch_sizes": state["batches"],
+            "background_preserved": state["protected_regions"] is not None or options.scope == "regions",
+            "repair_regions": [r.model_dump() for r in (state["protected_regions"] or [])],
         }
         try:
             if state["failed"]:

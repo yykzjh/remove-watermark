@@ -347,6 +347,9 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setObjectName("muted")
         form.addRow(note)
+        self.preserve_background = QCheckBox("自动保护原图内容（减少非水印内容被重绘）")
+        self.preserve_background.setToolTip("完整图像仍送入编辑模型；自动定位水印后合成，保留其余原图内容。定位也可能出错，建议同时检验。")
+        form.addRow(self.preserve_background)
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
         self.quality_check.setToolTip("对照原图与最终输出；待复核或检验错误不会计为检验通过。图像仍会保存。")
         form.addRow(self.quality_check)
@@ -483,6 +486,7 @@ class MainWindow(QMainWindow):
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
                 quality_check=self.quality_check.isChecked(),
+                preserve_background=self.preserve_background.isChecked(),
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
                 quality_detail_patches=self.quality_details.value(),
@@ -565,7 +569,7 @@ class MainWindow(QMainWindow):
         qc = job.get("quality_counts", {})
         self.metrics.setText(
             f"{names.get(self.job_state, self.job_state)}  ·  {job['completed']}/{total}  "
-            f"成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
+            f"输出成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
             f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}  "
             f"在途 {state.get('inflight_images', 0)}  "
             f"检验通过 {qc.get('passed', 0)}  待复核 {qc.get('review', 0)}  检验错误 {qc.get('error', 0)}"

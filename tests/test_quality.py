@@ -78,3 +78,16 @@ def test_review_grammar_only_allows_complete_typed_json():
         assert all(type(row[k]) is bool for k in
                    ("watermark_removed", "natural", "content_preserved", "uncertain"))
         assert parse_review(json.dumps(row))["status"] in {"passed", "review"}
+
+def test_protected_composition_does_not_change_pixels_outside_feather():
+    from watermark_studio.config import Region
+    from watermark_studio.images import composite_protected
+    before = Image.new("RGB", (100, 80), "blue")
+    generated = Image.new("RGB", before.size, "red")
+    result = composite_protected(before, generated, [Region(box=(.2, .2, .4, .4))], feather=3)
+    assert result.getpixel((30, 24)) == (255, 0, 0)
+    assert result.getpixel((10, 10)) == before.getpixel((10, 10))
+    import numpy as np
+    changed = np.any(np.array(result) != np.array(before), axis=2)
+    changed[13:35, 17:43] = False
+    assert not changed.any()

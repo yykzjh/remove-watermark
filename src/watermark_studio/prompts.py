@@ -28,19 +28,26 @@ pose and proportions and every existing object, building, road edge and plant.
 Do not add people, objects, machinery, signage, writing, symbols, logos or decorative
 details. Do not beautify, clean up, sharpen, recolor, relight, crop, rotate or redesign
 the scene. Keep all unoccluded content and the original camera viewpoint unchanged.
-The result must look like the same ordinary outdoor site photograph without the
+Preserve real measuring tapes and rods, their ticks and numerals, handwritten or
+painted construction marks, rebar counts and spacing, safety boards held by people,
+product certificates, equipment plates, sack printing, barcodes and vehicle markings.
+These physical details are scene content, even when their colors resemble an app panel.
+Preserve people's real cast shadows, including the photographer's shadow.
+Respect indoor versus outdoor context: in warehouses or material inspections extend
+existing floors, sacks, packaging and object boundaries; do not invent outdoor scenery.
+Do not invent exact hidden measurement readings or certificate text unsupported by the image.
+The result must look like the same ordinary site photograph without the
 digital overlay, with natural texture and no rectangular patch, smear or repeated pattern."""
 
 TARGETS = {
     "panel": "site-information overlays of any style: blue headers with white Chinese text, pale-gray or white translucent cards with black text, yellow bands with black text, yellow-highlighted rows, green/blue house-shaped app icons, white date/location text, red headings, and mixed multi-row information panels",
     "logo": (
-        "entire detected camera-app watermark cluster: the large white Chinese "
-        'characters "今日水印" on the top line, every line and tag beneath them, '
-        'including "相机", "真实时间", "防伪码", any timestamp or alphanumeric '
-        "verification code, short horizontal separator dashes, small icons, "
-        "outlines, shadows, and gray, black or translucent label backgrounds. "
-        "Remove the complete cluster, including any portions at image edges "
-        "where it extends there; do not stop after removing only the top title"
+        "complete digital camera-app branding and annotation clusters, wherever present: "
+        'app names such as 今日水印, 相机, 真实时间, 防伪码, all small verification codes, '
+        "device/date/location stamps, secondary lines, separator dashes, icons, outlines, "
+        "shadows and label backgrounds. Include floating white/blue text without a panel. "
+        "Do not require an exact app name, corner, color, line count or layout. "
+        "Physical equipment branding and handwritten construction notes are not app overlays"
     ),
     "custom": "specified digital text or information-panel overlay",
 }

@@ -13,6 +13,7 @@ from watermark_studio.cli import request
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", default="")
 parser.add_argument("--images", type=int, default=24)
+parser.add_argument("--preserve-background", action="store_true")
 parser.add_argument("--detail-patches", type=int, default=4)
 parser.add_argument("--profiles", nargs="+")
 parser.add_argument("--contact", action="store_true")
@@ -76,7 +77,7 @@ for label, enabled, resolution, batch in profiles:
     job_id = request(url, "/jobs", {
         "input_dir": str(inputs), "output_dir": str(root / label),
         "options": {"concurrency": 20, "resolution": 1024, "overwrite": True,
-                    "quality_check": enabled, "quality_resolution": resolution,
+                    "quality_check": enabled, "preserve_background": args.preserve_background, "quality_resolution": resolution,
                     "quality_batch_size": batch, "quality_detail_patches": args.detail_patches},
     })["id"]
     while True:
