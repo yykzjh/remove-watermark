@@ -527,6 +527,7 @@ class MainWindow(QMainWindow):
                 self.update_state(data)
 
     def update_state(self, state):
+        self.quality_check.setEnabled(state.get("quality_verifier", False))
         job = state.get("job")
         if state["stage"] == "failed":
             self.errors.setPlainText(state.get("error", "服务异常"))

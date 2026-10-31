@@ -358,6 +358,8 @@ class Runtime:
                 ),
                 "batch_size": self.config.batch_size,
                 "batch_window": self.config.batch_window,
+                "quality_verifier": self.config.quality_verifier,
+                "quality_model": self.config.quality_model,
                 "optimization": {
                     "dtype": self.config.dtype, "quantization": self.config.quantization,
                     "compile": self.config.compile, "compile_scope": self.config.compile_scope,

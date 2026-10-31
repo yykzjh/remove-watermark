@@ -52,7 +52,7 @@ for row in files:
                     raise
                 time.sleep(min(2**retry, 16))
     try:
-        with cf.ThreadPoolExecutor(max_workers=16) as pool:
+        with cf.ThreadPoolExecutor(max_workers=64) as pool:
             futures = [pool.submit(download, i) for i in range((size+chunk-1)//chunk) if i not in completed]
             last = 0
             for future in cf.as_completed(futures):
@@ -71,4 +71,5 @@ for row in files:
         raise ValueError("Published SHA256 does not match downloaded shard")
     partial.replace(dest)
     print(json.dumps({"file": name, "sha256_verified": True}), flush=True)
+(root/"verified-shards.json").write_text(json.dumps(files))
 print("All model shards verified", flush=True)
