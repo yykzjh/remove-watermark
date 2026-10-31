@@ -159,3 +159,17 @@ def test_complete_scan_errors_cannot_silently_reuse_an_incomplete_global_box(mon
     result,_=refine_source_details([Image.new("RGB",(2000,1500))],[([logo],"")],
                                   None,None,"cpu",complete=True)
     assert isinstance(result[0],RuntimeError)
+
+
+def test_complete_scan_merges_full_code_line_without_expanding_unrelated_panel(monkeypatch):
+    source=Image.new("RGB",(1280,1706))
+    panel=Region(kind="panel",box=(0,.69,.72,1))
+    logo=Region(kind="logo",box=(.827,.872,.994,.988))
+    def locate(crops,*args):
+        assert len(crops)==1 and "逐行" in args[-1]
+        # The code is wider and lower than the main branding.
+        return [([Region(kind="logo",box=(.2,.88,.99,1))],"local")]
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",locate)
+    found,_=refine_source_details([source],[([panel,logo],"source")],None,None,"cpu",complete=True)
+    assert len(found[0][0])==2 and found[0][0][0]==panel
+    assert found[0][0][1].box[0]<logo.box[0] and found[0][0][1].box[3]==1
