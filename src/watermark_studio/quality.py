@@ -268,14 +268,16 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                     tile=high[lo:hi,at-4:at+5] if vertical else high[at-4:at+5,lo:hi]
                     colour=rgb[lo:hi,at-4:at+5] if vertical else rgb[at-4:at+5,lo:hi]
                     stats.append(float(tile.mean()))
-                    colours.append(colour.mean(axis=(0,1)))
+                    colours.append(np.median(colour.reshape(-1,3),axis=0))
                 inner,near,outside=stats
                 ratio=inner/max(outside,.001)
                 if debug and outside>.8 and ratio<.6:
                     probes.append({"side":side,"lo":lo,"ratio":round(ratio,4),
                         "in":round(inner,3),"near":round(near,3),"out":round(outside,3),
                         "colour_delta":round(float(np.abs(colours[0]-colours[2]).mean()),3)})
-                if outside<2.2 or ratio>.22 or near<outside*.5 or np.abs(colours[0]-colours[2]).mean()>32:
+                relative = outside>=2.2 and ratio<=.22 and near>=outside*.5
+                absolute = outside>=.8 and inner<=.05 and near>=1
+                if not (relative or absolute) or np.abs(colours[0]-colours[2]).mean()>32:
                     hits.append(None)
                     continue
                 at=pos+direction*deep
@@ -288,10 +290,16 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                         hits.append(None)
                         continue
                 hits.append({"side":side,"region":region_index,"lo":lo,"ratio":round(ratio,4),
-                             "outside_detail":round(outside,3),"inside_detail":round(inner,3)})
-            for first,second in pairwise(hits):
-                if first is not None and second is not None:
-                    records.append(first)
+                             "outside_detail":round(outside,3),"inside_detail":round(inner,3),
+                             "relative":relative,"absolute":absolute})
+            run=[]
+            for hit in [*hits,None]:
+                if hit is None:
+                    if len(run)>=2 and any(r["relative"] for r in run) or len(run)>=5 and all(r["absolute"] for r in run):
+                        records.extend(run[:-1])
+                    run=[]
+                else:
+                    run.append(hit)
     return {"method":"mask_texture_collapse_v1","count":len(records),
             "suspect_segments":records[:12],"comparison_size":list(size),
             **({"probes":sorted(probes,key=lambda p:p["ratio"])[:12]} if debug else {})}
