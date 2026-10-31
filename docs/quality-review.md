@@ -1,75 +1,110 @@
-# 去水印后质量检验
+# 去水印、检验与自动返工
 
-启用后，每张成功输出的最终文件都会与对应原图配对，使用所选视觉检验后端检查：
-数字水印和底纹是否残留、修补区域是否自然、原来可见的场景内容是否被改变。
-两种后端均不能替代人工验收或证明隐藏内容的真实还原。
+## 部署和提交
 
-## 部署后端
+开发在 WSL2/Linux，环境由 uv 管理。代码以 git commit/push → 开发机 git pull 同步。
+开发机项目 ~/project/inference/remove-watermark；SSH alias cdu_dev，当前端口22004。
+图像及抽样资料保留在开发机，SSH只用于正常长度命令、小量状态及偶尔少数小预览。
 
-服务启动需指定 --quality-verifier（不指定=false），并选择 --quality-backend：
-- resident：复用去水印模型内的视觉语言编码器；使用短提示词对照检查、快速异常检查，
-  对尚可通过的输出再单独扫描残留水印，不新增模型权重。
-- independent：在每卡额外加载 Qwen3-VL-4B-Instruct，并配对比较原图与结果；
-  通过 --quality-model 和 --quality-revision 指定模型/版本，会增加显存。
-  Hugging Face 默认版本 main，ModelScope 通常需显式 master。支持已校验的本地模型目录。
+启动配方（默认全部8卡；GPU正在被其他用户占用时显式选空闲卡）：
 
-完整脚本 scripts/launch-throughput-quality.sh 以 resident 为预设，末尾可覆盖 scalar 参数。
-例如 --gpus 1,2,3,4,5 可避开正在被其他用户使用的卡。
-独立模型的首次下载及加载不属于每批处理耗时，仍需另行考虑启动成本。
+~~~bash
+bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
+~~~
 
-## 使用
+完整部署参数与含义见 [参数表](deployment-parameters.md)、[启动与调优](startup-and-tuning.md)。
+脚本使用 FP8 transformer/BF16、动态 projection compile、lean 编码、KV cache、
+每卡独立实例、形状分组、VAE slicing、每卡窗口4张；本机1024输入预算仍采用生成batch1。
+所有布尔参数均不指定=false，指定=true；脚本中显式列出的布尔开关是该配方的选择。
+不要通过删除脚本末尾参数来关闭脚本前面已经指定的布尔开关，应复制配方并删除相应开关。
 
-桌面客户端勾选“去水印后检验残留、自然度及内容一致性”，选择检验预览长边和每卡检验凑批上限。
-bool 选项沿用不指定=false、指定=true 的约定。批量与单张任务均支持。
+服务仅监听回环地址。客户端在WSL启动，以SSH转发连接开发机，不在Windows加载模型：
+
+~~~bash
+uv run --no-sync watermark-studio --ssh-host cdu_dev
+~~~
+
+勾选检验、自动返工、原图保护后再提交。它们默认均关闭，遵守布尔开关约定。
+本次交付只部署服务，由用户在客户端提交全量任务。
 
 ~~~bash
 uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
   --concurrency 20 --input-resolution 1024 \
-  --quality-check --quality-resolution 768 --quality-batch-size 2 --quality-max-tokens 128
+  --preserve-background --quality-check --quality-resolution 768 \
+  --quality-batch-size 2 --quality-detail-patches 4 \
+  --quality-auto-retry --quality-max-attempts 3 --quality-retry-resolution 768
 ~~~
 
-- quality_resolution：对照图预览的最长边，默认768；较低值更快，但小字、远处人物等细节更难可靠判断。
-- quality_batch_size：每卡一次视觉检验的图片对数，默认1，上限4；显存不足时拆分重试。
-- quality_max_tokens：每张报告最多生成的 token 数，默认128；截断或无效 JSON 会记为检验错误。
-- resident 后端没有额外检验权重；两个后端均没有将整批原图长期放在内存中；每个 worker 的 lookahead 窗口内完成输出保存，再检验最终编码文件。
-- 不同 GPU worker 继续独立处理窗口。resident 共用本卡编码器，independent 使用额外编码器；单卡按阶段顺序执行，不在同卡同时运行两个推理。
-- 暂不自动反复重画待复核图，以控制耗时并保留第一次输出供检查。
+## 三阶段检验
 
-## 结果
+1. 只看输出整图及自动选择的放大细节：判断残留水印与修补自然度。
+2. 对照原图与输出整图：检查原来可见的人物、道路、工程构件、测量信息等是否被改变。
+3. 对初步可通过的输出额外执行数字覆盖层扫描；扫描错误不能算通过。
 
-每张图片的 results.jsonl 保存 quality 字段：
+分开检查避免模型将原图水印误当输出残留，或把正常删除水印误判为破坏内容。
+结构化输出使用有限JSON令牌约束；不以提示词中的示例true作为默认结果。
+另检查完全不变、近乎不变及新出现的大面积纯色等异常；这些是保守保护条件，不是质量分数。
+原图确实无水印且模型检查通过、扫描为空时，完全不变的结果可以通过。
 
-- passed：本次预览中模型判断三项满足且未报告不确定。
-- review：残留、自然度、内容一致性任一不满足，或模型表示不确定。
-- error：模型调用、解码或结构化结果解析失败。不能算通过。
-- skipped：图像处理本身失败或使用 mock 后端。mock 不产生真实质量通过结果。
+- quality_resolution：预览长边，默认768。提高至1024/1280便于看小字，但增加耗时与显存。
+- quality_batch_size：每卡一次检验的图片对上限，默认1，支持1..4；可从2试起，OOM拆分。
+- quality_detail_patches：0..8，默认4。按变化及结构自动选局部放大；不能穷尽每个像素。
+- quality_max_tokens：64..256，默认128。截断、解析错误、调用失败均记error。
+- --detection-batch-size：部署时设置源图/残留扫描凑批上限1..4，默认1；配方设2。
+- resident后端复用主模型的Qwen3-VL视觉语言编码器，不新增权重。
+- independent后端另加载Qwen3-VL-4B-Instruct，额外占用显存；本机已验证同卡可用。
+  使用 --quality-backend independent，--quality-model支持已下载本地路径。
+  不能用图像生成pipeline仅更换提示词来可靠输出验收JSON；这里调用具有文本解码能力的视觉语言模型。
+- 每卡各阶段依次执行，多卡独立工作；不是同卡同时运行两套GPU推理。
 
-watermark_removed / natural / content_preserved 是三项判断；uncertain 表示不确定；
-reason 描述缺陷及位置。pixel_mae 仅是缩略图差异诊断，不是质量得分或硬阈值。
-seconds 包含配对检验按批次均摊的耗时，以及该图的残留扫描耗时（如执行）；
-batch_seconds 是配对检验批次耗时，residual_scan_seconds 是额外残留扫描耗时。
-window_seconds 包含该窗口的去水印、保存与检验，完整任务耗时应从任务提交到全部完成衡量。
+## 原图保护与返工
 
-summary.json 保存 quality_counts，客户端显示通过、待复核、错误数量及最近20条复核原因。
-全部逐图记录仍保存在 results.jsonl。已输出文件不会因待复核被删掉或覆盖回原图。
-CLI 退出码0表示处理完成且无待复核/检验错误（或未启用检验）；1表示任务/处理失败；
-2表示处理完成，但有待复核或检验错误。
+preserve_background仍将完整图像送入编辑模型，自动定位所有数字覆盖层后，
+只把对应区域及羽化边缘合成回原图。工作图像中其余像素保留；JPEG重新编码会有量化差异。
+无检测区域时复制原文件或按指定输出尺寸缩放。定位错误仍可能漏水印或包含真实物体，需结合检验。
 
-## 提示词与边界
+quality_auto_retry启用后：
+- 每张图第一轮正常凑批；不合格项进入独立FIFO返工队列，首轮队列优先。
+- 从输入原图重新进行自动局部编辑，包含所有检测出的原始水印；不对已生成结果累积修补。
+- 改变种子、采用quality_retry_resolution输入预算；单张自定义框选保留原区域约束。
+- 检验错误先对已有最佳候选重新检验；不因为一次检验失败就盲目重画。
+- 按输出有效性、是否通过、可见内容保留、残留清除、自然度等保守顺序保留较好候选。
+  这个排序是工程策略，不是经标定的质量概率；并不保证选中人眼认为最好的图。
+- quality_max_attempts默认3，含首次；设0表示持续到通过或用户取消。无限模式没有耗时上限。
+- 达到上限仍不合格时保留最佳输出并标记review/error与retry_exhausted，绝不改记passed。
+- 暂停阻止下一轮分发；取消后不再安排新返工，等待已在途窗口完成。
+- 未勾选overwrite时已有输出只检验、不自动返工覆盖；需要修改已有文件时显式允许覆盖。
 
-去水印提示词位于 src/watermark_studio/prompts.py，检验提示词位于 quality.py。
-抽样已观察到蓝白/灰黑信息卡、黄黑横条、绿色蓝色应用图标、小型白色品牌文字等不同样式，
-目标不限定固定角落。真实安全标牌、机械品牌、衣服文字和施工标记应保留。
-施工场景的泥水、轮迹、履带印、土层、钢筋、模板、管口及工程边线属于原图内容；
-不应被“美化”成平滑干净地面。
+## 输出和验收记录
 
-水印完全遮挡的区域没有可核对的原始像素，只能检查重建的合理性。
-低清预览可能漏检小字，视觉模型可能误判；不承诺所有输入达到完美或零内容变化。原图与结果几乎相同、或引入大面积新纯色区域时，快速异常检查会保守标记待复核，包含原图本来无水印的情况。
-需要更细检查时提高检验预览档位，或对待复核图进行人工检查。
+输出目录保留输入相对目录结构；默认最终完整图像尺寸等于经EXIF方向校正后的原始尺寸。
+输入分辨率控制模型计算预算，输出分辨率在完整图合成后调整。Lanczos放大不等于恢复真实细节。
 
-## 复测
+~/.local/state/watermark-studio/<job-id>/：
+- summary.json：处理/检验/返工计数，完整参数、模型revision、起止时间；
+- results.jsonl：每输入图最终最佳结果，仅一条；quality包括三项判断、uncertain、原因、局部框和耗时；
+- retry-events.jsonl：进入下一轮的逐图事件；
+- candidates/<hash>/attempts.json：逐次检验历史和最佳候选元数据。终态删除候选图，仅保留最终输出。
+  中途取消时待返工最佳候选可能保留，便于诊断；重启不会自动恢复内存队列；
+- invalid.json：无法解码或不支持的图像。已有输出可再次提交检验，原文件不变。
 
-scripts/benchmark-quality.py 对同一24张真实图片比较关闭检验、512/768预览、batch1/2的完整任务耗时。
-scripts/verify-quality-controls.py 使用未去除水印和明显破坏内容的反例，检查评估器是否拒绝问题输入。
-完整数据集下载完成后还需补充分散目录的抽样，再复核提示词覆盖和检验结果。
-性能成绩与反例结果在完成本轮实验后补充；不同分辨率、图片内容与硬件需要重新测量。
+quality.status：passed / review / error / skipped；后面三种都不能充当通过。
+quality_attempts含首次；best_attempt记录最佳输出来自哪次；attempt_history保留最近20次展示。
+acceptance_complete只有所有已扫描输入都检验通过且无无效图时才为true。
+“输出成功”和“处理结束”不代表全部验收通过。
+CLI退出码0=完成且无待复核或检验错误（也可能未开启检验），1=处理/任务失败，2=待复核或检验错误。
+
+## 提示词和真实边界
+
+prompts.py、detection.py、quality.py分别保存去除、定位、检验提示词。
+覆盖蓝白、灰黑、黄黑条、淡色文字、图标、今日水印及其相机/真实时间/防伪码/细小代码、
+阴影、边框和附属底纹，位置不固定。重建人体衣物、泥土、草地、植物、树木及工程结构时，
+要求符合透视、光线、纹理和遮挡关系，保留原来的泥水、轮迹、裂缝及不整洁的真实施工状态。
+真实标牌、测量尺读数、手持验收板、材料证书、包装袋字样、机械品牌和现场喷写标记应保留。
+室内材料照片不能被改成室外植被或地表。
+
+水印遮住的原始内容无法从照片核实；真实读数、证书、精确人体细节不能凭空保证恢复。
+检验模型也会漏检和误判。小字、局部轻微变形、定位错误以及未抽到的样式仍需人工复核。
+持续返工只能提供再尝试机制，不能证明所有图片必然达到完美。
+
+实测、抽样与对照实验见 [本轮报告](quality-performance-2026-10-31.md)。

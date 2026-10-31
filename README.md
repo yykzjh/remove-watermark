@@ -139,7 +139,7 @@ bash scripts/launch-server.sh
 
 ## 质量与提示词
 
-见 [docs/prompts-and-quality.md](docs/prompts-and-quality.md)。实际提示词在 src/watermark_studio/prompts.py，专门约束蓝底白字、灰底黑字、户外地表、人物衣物与道路边线的局部修补。auto 逐图进行视觉检测，不依赖固定角落坐标。没有检出水印时原字节复制并单独计数；检测 JSON 异常时记录该图失败，不回退到固定模板。results.jsonl 保存每张图的检测范围、检测耗时和处理动作。自动识别仍可能漏检或将场景中的文字误判为叠加水印，真实样本需抽样验收。
+见 [docs/prompts-and-quality.md](docs/prompts-and-quality.md)。提示词覆盖不同位置和样式的数字水印，以及人体、地表、植物和工程结构的自然重建。批量默认整图编辑；勾选原图保护后自动定位覆盖层，仅合成这些位置。局部自动模式也逐图定位；无检测时复制原图，异常检测明确记录失败。真实测量读数、证书和现场文字应保留，检测仍需结合检验与抽样验收。
 
 模型依照 [Qwen Research License](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) 发布；项目代码许可证不替代模型许可证。
 
@@ -160,3 +160,5 @@ uv run --no-sync ruff check src tests
 部署实测、八卡并发验收及当前限制见 [docs/deployment-validation.md](docs/deployment-validation.md)。
 
 去水印后可启用原图/输出质量检验，检查水印残留、修补自然度与内容一致性。参数、记录和局限见 [质量检验说明](docs/quality-review.md)。
+
+自动返工、扩大抽样与性能实测见 [检验说明](docs/quality-review.md)、[框架迁移](docs/framework-migration.md)。
