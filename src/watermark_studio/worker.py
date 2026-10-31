@@ -403,6 +403,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     options.quality_resolution, options.quality_max_tokens,
                     cross_review_allowed=[options.quality_cross_review and not t.get("_cross_review_used") for t in group],
                     editor_encoder=getattr(pipe,"text_encoder",None), editor_processor=getattr(pipe,"processor",None),
+                    weights_relation=getattr(pipe,"_quality_weights_relation","unknown"),
                     editor_context=[{"background_preserved":results[t["relative"]].get("background_preserved"),
                                      "repair_regions":results[t["relative"]].get("repair_regions",[]),
                                      "action":results[t["relative"]].get("action"),
@@ -461,7 +462,8 @@ def process_image(task, options, config, pipe):
     return process_batch([task], options, config, pipe)[0]
 
 
-def worker_main(index, gpu, settings, model_path, requests, events, load_gate, quality_path=None):
+def worker_main(index, gpu, settings, model_path, requests, events, load_gate, quality_path=None,
+                quality_weights_relation="unknown"):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     config = DeploymentConfig.model_validate(settings)
@@ -482,6 +484,8 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate, q
                 )
             elif pipe is not None and config.quality_verifier:
                 pipe._quality_encoder, pipe._quality_processor = pipe.text_encoder, pipe.processor
+            if pipe is not None:
+                pipe._quality_weights_relation = quality_weights_relation
         events.put({"type": "ready", "worker": index})
     except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
         traceback.print_exc()

@@ -371,7 +371,7 @@ class MainWindow(QMainWindow):
         self.quality_cross_review = QCheckBox("编辑侧说明与独立复核（纠正实物文字误报）")
         self.quality_cross_review.setToolTip("仅对无其他缺陷的文字争议作一次原图像素对照和双模型复核；明暗/纹理/内容变化疑点不能豁免。")
         self.quality_cross_review.setEnabled(False)
-        self.quality_check.toggled.connect(self.quality_cross_review.setEnabled)
+        self.quality_check.toggled.connect(self.update_cross_review_availability)
         form.addRow(self.quality_cross_review)
         self.quality_resolution = QComboBox()
         for size in (512, 768, 1024, 1280):
@@ -527,7 +527,8 @@ class MainWindow(QMainWindow):
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
                 quality_check=self.quality_check.isChecked(),
-                quality_cross_review=self.quality_check.isChecked() and self.quality_cross_review.isChecked(),
+                quality_cross_review=self.quality_check.isChecked() and self.quality_cross_review.isChecked()
+                    and getattr(self,"cross_review_supported",False),
                 quality_auto_retry=self.quality_retry.isChecked(),
                 quality_max_attempts=self.quality_attempts.value(),
                 quality_retry_resolution=self.retry_resolution.currentData(),
@@ -585,8 +586,20 @@ class MainWindow(QMainWindow):
             else:
                 self.update_state(data)
 
+    def update_cross_review_availability(self, *_):
+        supported=getattr(self,"cross_review_supported",False)
+        self.quality_cross_review.setEnabled(supported and self.quality_check.isChecked())
+        self.quality_cross_review.setText("实物文字争议复核" if supported else "实物文字争议复核（当前不可用）")
+        if not supported:
+            self.quality_cross_review.setChecked(False)
+        self.quality_cross_review.setToolTip(
+            "已核实检查点权重不同，可按实物载体证据进行严格争议复核。" if supported else
+            "检验与编辑同源或尚未完成权重核验，双模型改判不可用；单独检验仍可使用。")
+
     def update_state(self, state):
         self.quality_check.setEnabled(state.get("quality_verifier", False))
+        self.cross_review_supported=bool(state.get("cross_review_supported",False))
+        self.update_cross_review_availability()
         job = state.get("job")
         if state["stage"] == "failed":
             self.errors.setPlainText(state.get("error", "服务异常"))
@@ -682,6 +695,7 @@ def apply_processing_defaults(window, args):
     window.quality_retry.setChecked(args.quality_auto_retry)
     window.quality_cross_review.setChecked(getattr(args,"quality_cross_review",False))
     window.quality_batch.setValue(args.quality_batch_size)
+    window.update_cross_review_availability()
     if args.input_dir:
         window.input_dir.setText(args.input_dir)
     if args.output_dir:

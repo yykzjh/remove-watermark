@@ -106,7 +106,8 @@ for profile in args.profiles:
     rows=[json.loads(line) for line in (Path.home()/".local/state/watermark-studio"/job/"results.jsonl").read_text().splitlines()]
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
     record={"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
-        "blending":args.blending,"context":context,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
+        "blending":args.blending,"context":context,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"quality_weight_identity":state.get("quality_weight_identity"),
+        "quality_model":state.get("quality_model"),"quality_backend":state.get("quality_backend"),"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
         "first_pass_rate":None if args.generation_only else round(counts["passed"]/len(paths),5),
         "generation_only":args.generation_only,"quality_batch_size":args.quality_batch_size,"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),

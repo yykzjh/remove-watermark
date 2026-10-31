@@ -145,7 +145,8 @@ def test_explicit_quality_launch_defaults_do_not_submit_job():
     app = QApplication.instance() or QApplication([])
     api = FakeApi()
     window = MainWindow(api, {"capacity": 20, "roots": ["/mnt"], "backend": "qwen",
-                              "stage": "ready", "job": None, "quality_verifier": True})
+                              "stage": "ready", "job": None, "quality_verifier": True,
+                              "cross_review_supported": True})
     apply_processing_defaults(window, SimpleNamespace(
         preserve_background=True, quality_check=True, quality_auto_retry=True, quality_cross_review=True,
         quality_batch_size=2, input_dir="/mnt/input", output_dir="/mnt/output",
@@ -156,5 +157,25 @@ def test_explicit_quality_launch_defaults_do_not_submit_job():
     assert window.quality_batch.value() == 2
     assert window.input_dir.text() == "/mnt/input" and window.output_dir.text() == "/mnt/output"
     assert not any(call[1:3] == ("POST", "/jobs") for call in api.calls)
+    app.processEvents()
+    window.close()
+
+
+def test_same_base_verifier_visibly_disables_cross_review_even_after_quality_toggle():
+    app = QApplication.instance() or QApplication([])
+    state={"capacity":20,"roots":["/mnt"],"backend":"qwen","stage":"ready","job":None,
+           "quality_verifier":True,"cross_review_supported":False}
+    window=MainWindow(FakeApi(),state)
+    window.quality_check.setChecked(True)
+    window.quality_cross_review.setChecked(True)
+    window.update_state(state)
+    assert not window.quality_cross_review.isEnabled()
+    assert not window.quality_cross_review.isChecked()
+    window.quality_check.setChecked(False)
+    window.quality_check.setChecked(True)
+    assert not window.quality_cross_review.isEnabled()
+    state["cross_review_supported"]=True
+    window.update_state(state)
+    assert window.quality_cross_review.isEnabled()
     app.processEvents()
     window.close()

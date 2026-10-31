@@ -247,10 +247,13 @@ def clean_identity_dispute(before, after, verdict):
     )
 
 def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,device,
-               resolution=768,max_tokens=128,feather=12,editor_context=None):
+               resolution=768,max_tokens=128,feather=12,editor_context=None,weights_relation="unknown"):
     """One appeal. Real defect vetoes remain; clean identity needs independent proof."""
-    log={"attempted":False,"status":"skipped","editor_context":editor_context or {}}
+    log={"attempted":False,"status":"skipped","editor_context":editor_context or {},
+         "weights_relation":weights_relation}
     verdict["cross_review"]=log
+    if weights_relation!="different_weights":
+        log["reason"]="different_checkpoint_weights_required"; return
     if verdict.get("status")!="review" or verdict.get("watermark_removed") is not False:
         log["reason"]="not_a_watermark_dispute"; return
     identity_candidate = clean_identity_dispute(before, after, verdict)

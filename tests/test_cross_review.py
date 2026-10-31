@@ -38,9 +38,9 @@ def calls(monkeypatch, reports=None, residuals=(), recheck=None):
     return history
 
 
-def run(before,after,q,editor=None,validator=None):
+def run(before,after,q,editor=None,validator=None,weights_relation="different_weights"):
     editor=editor or object();validator=validator or object()
-    reconsider(before,after,q,editor,None,validator,None,"cpu")
+    reconsider(before,after,q,editor,None,validator,None,"cpu",weights_relation=weights_relation)
 
 
 def test_corrected_false_alarm_keeps_original_verdict_and_observable_reports(monkeypatch):
@@ -281,3 +281,26 @@ def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds
     assert result["coordinate_source"] == "crop_local_mapped_by_program"
     text=" ".join(item.get("text","") for item in captured[0][0]["content"])
     assert "当前局部图像0..1000" in text and "不要使用完整照片坐标" in text
+
+
+@pytest.mark.parametrize("relation", ["unknown", "same_base_weights", "same_instance"])
+def test_distinct_python_instances_do_not_prove_different_checkpoint_weights(monkeypatch, relation):
+    before, after, q = fixture()
+    history = calls(monkeypatch)
+    run(before, after, q, weights_relation=relation)
+    assert q["status"] == "review" and not history
+    assert q["cross_review"]["reason"] == "different_checkpoint_weights_required"
+
+
+@pytest.mark.parametrize("relation", ["unknown", "same_base_weights"])
+def test_production_rejects_cross_review_for_same_or_unaudited_weights(tmp_path, relation):
+    from watermark_studio.config import DeploymentConfig, JobRequest
+    from watermark_studio.runtime import Runtime
+    runtime=Runtime(DeploymentConfig(state_dir=str(tmp_path/"state"),quality_verifier=True,
+                                     quality_backend="independent"))
+    runtime.stage="ready"
+    runtime.quality_identity={"relation":relation}
+    request=JobRequest(input_dir=str(tmp_path),output_dir=str(tmp_path/"out"),
+        options=ProcessingConfig(quality_check=True,quality_cross_review=True,concurrency=1))
+    with pytest.raises(ValueError,match="different|不同"):
+        runtime.submit(request)

@@ -150,7 +150,7 @@ for r in records:
     r["reason"]=rows[r["file"]].get("quality",{}).get("reason")
     r["guards"]=rows[r["file"]].get("quality",{}).get("guard_codes",[])
 summary={"images":len(records),"job":job,"code_revision":state["code_revision"],"quality_model":state.get("quality_model"),
-    "quality_quantization":state.get("quality_quantization"),"quality_batch_size":args.quality_batch_size,
+    "quality_quantization":state.get("quality_quantization"),"quality_weight_identity":state.get("quality_weight_identity"),"quality_batch_size":args.quality_batch_size,
     "quality_backend":state.get("quality_backend"),"cross_review":args.cross_review,
     "seconds":round(time.monotonic()-started,3),"output_unchanged":True,
     "clean_controls":sum(r["expected"]=="passed" for r in records),

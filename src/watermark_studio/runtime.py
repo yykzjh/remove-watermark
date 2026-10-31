@@ -35,6 +35,7 @@ class Runtime:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.roots = [Path(r).expanduser().resolve() for r in config.allowed_roots]
         self.model_revision = config.revision
+        self.quality_identity = {"relation": "unknown"}
         try:
             result=subprocess.run(["git","rev-parse","--short","HEAD"],cwd=Path(__file__).resolve().parents[2],
                                   capture_output=True,text=True,timeout=2,check=False)
@@ -70,6 +71,11 @@ class Runtime:
                         self.config.quality_model, self.config.model_source,
                         self.config.quality_revision, self.config.cache_dir,
                     )
+            if quality_path:
+                from .model_identity import compare_model_weights
+                self.quality_identity = compare_model_weights(Path(model_path)/"text_encoder", quality_path)
+            elif self.config.quality_verifier:
+                self.quality_identity = {"relation": "same_instance"}
             if self.stop.is_set():
                 return
             gate = self.ctx.Semaphore(self.config.load_parallelism)
@@ -90,6 +96,7 @@ class Runtime:
                                 self.events,
                                 gate,
                                 quality_path,
+                                self.quality_identity.get("relation", "unknown"),
                             ),
                             daemon=True,
                         )
@@ -282,6 +289,9 @@ class Runtime:
             if (request.options.quality_cross_review and self.config.backend != "mock"
                     and self.config.quality_backend != "independent"):
                 raise ValueError("编辑侧争议复核需要 --quality-backend independent，不能用相同模型自证通过")
+            if (request.options.quality_cross_review and self.config.backend != "mock"
+                    and self.quality_identity.get("relation") != "different_weights"):
+                raise ValueError("independent争议复核需要已核实不同的检查点；同源或身份未知的实例不能相互证明通过")
             if request.options.concurrency > self.config.capacity:
                 raise ValueError(f"在途图片数不能超过工作进程缓冲容量 {self.config.capacity}")
             single = None
@@ -341,7 +351,7 @@ class Runtime:
                 "backend": self.config.backend,
                 "model": self.config.model,
                 "model_revision": self.model_revision,
-                "code_revision":self.code_revision,
+                "code_revision":self.code_revision,"quality_weight_identity":self.quality_identity,
                 "model_source": self.config.model_source,
             }
             self._persist()
@@ -429,7 +439,7 @@ class Runtime:
         with self.lock:
             return {
                 "stage": self.stage,
-                "code_revision":self.code_revision,
+                "code_revision":self.code_revision,"quality_weight_identity":self.quality_identity,
                 "error": self.error,
                 "backend": self.config.backend,
                 "workers": [{"gpu": w["gpu"], "state": w["state"]} for w in self.workers],
@@ -450,6 +460,9 @@ class Runtime:
                                   else self.config.model+"::text_encoder"),
                 "quality_backend": self.config.quality_backend,
                 "quality_quantization":self.config.quality_quantization,
+                "cross_review_supported":bool(self.config.quality_verifier
+                    and self.config.quality_backend=="independent"
+                    and self.quality_identity.get("relation")=="different_weights"),
                 "optimization": {
                     "dtype": self.config.dtype, "quantization": self.config.quantization,
                     "compile": self.config.compile, "compile_scope": self.config.compile_scope,
