@@ -120,7 +120,7 @@ for profile in args.profiles:
         "peak_allocated_mib":max(r.get("peak_allocated_mib",0) for r in rows),
         "failures":[{"file":r["file"],"status":r.get("quality",{}).get("status"),
                      "reason":r.get("quality",{}).get("reason"),"guards":r.get("quality",{}).get("guard_codes",[])}
-                    for r in rows if r.get("quality",{}).get("status")!="passed"]}
+                    for r in rows if not args.generation_only and r.get("quality",{}).get("status")!="passed"]}
     with (work/"results.jsonl").open("a") as f:f.write(json.dumps(record,ensure_ascii=False)+"\n")
     print(json.dumps({k:v for k,v in record.items() if k!="failures"}|
         {"failure_examples":record["failures"][:2]},ensure_ascii=False),flush=True)

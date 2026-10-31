@@ -5,7 +5,7 @@ import json
 import time
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageFilter
 
 from .evidence import refresh_evidence, valid_box
 
@@ -220,18 +220,51 @@ def discover_dispute(before,after,area,encoder,processor,device):
     return report
 
 
+
+def clean_identity_dispute(before, after, verdict):
+    """Identity is expected for an unwatermarked source, never for a known overlay."""
+    return (
+        verdict.get("guard_codes") == ["identical"]
+        and verdict.get("source_regions") == []
+        and verdict.get("residual_regions") == []
+        and before.size == after.size
+        and ImageChops.difference(before.convert("RGB"), after.convert("RGB")).getbbox() is None
+    )
+
 def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,device,
                resolution=768,max_tokens=128,feather=12,editor_context=None):
-    """One appeal. Numerical vetoes and uncertain content never get exemptions."""
+    """One appeal. Real defect vetoes remain; clean identity needs independent proof."""
     log={"attempted":False,"status":"skipped","editor_context":editor_context or {}}
     verdict["cross_review"]=log
     if verdict.get("status")!="review" or verdict.get("watermark_removed") is not False:
         log["reason"]="not_a_watermark_dispute"; return
+    identity_candidate = clean_identity_dispute(before, after, verdict)
     if (verdict.get("natural") is not True or verdict.get("content_preserved") is not True or
-            verdict.get("uncertain") is not False or verdict.get("guard_codes")):
+            verdict.get("uncertain") is not False or (verdict.get("guard_codes") and not identity_candidate)):
         log["reason"]="strict_guard_or_content_veto"; return
     if editor_encoder is None or editor_encoder is encoder:
         log["reason"]="independent_models_required"; return
+    if identity_candidate:
+        # Whole-photo exact equality only opens an inquiry. It never establishes
+        # that a digital overlay is absent: require the OTHER model's source scan.
+        from .detection import locate_watermarks_batch
+        began=time.monotonic()
+        log.update(attempted=True,clean_identity_candidate=True)
+        try:
+            scanned=locate_watermarks_batch([before],editor_encoder,editor_processor,device,max(1024,resolution))[0]
+            if isinstance(scanned,Exception):
+                raise scanned
+            log["editor_source_regions"]=[r.model_dump() for r in scanned[0]]
+            if scanned[0]:
+                log.update(status="unresolved",reason="editor_detected_source_overlay")
+                return
+        except Exception as error:  # noqa: BLE001 - inquiry failures cannot grant acceptance
+            log.update(status="error",error=f"{type(error).__name__}: {error}"[:300])
+            return
+        finally:
+            elapsed=round(time.monotonic()-began,3)
+            log["seconds"]=elapsed
+            verdict["seconds"]=round(verdict.get("seconds",0)+elapsed,3)
     boxes,reason=candidate_boxes(verdict,before.size,feather)
     if (reason=="missing_or_excessive_locations" and not verdict.get("residual_regions") and
             verdict.get("evidence_conflict") is True and verdict.get("area","none")!="none"):
@@ -286,8 +319,15 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
             log.update(status="unresolved",reason="other_residual_overlays"); return
         verdict.pop("retry_recheck_only",None)
         snapshot={k:verdict.get(k) for k in ("status","watermark_removed","natural","content_preserved",
-            "uncertain","reason","residual_regions","model_explanation","evidence_conflict")}
+            "uncertain","reason","residual_regions","model_explanation","evidence_conflict",
+            "guard_codes","deterministic_warnings")}
         verdict["pre_cross_review"]=snapshot
+        if identity_candidate:
+            # Only the inapplicable identity cue is discharged after all existing
+            # carrier proofs, global reinspection and fresh residual scan passed.
+            verdict["guard_codes"]=[]
+            verdict["deterministic_warnings"]=[]
+            log["clean_identity_confirmed"]=True
         log.update(status="corrected",reason="preserved_physical_text_confirmed_by_both_models")
         verdict.update(status="passed",watermark_removed=True,uncertain=False,residual_regions=[],
             reason="原图局部与编辑侧说明经独立复核，确认争议文字属于保留的场景实物；整图复验通过。",

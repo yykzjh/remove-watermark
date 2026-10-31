@@ -189,3 +189,75 @@ def test_vague_no_defect_explanation_never_passes_without_a_precise_safe_locatio
         run(before,after,q)
         assert q["status"]=="review" and not history
         assert q["cross_review"]["attempted"] is True
+
+
+def identity_fixture():
+    before = Image.new("RGB", (400,300), "gray")
+    q = {"status":"review","watermark_removed":False,"natural":True,"content_preserved":True,
+         "uncertain":False,"reason":"possible overlay","seconds":1,"source_regions":[],
+         "residual_regions":[],"guard_codes":["identical"],
+         "evidence":[{"issue":"physical_text","box":[.55,.3,.7,.45]}],
+         "model_explanation":{"status":"ok","summary":"physical branding","findings":[]}}
+    return before, before.copy(), q
+
+
+def test_clean_identity_requires_other_source_scan_and_every_existing_physical_proof(monkeypatch):
+    before, after, q = identity_fixture()
+    history = calls(monkeypatch)
+    run(before, after, q)
+    assert q["status"] == "passed" and len(history) == 2
+    assert q["cross_review"]["editor_source_regions"] == []
+    assert q["cross_review"]["clean_identity_confirmed"]
+    assert q["guard_codes"] == []
+    assert q["pre_cross_review"]["guard_codes"] == ["identical"]
+    assert q["judgment_basis"]["local_guard_codes"] == []
+
+
+@pytest.mark.parametrize("change", [
+    {"source_regions":[{"kind":"logo","box":[.55,.3,.7,.45]}]},
+    {"residual_regions":[{"kind":"logo","box":[.55,.3,.7,.45]}]},
+    {"guard_codes":["identical","outside_repair_change"]},
+    {"guard_codes":["nearly_unchanged"]},
+    {"natural":False}, {"content_preserved":False}, {"uncertain":True},
+])
+def test_identity_never_exempts_detected_stamps_or_real_defect_guards(monkeypatch, change):
+    before, after, q = identity_fixture()
+    history = calls(monkeypatch)
+    q.update(change)
+    run(before,after,q)
+    assert q["status"] == "review" and not history
+
+
+def test_identity_editor_source_detection_or_error_keeps_refusal(monkeypatch):
+    for result in ([Region(kind="panel",box=(.1,.1,.3,.3))], RuntimeError("scan failure")):
+        before, after, q = identity_fixture()
+        history = calls(monkeypatch)
+        monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                            lambda *a, result=result: [result if isinstance(result,Exception) else (result,"scan")])
+        run(before,after,q)
+        assert q["status"] == "review" and not history and q["guard_codes"] == ["identical"]
+
+
+def test_identity_without_carrier_agreement_or_final_empty_scan_never_passes(monkeypatch):
+    before, after, q = identity_fixture()
+    calls(monkeypatch, [report(), report(digital_overlay=True, physical_scene_text=False)])
+    run(before,after,q)
+    assert q["status"] == "review" and q["guard_codes"] == ["identical"]
+
+
+def test_clean_identity_still_requires_exact_whole_photo_equality(monkeypatch):
+    before, after, q = identity_fixture()
+    after.putpixel((0,0), (127,128,128))
+    history = calls(monkeypatch)
+    run(before,after,q)
+    assert q["status"] == "review" and not history
+
+
+def test_clean_identity_final_scan_cannot_hide_any_remaining_overlay(monkeypatch):
+    before, after, q = identity_fixture()
+    calls(monkeypatch)
+    scans = iter([([], "source"), ([Region(kind="logo",box=(.55,.3,.7,.45))], "output")])
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch", lambda *a: [next(scans)])
+    run(before,after,q)
+    assert q["status"] == "review" and q["guard_codes"] == ["identical"]
+    assert q["cross_review"]["reason"] == "other_residual_overlays"

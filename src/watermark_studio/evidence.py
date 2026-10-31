@@ -315,7 +315,8 @@ def refresh_evidence(verdict):
     report=verdict.get("model_explanation",{})
     verdict["evidence"]=local_findings(verdict)+report.get("findings",[])
     basis=verdict.setdefault("judgment_basis",{})
-    basis.update(residual_scan_performed="residual_regions" in verdict,
+    basis.update(local_guard_codes=verdict.get("guard_codes", []),
+                 residual_scan_performed="residual_regions" in verdict,
                  residual_groups=len(verdict.get("residual_regions",[])))
     verdict["retry_feedback"]=feedback_from_quality(verdict) if verdict["status"]!="passed" else []
     verdict["repair_advice"]=retry_guidance(verdict["retry_feedback"])
