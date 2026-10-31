@@ -2,6 +2,7 @@
 import json
 import os
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from PIL import Image
 from watermark_studio.cli import request
 
 url = "http://127.0.0.1:18770"
-root = Path(".run/quality-benchmark").resolve()
+root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/quality-benchmark")
 inputs = root / "input"
 inputs.mkdir(parents=True, exist_ok=True)
 data = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/八标照片集")
@@ -36,6 +37,23 @@ for f in candidates:
         break
 assert len(chosen) == 24
 (root / "sources.json").write_text(json.dumps(chosen, ensure_ascii=False))
+if "--contact" in sys.argv:
+    from PIL import ImageDraw, ImageOps
+    for page in range(3):
+        sheet = Image.new("RGB", (768, 336), "white")
+        draw = ImageDraw.Draw(sheet)
+        for index, f in enumerate(chosen[page*8:page*8+8]):
+            with Image.open(f) as image:
+                thumb = ImageOps.contain(image.convert("RGB"), (192, 144))
+            x, y = (index % 4)*192, (index // 4)*168
+            sheet.paste(thumb, (x, y+20))
+            draw.text((x+3, y+2), str(page*8+index), fill="black")
+        sheet.save(root / f"contact-{page}.jpg", quality=45)
+        assert (root / f"contact-{page}.jpg").stat().st_size < 65536
+    print(str(root))
+    raise SystemExit
+while request(url, "/health")["stage"] != "ready":
+    time.sleep(2)
 profiles = [
     ("baseline-cold", False, 768, 1),
     ("baseline-hot", False, 768, 1),
