@@ -44,6 +44,7 @@ class ProcessingConfig(BaseModel):
     preserve_background: bool = False
     repair_blending: Literal["feather", "harmonic"] = "harmonic"
     quality_check: bool = False
+    quality_cross_review: bool = False
     quality_auto_retry: bool = False
     quality_max_attempts: int = Field(default=3, ge=0, le=20)
     quality_retry_resolution: Literal[512, 768, 1024, 1280, 1536, 2048] = 768
@@ -61,6 +62,8 @@ class ProcessingConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_regions(self):
+        if self.quality_cross_review and not self.quality_check:
+            raise ValueError("编辑侧争议复核需要启用质量检验")
         if self.quality_auto_retry and not self.quality_check:
             raise ValueError("自动返工需要启用质量检验")
         if bool(self.output_width) != bool(self.output_height):

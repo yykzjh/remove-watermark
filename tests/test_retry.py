@@ -253,3 +253,17 @@ def test_retry_evidence_is_isolated_per_photograph(tmp_path):
     process_attempts(tasks,opts,cfg,None,{},"job",process)
     assert "明暗和色温台阶" in seen["dark.png"]
     assert "明暗和色温台阶" not in seen["text.png"]
+
+
+def test_dispute_budget_is_once_and_supported_physical_text_is_not_blindly_repainted(tmp_path):
+    cfg=DeploymentConfig(state_dir=str(tmp_path/"state"),backend="mock")
+    opts=ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_cross_review=True)
+    task={"source":"original","destination":str(tmp_path/"out.png"),"relative":"out.png"}
+    def process(tasks,*_):
+        t=tasks[0];Path(t["destination"]).write_bytes(b"candidate")
+        q=verdict();q["cross_review"]={"attempted":True,"status":"unresolved"}
+        q["retry_recheck_only"]=True
+        return [{"file":"out.png","ok":True,"quality":q}]
+    first=process_attempts([task],opts,cfg,None,{},"job",process)[0]
+    retry=first["_retry_task"]
+    assert retry["_cross_review_used"] and retry["_protect_disputed_text"] and retry["_recheck"]

@@ -168,8 +168,11 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                 "_extra_regions": hints,
                 "_retry_feedback": feedback_from_quality(selected.get("quality", {})),
                 "_feedback_attempt": selected["best_attempt"],
+                "_cross_review_used": bool(task.get("_cross_review_used") or q.get("cross_review",{}).get("attempted")),
+                "_protect_disputed_text": bool(task.get("_protect_disputed_text") or q.get("retry_recheck_only")),
                 "_retry": True, "_attempt": current_attempt + 1,
-                "_recheck": selected.get("quality", {}).get("status") == "error",
+                "_recheck": selected.get("quality", {}).get("status") == "error" or bool(
+                    selected.get("quality", {}).get("retry_recheck_only") or q.get("retry_recheck_only") or task.get("_protect_disputed_text")),
             }
         temp = history.with_suffix(".tmp")
         temp.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")

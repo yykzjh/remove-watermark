@@ -147,11 +147,12 @@ def test_explicit_quality_launch_defaults_do_not_submit_job():
     window = MainWindow(api, {"capacity": 20, "roots": ["/mnt"], "backend": "qwen",
                               "stage": "ready", "job": None, "quality_verifier": True})
     apply_processing_defaults(window, SimpleNamespace(
-        preserve_background=True, quality_check=True, quality_auto_retry=True,
+        preserve_background=True, quality_check=True, quality_auto_retry=True, quality_cross_review=True,
         quality_batch_size=2, input_dir="/mnt/input", output_dir="/mnt/output",
     ))
     assert window.preserve_background.isChecked()
     assert window.quality_check.isChecked() and window.quality_retry.isChecked()
+    assert window.quality_cross_review.isChecked()
     assert window.quality_batch.value() == 2
     assert window.input_dir.text() == "/mnt/input" and window.output_dir.text() == "/mnt/output"
     assert not any(call[1:3] == ("POST", "/jobs") for call in api.calls)

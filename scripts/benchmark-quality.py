@@ -16,6 +16,7 @@ parser.add_argument("--images", type=int, default=24)
 parser.add_argument("--concurrency", type=int, default=20)
 parser.add_argument("--preserve-background", action="store_true")
 parser.add_argument("--repair-blending", choices=["feather","harmonic"], default="harmonic")
+parser.add_argument("--quality-cross-review", action="store_true")
 parser.add_argument("--quality-auto-retry", action="store_true")
 parser.add_argument("--quality-max-attempts", type=int, default=3)
 parser.add_argument("--url", default="http://127.0.0.1:18770")
@@ -82,7 +83,8 @@ for label, enabled, resolution, batch in profiles:
     job_id = request(url, "/jobs", {
         "input_dir": str(inputs), "output_dir": str(root / label),
         "options": {"concurrency": args.concurrency, "resolution": 1024, "overwrite": True,
-                    "quality_check": enabled, "quality_auto_retry": enabled and args.quality_auto_retry,
+                    "quality_check": enabled, "quality_cross_review": enabled and args.quality_cross_review,
+                    "quality_auto_retry": enabled and args.quality_auto_retry,
                     "quality_max_attempts": args.quality_max_attempts, "preserve_background": args.preserve_background,
                     "repair_blending": args.repair_blending, "quality_resolution": resolution,
                     "quality_batch_size": batch, "quality_detail_patches": args.detail_patches},
@@ -108,7 +110,11 @@ for label, enabled, resolution, batch in profiles:
               "retry_exhausted": job.get("retry_exhausted", 0),
               "preserve_background": args.preserve_background,
               "repair_blending": args.repair_blending,
-              "explained_attempts": sum(q.get("model_explanation", {}).get("status") in {"ok", "summary_only"} for q in quality_attempts),
+              "cross_review_attempts": sum(q.get("cross_review", {}).get("attempted", False) for q in quality_attempts),
+              "cross_review_corrected": sum(q.get("cross_review", {}).get("status") == "corrected" for q in quality_attempts),
+              "cross_review_errors": sum(q.get("cross_review", {}).get("status") == "error" for q in quality_attempts),
+              "cross_review_seconds": round(sum(q.get("cross_review", {}).get("seconds", 0) for q in quality_attempts), 3),
+              "explained_attempts": sum(q.get("model_explanation", {}).get("status") in {"ok", "summary_only", "adjudicated"} for q in quality_attempts),
               "explanation_errors": sum(q.get("model_explanation", {}).get("status") == "error" for q in quality_attempts),
               "explanation_seconds": round(sum(q.get("explanation_seconds", 0) for q in quality_attempts), 3),
               "explanation_oom_splits_max": max((q.get("model_explanation", {}).get("oom_splits", 0) for q in quality_attempts), default=0),

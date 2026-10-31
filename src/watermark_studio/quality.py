@@ -565,7 +565,8 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
 
 
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
-                 reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12):
+                 reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
+                 cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None):
     from .detection import locate_watermarks_batch
 
     known = list(source_regions) if source_regions is not None else [None]*len(pairs)
@@ -698,4 +699,14 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["seconds"] = round(verdict["seconds"]+seconds, 3)
     from .evidence import attach_evidence
     attach_evidence(pairs, verdicts, encoder, processor, device, resolution, max_tokens)
+    if cross_review_allowed is not None:
+        if len(cross_review_allowed)!=len(pairs):
+            raise ValueError("Cross-review request count mismatch")
+        from .cross_review import reconsider
+        contexts=editor_context or [{} for _ in pairs]
+        for allowed,context,(before,after),verdict in zip(cross_review_allowed,contexts,pairs,verdicts):
+            if allowed:
+                reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,
+                           device,resolution,max_tokens,feather,context)
+            verdict["review_version"]="2026-11-01.cross-review-v7"
     return verdicts

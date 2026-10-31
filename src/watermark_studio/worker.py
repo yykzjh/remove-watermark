@@ -305,7 +305,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "background_preserved": state["protected_regions"] is not None or options.scope == "regions",
             "repair_blending": options.repair_blending,
             "harmonization": state["result"].info.get("harmonization"),
-            "repair_regions": [r.model_dump() for r in (state["protected_regions"] or [])],
+            "repair_regions": [r.model_dump() for r in (state["protected_regions"] if state["protected_regions"] is not None
+                               else state["regions"] if options.scope == "regions" else [])],
         }
         try:
             if state["failed"]:
@@ -345,6 +346,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 reviews = verify_batch(
                     pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
                     options.quality_resolution, options.quality_max_tokens,
+                    cross_review_allowed=[options.quality_cross_review and not t.get("_cross_review_used") for t in group],
+                    editor_encoder=getattr(pipe,"text_encoder",None), editor_processor=getattr(pipe,"processor",None),
+                    editor_context=[{"background_preserved":results[t["relative"]].get("background_preserved"),
+                                     "repair_regions":results[t["relative"]].get("repair_regions",[]),
+                                     "action":results[t["relative"]].get("action"),
+                                     "harmonization":results[t["relative"]].get("harmonization")} for t in group],
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                     detection_batch_size=config.detection_batch_size, feather=options.feather,
                     source_regions=[

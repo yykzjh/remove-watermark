@@ -360,6 +360,11 @@ class MainWindow(QMainWindow):
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
         self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；建议同时启用自动保护原图内容。未通过项提供可见依据和返工建议；待复核或检验错误不算通过。")
         form.addRow(self.quality_check)
+        self.quality_cross_review = QCheckBox("编辑侧说明与独立复核（纠正实物文字误报）")
+        self.quality_cross_review.setToolTip("仅对无其他缺陷的文字争议作一次原图像素对照和双模型复核；明暗/纹理/内容变化疑点不能豁免。")
+        self.quality_cross_review.setEnabled(False)
+        self.quality_check.toggled.connect(self.quality_cross_review.setEnabled)
+        form.addRow(self.quality_cross_review)
         self.quality_resolution = QComboBox()
         for size in (512, 768, 1024, 1280):
             self.quality_resolution.addItem(str(size), size)
@@ -514,6 +519,7 @@ class MainWindow(QMainWindow):
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
                 quality_check=self.quality_check.isChecked(),
+                quality_cross_review=self.quality_check.isChecked() and self.quality_cross_review.isChecked(),
                 quality_auto_retry=self.quality_retry.isChecked(),
                 quality_max_attempts=self.quality_attempts.value(),
                 quality_retry_resolution=self.retry_resolution.currentData(),
@@ -654,6 +660,7 @@ def apply_processing_defaults(window, args):
     window.preserve_background.setChecked(args.preserve_background)
     window.quality_check.setChecked(args.quality_check)
     window.quality_retry.setChecked(args.quality_auto_retry)
+    window.quality_cross_review.setChecked(getattr(args,"quality_cross_review",False))
     window.quality_batch.setValue(args.quality_batch_size)
     if args.input_dir:
         window.input_dir.setText(args.input_dir)
@@ -676,6 +683,7 @@ def main():
     parser.add_argument("--remote-port", type=int, default=8765)
     parser.add_argument("--poll-seconds", type=int, default=5)
     parser.add_argument("--quality-check", action="store_true", help="Preselect quality review")
+    parser.add_argument("--quality-cross-review", action="store_true", help="Preselect editor/independent dispute review")
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
     parser.add_argument("--preserve-background", action="store_true", help="Preselect original background protection")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
@@ -683,6 +691,8 @@ def main():
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")
     args = parser.parse_args()
+    if args.quality_cross_review and not args.quality_check:
+        parser.error("--quality-cross-review requires --quality-check")
     if args.quality_auto_retry and not args.quality_check:
         parser.error("--quality-auto-retry requires --quality-check")
     app = QApplication(sys.argv[:1])
