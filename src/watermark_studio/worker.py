@@ -138,10 +138,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             pipe.text_encoder, pipe.processor, pipe._execution_device,
             options.detection_resolution,config.detection_batch_size,options.first_pass_mode!="whole",
         )
-        if options.first_pass_mode == "thorough":
+        if options.first_pass_mode in {"thorough","complete"}:
             from .detection import refine_source_details
             found, counts = refine_source_details([decoded[t["relative"]][0] for t in detect_tasks],found,
-                pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,config.detection_batch_size)
+                pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,config.detection_batch_size,
+                complete=options.first_pass_mode=="complete")
             detail_counts={t["relative"]:counts[i] for i,t in enumerate(detect_tasks)}
         for index, task in enumerate(detect_tasks):
             if task.get("_extra_regions") and not isinstance(found[index], Exception):
@@ -402,6 +403,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     editor_context=[{"background_preserved":results[t["relative"]].get("background_preserved"),
                                      "repair_regions":results[t["relative"]].get("repair_regions",[]),
                                      "action":results[t["relative"]].get("action"),
+                                     "source_scene":results[t["relative"]].get("source_scene","unknown"),
                                      "harmonization":results[t["relative"]].get("harmonization")} for t in group],
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                     detection_batch_size=config.detection_batch_size, feather=options.feather,

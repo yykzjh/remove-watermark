@@ -192,26 +192,34 @@ def locate_watermarks(image, encoder, processor, device, resolution=1280):
     return result
 
 
-def refine_source_details(images, detections, encoder, processor, device, resolution=1280, batch_size=1):
-    """Source-only full-frame overlapping tiles; never use generated outputs as hints.
-
-    Only add small disconnected overlays. Large panel coordinates remain those
-    from the global view, avoiding truncated-panel fragments expanding a mask.
-    """
+def refine_source_details(images, detections, encoder, processor, device, resolution=1280,
+                          batch_size=1, *, complete=False):
+    """Bounded source-only scans; complete small clusters without fixed corners."""
     jobs,crops=[],[]
+    area=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1])
     for index,(image,detection) in enumerate(zip(images,detections)):
         if isinstance(detection,Exception):
             continue
         regions=detection[0]
-        if max(image.size)<=1400 or any((r.box[2]-r.box[0])*(r.box[3]-r.box[1])<.035 for r in regions):
+        small=[r for r in regions if area(r)<.035]
+        if complete:
+            # A global box can stop above a tiny footer. Inspect surrounding real
+            # source pixels, not a fixed corner or the generated candidate.
+            for region in small[:2]:
+                x0,y0,x1,y1=region.box
+                dx,dy=max(.04,(x1-x0)*.5),max(.035,y1-y0)
+                box=(round(max(0,x0-dx)*image.width),round(max(0,y0-dy)*image.height),
+                     round(min(1,x1+dx)*image.width),round(min(1,y1+dy)*image.height))
+                jobs.append((index,box,True));crops.append(image.crop(box))
+        if max(image.size)<=1400 or small:
             continue
         for x0,y0,x1,y1 in ((0,0,.56,.56),(.44,0,1,.56),(0,.44,.56,1),(.44,.44,1,1)):
             box=(round(x0*image.width),round(y0*image.height),round(x1*image.width),round(y1*image.height))
-            jobs.append((index,box));crops.append(image.crop(box))
+            jobs.append((index,box,False));crops.append(image.crop(box))
     results=locate_watermarks_batch(crops,encoder,processor,device,resolution,batch_size)
     output=list(detections)
     additions={}
-    for (index,box),result in zip(jobs,results):
+    for (index,box,completion),result in zip(jobs,results):
         if isinstance(result,Exception):
             output[index]=RuntimeError(f"Source detail scan failed: {result}")
             continue
@@ -221,19 +229,26 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
             a,b,c,d=region.box
             mapped=((left+a*(right-left))/image.width,(top+b*(bottom-top))/image.height,
                     (left+c*(right-left))/image.width,(top+d*(bottom-top))/image.height)
-            if (mapped[2]-mapped[0])*(mapped[3]-mapped[1])>.035:
+            candidate=Region(kind=region.kind,box=mapped)
+            if area(candidate)>.035:
                 continue
-            if any(max(mapped[0],r.box[0])<min(mapped[2],r.box[2]) and
-                   max(mapped[1],r.box[1])<min(mapped[3],r.box[3]) for r in original):
+            overlapping=[r for r in original if
+                max(mapped[0],r.box[0])<min(mapped[2],r.box[2]) and
+                max(mapped[1],r.box[1])<min(mapped[3],r.box[3])]
+            if overlapping and (not completion or any(area(r)>=.035 for r in overlapping)):
                 continue
-            additions.setdefault(index,[]).append(Region(kind=region.kind,box=mapped))
+            if overlapping:
+                merged=merge_regions(overlapping+[candidate])
+                if any(area(r)>.035 for r in merged):
+                    continue  # Do not turn a small opaque repair into a large fading mask.
+            additions.setdefault(index,[]).append(candidate)
     for index,extra in additions.items():
         if not isinstance(output[index],Exception):
             try:
                 output[index]=(merge_regions(detections[index][0]+extra),detections[index][1])
             except ValueError as error:
                 output[index]=error
-    return output,{i:sum(index==i for index,_ in jobs) for i in range(len(images))}
+    return output,{i:sum(index==i for index,_,_ in jobs) for i in range(len(images))}
 
 
 def source_scene(text):

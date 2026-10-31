@@ -361,7 +361,7 @@ def output_detail_views(before, after, count=4, regions=()):
         return views, boxes
     for region in sorted(regions, key=lambda r: (r.box[2]-r.box[0])*(r.box[3]-r.box[1])):
         x0,y0,x1,y1=region.box
-        px,py=(x1-x0)*.10,(y1-y0)*.10
+        px,py=max(.012,(x1-x0)*.10),max(.016,(y1-y0)*.20)
         box=[max(0,x0-px),max(0,y0-py),min(1,x1+px),min(1,y1+py)]
         native=tuple(round(v*s) for v,s in zip(box,(after.width,after.height,after.width,after.height)))
         crop=after.crop(native).convert("RGB")
@@ -564,6 +564,17 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
         tokenizer.padding_side = previous
 
 
+def scene_review_context(scene):
+    if scene == "document":
+        return ("\n完整原图是票据/证书等纸张场景。纸张自身的印刷日期、编号、表格和手写笔迹"
+                "属于真实实物内容，应依据纸张边缘、透视和表面证据与悬浮数字叠加区分。"
+                "数字水印也可能覆盖纸张，不能因文档场景一概豁免。"
+                "修补应延续纸张及真实可见的布料/支撑物，不能变成草地、泥土或无依据的文字。")
+    if scene == "indoor":
+        return "\n原图为室内场景，只按原来的地面、包装和物体材质判断，不要求室外植被。"
+    return ""
+
+
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
                  cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None):
@@ -583,6 +594,9 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         source_seconds = (time.monotonic()-started)/len(missing)
         for index, detection in zip(missing, detected):
             known[index] = detection if isinstance(detection, Exception) else detection[0]
+    contexts=editor_context or [{} for _ in pairs]
+    if len(contexts)!=len(pairs):
+        raise ValueError("Editor context count mismatch")
     output_chats, content_chats, boxes_list = [], [], []
     for pair_index, (before, after) in enumerate(pairs):
         aligned = after.resize(before.size, Image.Resampling.LANCZOS) if after.size != before.size else after
@@ -597,12 +611,13 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             ])
         content.append({"type": "text", "text": OUTPUT_PROMPT.replace(
             "这是一张去水印结果的检验画布：上方为整图，下方（如有）为同一结果图的放大细节。",
-            "图1是完整结果照片，后续图是标明原照片坐标的放大局部。结合整图透视和物体关系区分真实印刷文字。")})
+            "图1是完整结果照片，后续图是标明原照片坐标的放大局部。结合整图透视和物体关系区分真实印刷文字。")
+            +scene_review_context(contexts[pair_index].get("source_scene"))})
         output_chats.append([{"role": "user", "content": content}])
         content_chats.append([{"role": "user", "content": [
             {"type": "image", "image": preview(before, resolution)},
             {"type": "image", "image": preview(aligned, resolution)},
-            {"type": "text", "text": CONTENT_PROMPT},
+            {"type": "text", "text": CONTENT_PROMPT+scene_review_context(contexts[pair_index].get("source_scene"))},
         ]}])
         boxes_list.append(boxes)
     inspected, output_seconds = _structured_vqa(
@@ -668,6 +683,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["seconds"] = round(verdict["seconds"]+verdict["local_comparison_seconds"], 3)
         verdict["source_scan_seconds"] = round(source_seconds if index in missing else 0, 3)
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
+        verdict["scene_context"]=contexts[index].get("source_scene","unknown")
         verdict["review_version"] = "2026-11-01.evidence-v6"
         candidate = verdict["status"] != "error" and (
             verdict["status"] == "passed" or verdict.get("watermark_removed") is False or (

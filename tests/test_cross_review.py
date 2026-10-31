@@ -166,3 +166,26 @@ def test_production_cross_review_requires_an_independent_validator(tmp_path):
         options=ProcessingConfig(quality_check=True,quality_cross_review=True,concurrency=1))
     with pytest.raises(ValueError,match="independent"):
         runtime.submit(request)
+
+
+def test_a_vague_dispute_requires_precise_new_evidence_before_full_revalidation(monkeypatch):
+    before,after,q=fixture()
+    q.update(residual_regions=[],evidence=[],evidence_conflict=True,area="top_right")
+    history=calls(monkeypatch)
+    monkeypatch.setattr("watermark_studio.cross_review.discover_dispute",lambda *a:{
+        "status":"ok","findings":[{"issue":"physical_text","box":[.55,.3,.7,.45]}]})
+    run(before,after,q)
+    assert q["status"]=="passed" and len(history)==2
+    assert q["cross_review"]["localization"]["findings"]
+
+
+def test_vague_no_defect_explanation_never_passes_without_a_precise_safe_location(monkeypatch):
+    for findings in ([],[{"issue":"physical_text","box":[.1,.8,.2,.9]}]):
+        before,after,q=fixture()
+        q.update(residual_regions=[],evidence=[],evidence_conflict=True,area="top_right")
+        history=calls(monkeypatch)
+        monkeypatch.setattr("watermark_studio.cross_review.discover_dispute",
+                            lambda *a, findings=findings:{"status":"ok","findings":findings})
+        run(before,after,q)
+        assert q["status"]=="review" and not history
+        assert q["cross_review"]["attempted"] is True

@@ -136,3 +136,26 @@ def test_document_conditioning_is_typed_and_does_not_invent_terrain():
     text=build_focused_prompt("panel",(0,60,40,100),(0,20,80,100),scene="document")
     assert "document/receipt scene, not an outdoor worksite" in text
     assert "underlying fabric" in text and "Preserve all originally visible" in text
+
+
+def test_complete_mode_inspects_a_small_cluster_and_covers_its_missed_footer(monkeypatch):
+    source=Image.new("RGB",(4000,3000))
+    logo=Region(kind="logo",box=(.8,.9,.98,.97))
+    def locate(crops,*args):
+        assert len(crops)==1
+        return [([Region(kind="logo",box=(.3,.3,.98,1))],"local")]
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",locate)
+    result,counts=refine_source_details([source],[([logo],'{"scene":"document","watermarks":[]}')],
+                                     None,None,"cpu",complete=True)
+    assert counts=={0:1} and len(result[0][0])==1
+    assert result[0][0][0].box[3]==1
+    assert result[0][1]=='{"scene":"document","watermarks":[]}'
+
+
+def test_complete_scan_errors_cannot_silently_reuse_an_incomplete_global_box(monkeypatch):
+    logo=Region(kind="logo",box=(.8,.9,.98,.97))
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                        lambda *a:[RuntimeError("missing detail")])
+    result,_=refine_source_details([Image.new("RGB",(2000,1500))],[([logo],"")],
+                                  None,None,"cpu",complete=True)
+    assert isinstance(result[0],RuntimeError)
