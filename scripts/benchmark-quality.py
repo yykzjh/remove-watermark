@@ -97,6 +97,10 @@ for label, enabled, resolution, batch in profiles:
         time.sleep(.5)
     rows = [json.loads(line) for line in
             (Path.home()/".local/state/watermark-studio"/job_id/"results.jsonl").read_text().splitlines()]
+    quality_attempts = [attempt.get("quality") or {} for row in rows
+                        for attempt in row.get("attempt_history", [{"quality": row.get("quality", {})}])]
+    feedback_retries = sum(bool(attempt.get("repair_feedback_used")) for row in rows
+                           for attempt in row.get("attempt_history", []))
     record = {"label": label, "tag": args.tag, "images": args.images, "detail_patches": args.detail_patches, "seconds": round(time.monotonic()-started, 3),
               "job": job_id, "success": job["succeeded"], "failed": job["failed"],
               "quality_counts": job.get("quality_counts", {}),
@@ -104,6 +108,11 @@ for label, enabled, resolution, batch in profiles:
               "retry_exhausted": job.get("retry_exhausted", 0),
               "preserve_background": args.preserve_background,
               "repair_blending": args.repair_blending,
+              "explained_attempts": sum(q.get("model_explanation", {}).get("status") == "ok" for q in quality_attempts),
+              "explanation_errors": sum(q.get("model_explanation", {}).get("status") == "error" for q in quality_attempts),
+              "explanation_seconds": round(sum(q.get("explanation_seconds", 0) for q in quality_attempts), 3),
+              "explanation_oom_splits_max": max((q.get("model_explanation", {}).get("oom_splits", 0) for q in quality_attempts), default=0),
+              "feedback_retries": feedback_retries,
               "quality_seconds": round(sum(r.get("quality_total_seconds", r.get("quality", {}).get("seconds", 0)) for r in rows), 3),
               "bad_sizes": sum(Image.open(inputs/r["file"]).size != Image.open(root/label/r["file"]).size
                                for r in rows if r["ok"]),
