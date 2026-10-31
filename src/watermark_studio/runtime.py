@@ -164,6 +164,7 @@ class Runtime:
                 job["quality_issues"] = (job.get("quality_issues", []) + [{
                     "file": result["file"], "status": verdict,
                     "reason": result["quality"].get("reason", ""),
+                    "repair_advice": result["quality"].get("repair_advice", "")[:200],
                 }])[-20:]
         job["current"] = result["file"]
         if not result["ok"]:
@@ -426,7 +427,7 @@ class Runtime:
                 "roots": list(map(str, self.roots)),
                 "job": (
                     {
-                        k: (v[-3:] if k == "errors" else v)
+                        k: (v[-3:] if k in {"errors", "quality_issues"} else v)
                         for k, v in self.job.items()
                         if k
                         not in {"options", "deployment", "input_dir", "output_dir", "model_revision", "model"}

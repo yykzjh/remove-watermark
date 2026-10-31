@@ -619,6 +619,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         data["uncertain"] = check["uncertain"] or comparison["uncertain"]
         data["area"] = check.get("area", "none") if not check["watermark_removed"] or not check["natural"] else comparison.get("area", "none")
         verdict = parse_review(json.dumps(data))
+        verdict["model_checks"] = dict(data)
         verdict["model_status"] = verdict["status"]
         verdict["model_uncertain"] = verdict["uncertain"]
         verdict["model_reason"] = verdict["reason"]
@@ -666,9 +667,10 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["seconds"] = round(verdict["seconds"]+verdict["local_comparison_seconds"], 3)
         verdict["source_scan_seconds"] = round(source_seconds if index in missing else 0, 3)
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
-        verdict["review_version"] = "2026-11-01.boundary-texture-v5"
-        candidate = verdict["status"] != "error" and (verdict["status"] == "passed" or (
-            verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"]))
+        verdict["review_version"] = "2026-11-01.evidence-v6"
+        candidate = verdict["status"] != "error" and (
+            verdict["status"] == "passed" or verdict.get("watermark_removed") is False or (
+                verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"]))
         verdicts.append(verdict)
         if candidate:
             residual_candidates.append((verdict, after))
@@ -688,9 +690,12 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 if regions:
                     verdict.update(status="review", watermark_removed=False,
                                    reason="输出残留水印扫描发现数字覆盖层。")
-                elif verdict.get("guard_codes") == ["identical"] and not verdict.get("source_regions"):
+                elif (verdict.get("model_status") == "passed" and
+                      verdict.get("guard_codes") == ["identical"] and not verdict.get("source_regions")):
                     verdict.update(status="passed", uncertain=verdict["model_uncertain"],
                                    reason=verdict["model_reason"])
             verdict["residual_scan_seconds"] = round(seconds, 3)
             verdict["seconds"] = round(verdict["seconds"]+seconds, 3)
+    from .evidence import attach_evidence
+    attach_evidence(pairs, verdicts, encoder, processor, device, resolution, max_tokens)
     return verdicts

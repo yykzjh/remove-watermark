@@ -41,6 +41,10 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
     """Runtime schedules rounds; this function performs exactly one attempt per input."""
     if not options.quality_auto_retry:
         return process(tasks, options, config, pipe, batch_limits)
+    # Retry feedback belongs to one photograph. Never share it across a batch.
+    if len(tasks) > 1 and any(t.get("_retry") for t in tasks):
+        return [result for task in tasks for result in process_attempts(
+            [task], options, config, pipe, batch_limits, job, process)]
     outputs = []
     # Keep normal first-pass batching; retries have compatible per-request settings.
     prepared, records = [], []
@@ -76,6 +80,11 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             "只自然重建被遮挡区域，保留原来可见的人体、测量读数及真实印刷文字；"
             "避免模糊、重复纹理、直线错位、衣物和肢体变形。"
         ).strip()
+        from .evidence import retry_guidance
+        guidance = retry_guidance(tasks[0].get("_retry_feedback", []))
+        if guidance:
+            settings.extra_prompt += ("\n上轮检验定位的返工重点（坐标属于完整原图，不是当前裁切图）：\n" + guidance +
+                                      "\n始终从原图重做，只修改确认的数字覆盖层；不能为通过检验删除真实内容或降低标准。")
         # A verifier error first rechecks the best candidate instead of regenerating.
         if tasks[0].get("_recheck"):
             prepared[0]["destination"] = str(records[0][1][2])
@@ -90,8 +99,11 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         folder, candidate, best, history = paths
         current_attempt = int(task.get("_attempt", 1))
         q = result.get("quality", {})
+        if task.get("_retry"):
+            result["repair_feedback_used"] = task.get("_retry_feedback", [])
+            result["repair_feedback_attempt"] = task.get("_feedback_attempt")
         if (config.backend != "mock" and result["ok"] and q.get("status") == "review"
-                and q.get("watermark_removed") is False and not q.get("residual_regions")):
+                and q.get("watermark_removed") is False and "residual_regions" not in q):
             # Only rejected candidates pay this extra scan. Never turn a rejection into a pass.
             from .detection import locate_watermarks
             started = time.monotonic()
@@ -106,8 +118,13 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                 q["retry_hint_error"] = str(error)[:400]
             q["retry_hint_seconds"] = round(time.monotonic()-started, 3)
             q["seconds"] = round(q.get("seconds", 0)+q["retry_hint_seconds"], 3)
+        from .evidence import refresh_evidence
+        if q.get("status") in {"review", "error", "passed"}:
+            refresh_evidence(q)
         record = {"attempt": current_attempt, "quality": result.get("quality"),
-                  "ok": result["ok"], "action": result.get("action"), "error": result.get("error")}
+                  "ok": result["ok"], "action": result.get("action"), "error": result.get("error"),
+                  "repair_feedback_used": result.get("repair_feedback_used", []),
+                  "repair_feedback_attempt": result.get("repair_feedback_attempt")}
         saved["attempts"].append(record)
         chosen_path = best if task.get("_recheck") else candidate
         previous = saved["best"]
@@ -133,7 +150,12 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         if again:
             from .config import Region
             from .detection import merge_regions
-            hints = task.get("_extra_regions", []) + q.get("residual_regions", [])
+            from .evidence import feedback_from_quality
+            # Model coordinates are suggestions only; the source scan must confirm them.
+            model_hints = [{"kind":"logo", "box":item["box"]} for item in q.get("evidence", [])
+                           if item.get("source") == "vlm" and item.get("certainty") == "visible"
+                           and item.get("issue") in {"residual_text", "residual_background"} and item.get("box")]
+            hints = task.get("_extra_regions", []) + q.get("residual_regions", []) + model_hints
             try:
                 hints = [r.model_dump() for r in merge_regions([
                     Region.model_validate(r) for r in hints
@@ -143,6 +165,8 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                 hints = task.get("_extra_regions", [])
             selected["_retry_task"] = task | {
                 "_extra_regions": hints,
+                "_retry_feedback": feedback_from_quality(selected.get("quality", {})),
+                "_feedback_attempt": selected["best_attempt"],
                 "_retry": True, "_attempt": current_attempt + 1,
                 "_recheck": selected.get("quality", {}).get("status") == "error",
             }

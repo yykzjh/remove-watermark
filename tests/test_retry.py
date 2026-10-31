@@ -210,3 +210,45 @@ def test_retry_prefers_residual_free_candidate_without_passing_it(tmp_path):
     unsafe = {"ok": True, "quality": verdict(content=False)}
     unsafe["quality"]["residual_regions"] = []
     assert quality_rank(first) > quality_rank(unsafe)
+
+
+def test_concrete_quality_evidence_is_recorded_and_used_on_original_retry(tmp_path):
+    cfg=DeploymentConfig(state_dir=str(tmp_path/"state"),backend="mock")
+    opts=ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_max_attempts=2)
+    target=tmp_path/"out.png"
+    task={"source":"original","destination":str(target),"relative":"out.png"}
+    prompts=[]
+    def process(tasks,settings,*_):
+        prompts.append(settings.extra_prompt)
+        assert tasks[0]["source"]=="original"
+        Path(tasks[0]["destination"]).write_bytes(b"candidate")
+        q=verdict() if len(prompts)==1 else verdict("passed",removed=True)
+        q["model_explanation"]={"status":"ok","findings":[{"source":"vlm", "issue":"rectangular_shadow",
+            "box":[.1,.5,.4,.9],"observation":"矩形区域偏暗","certainty":"visible"}]}
+        return [{"file":"out.png","ok":True,"quality":q}]
+    first=process_attempts([task],opts,cfg,None,{},"job",process)[0]
+    assert first["_retry_task"]["_retry_feedback"][0]["issue"]=="rectangular_shadow"
+    final=process_attempts([first["_retry_task"]],opts,cfg,None,{},"job",process)[0]
+    assert "明暗和色温台阶" in prompts[1] and "0.1000,0.5000,0.4000,0.9000" in prompts[1]
+    assert final["attempt_history"][1]["repair_feedback_used"][0]["issue"]=="rectangular_shadow"
+    assert final["attempt_history"][1]["repair_feedback_attempt"]==1
+    saved=json.loads(next((tmp_path/"state").rglob("attempts.json")).read_text())
+    assert saved["attempts"][0]["quality"]["model_explanation"]["findings"][0]["observation"]=="矩形区域偏暗"
+
+
+def test_retry_evidence_is_isolated_per_photograph(tmp_path):
+    cfg=DeploymentConfig(state_dir=str(tmp_path/"state"),backend="mock")
+    opts=ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_max_attempts=2)
+    tasks=[]
+    for name,issue in (("dark.png","rectangular_shadow"),("text.png","residual_text")):
+        tasks.append({"source":"original-"+name,"relative":name,"destination":str(tmp_path/name),
+                      "_retry":True,"_attempt":2,"_retry_feedback":[{"issue":issue,"box":None}]})
+    seen={}
+    def process(group,settings,*_):
+        assert len(group)==1
+        t=group[0];seen[t["relative"]]=settings.extra_prompt
+        Path(t["destination"]).write_bytes(b"fixed")
+        return [{"file":t["relative"],"ok":True,"quality":verdict("passed",removed=True)}]
+    process_attempts(tasks,opts,cfg,None,{},"job",process)
+    assert "明暗和色温台阶" in seen["dark.png"]
+    assert "明暗和色温台阶" not in seen["text.png"]

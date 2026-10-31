@@ -615,7 +615,9 @@ class MainWindow(QMainWindow):
         self.current.setText(job.get("current", ""))
         self.errors.setPlainText(
             "\n".join([f"{e['file']}: {e['error']}" for e in job.get("errors", [])]
-                      + [f"检验待复核 {e['file']}: {e['reason']}" for e in job.get("quality_issues", [])])
+                      + [f"检验待复核 {e['file']}: {e['reason']}" +
+                         ("\n返工建议：" + e["repair_advice"] if e.get("repair_advice") else "")
+                         for e in job.get("quality_issues", [])])
         )
 
 

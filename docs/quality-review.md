@@ -49,7 +49,8 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
 3. 对初步可通过的输出额外执行数字覆盖层扫描；扫描错误不能算通过。
 
 分开检查避免模型将原图水印误当输出残留，或把正常删除水印误判为破坏内容。
-结构化输出使用有限JSON令牌约束；不以提示词中的示例true作为默认结果。
+验收布尔值继续使用有限JSON令牌约束；不以提示词中的示例true作为默认结果。
+不通过项另外生成有界视觉说明，描述可见现象，不输出思维过程；说明不能覆盖验收判定或数值检查。
 另检查完全不变、近乎不变及新出现的大面积纯色等异常；这些是保守保护条件，不是质量分数。
 原图确实无水印且模型检查通过、扫描为空时，完全不变的结果可以通过；原图定位若已发现水印，则不能仅凭低清残留扫描为空放行。
 
@@ -74,6 +75,28 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
 
 任一触发，natural=false、uncertain=true，结果为 review；不会降低原残留水印、内容保持、局部差异检查的标准。它们是有限分辨率的疑点检测，并不穷尽任意细微缺陷。检验 OOM 在释放异常持有的显存后拆批，quality_oom_splits 记录拆分次数；异常不能算通过。
 
+## 判断依据和逐张返工信息
+
+quality.judgment_basis 保存模型三项原始判断、检查的局部坐标、程序检查代码和残留扫描结果。
+通过项保留这些结构化依据，不额外调用模型生成长篇说明。
+
+对 review 项额外调用同一检验模型，提供原图/结果整图和一个重点区域的原图/结果放大对照；输出：
+
+- model_explanation.assessment：defect_visible / uncertain / no_clear_defect；
+- summary：一句可见依据；findings 最多2条，含 issue、完整照片归一化 box（无法定位则null）、observation；
+- evidence：模型观察与程序局部检查分开标明来源，数值台阶、纹理衰减和可见内容变化可定位回原图；
+- retry_feedback、repair_advice：从受限问题类型及可信坐标构建的针对性建议。
+
+覆盖残留淡字/底板、矩形暗影、模糊涂抹、重复纹理、断裂几何、人体异常、原可见内容变化、真实文字混淆及细节不确定。
+模型原始描述作为审计数据保存；编辑提示词只使用经过类型与坐标校验的固定修复指令，不直接执行自由文本中的指令。
+水印残留的新增坐标只是线索，仍必须在原图局部确认数字覆盖层，才能扩大修补区域。
+no_clear_defect、说明生成失败、扫描为空均不能把已有拒绝改为通过。说明失败显式记录error，程序依据仍保留。
+
+详细说明仅针对不通过项，默认最多256个生成令牌（随quality_max_tokens有界增至384）；它只影响描述预算，不改变验收阈值。
+预览总览最长边512，放大局部384；原来的768验收和最多4细节不因此降分辨率。
+explanation_seconds单独计时，并计入quality_total_seconds与端到端wall time。
+客户端展示最近3条问题及返工建议，完整依据留在开发机任务文件，避免轮询传输过量数据。
+
 ## 原图保护与返工
 
 preserve_background仍将完整图像送入编辑模型，自动定位所有数字覆盖层后，
@@ -86,6 +109,7 @@ quality_auto_retry启用后：
 - 将检验发现的残留位置回传，先在原图局部确认，再与原图自动检测的所有水印区域合并，避免重复漏掉同一块。
   原图中未确认有数字水印的位置不会因为输出提示而直接扩大重画范围。
   对已拒绝但尚无坐标的残留图额外做一次定位；该定位不会把拒绝改成通过。
+- 将选中的最佳候选的问题类型和完整原图坐标带入下一轮提示词，针对性约束明暗、纹理、结构和真实文字保护；每张返工独立传递，不混用其他图像的依据。
 - 改变种子、采用quality_retry_resolution输入预算；单张自定义框选保留原区域约束。
 - 检验错误先对已有最佳候选重新检验；不因为一次检验失败就盲目重画。
 - 按输出有效性、是否通过、可见内容保留、局部变化/填块疑点、残留清除、自然度等保守顺序保留较好候选。
@@ -113,6 +137,7 @@ quality_auto_retry启用后：
 
 quality.status：passed / review / error / skipped；后面三种都不能充当通过。
 quality_attempts含首次；best_attempt记录最佳输出来自哪次；attempt_history保留最近20次展示。
+每次尝试保存完整quality依据，以及repair_feedback_used和repair_feedback_attempt，能追查哪些诊断真正进入了下一轮提示词；完整历史在candidates/<hash>/attempts.json。
 quality_total_seconds累计所有尝试的检验耗时；全任务开销以wall time衡量。
 outside_repair_change记录局部检查的疑点数量和框；source_regions记录原图覆盖层；
 source_scan_seconds/local_comparison_seconds为额外阶段计时。
