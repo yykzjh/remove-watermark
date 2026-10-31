@@ -507,6 +507,7 @@ def repair_naturalness_chats(pairs, known):
     for index, ((before, after), regions) in enumerate(zip(pairs, known)):
         if isinstance(regions, Exception) or not regions:
             continue
+        after = after if after.size == before.size else after.resize(before.size, Image.Resampling.LANCZOS)
         region=max(regions,key=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1]))
         if (region.box[2]-region.box[0])*(region.box[3]-region.box[1])<.02:
             continue
