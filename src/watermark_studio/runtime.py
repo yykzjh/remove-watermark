@@ -138,6 +138,7 @@ class Runtime:
 
     def _record(self, result):
         job = self.job
+        job["current"] = result["file"]
         retry = result.pop("_retry_task", None)
         if result.get("quality_attempts", 1) > 1:
             job["retry_attempts"] = job.get("retry_attempts", 0) + 1

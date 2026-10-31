@@ -89,7 +89,10 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             saved["best"] = result
         selected = dict(saved["best"] or result)
         selected.update(quality_attempts=current_attempt, attempt_history=saved["attempts"][-20:],
-                        best_attempt=saved.get("best_attempt", 1))
+                        best_attempt=saved.get("best_attempt", 1),
+                        quality_total_seconds=round(sum(
+                            (r.get("quality") or {}).get("seconds", 0)
+                            for r in saved["attempts"]), 3))
         if saved["best"] is result:
             saved["best_attempt"] = current_attempt
             selected["best_attempt"] = current_attempt

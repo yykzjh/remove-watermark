@@ -101,7 +101,7 @@ for label, enabled, resolution, batch in profiles:
               "retry_attempts": job.get("retry_attempts", 0),
               "retry_exhausted": job.get("retry_exhausted", 0),
               "preserve_background": args.preserve_background,
-              "quality_seconds": round(sum(r.get("quality", {}).get("seconds", 0) for r in rows), 3),
+              "quality_seconds": round(sum(r.get("quality_total_seconds", r.get("quality", {}).get("seconds", 0)) for r in rows), 3),
               "bad_sizes": sum(Image.open(inputs/r["file"]).size != Image.open(root/label/r["file"]).size
                                for r in rows if r["ok"]),
               "quality_errors": [r["quality"] for r in rows
