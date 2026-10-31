@@ -130,3 +130,32 @@ def test_local_guard_accounts_for_actual_composition_feather():
     after = composite_protected(before, Image.new("RGB", before.size, "red"), regions, feather=64)
     assert outside_repair_changes(before, after, regions, feather=64)["tiles"] == 0
     assert outside_repair_changes(before, after, regions, feather=0)["tiles"] > 0
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_quality_size_check_uses_display_orientation(tmp_path, monkeypatch, orientation):
+    import shutil
+    import sys
+    from types import SimpleNamespace
+
+    from watermark_studio.config import DeploymentConfig
+    from watermark_studio.worker import process_batch
+
+    source, target = tmp_path/"source.jpg", tmp_path/"output.jpg"
+    exif = Image.Exif()
+    exif[274] = orientation
+    Image.new("RGB", (60, 40), "blue").save(source, exif=exif)
+    shutil.copyfile(source, target)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda: None, synchronize=lambda: None,
+        max_memory_allocated=lambda: 0, max_memory_reserved=lambda: 0,
+    )))
+    monkeypatch.setattr("watermark_studio.quality.verify_batch",
+                        lambda *a, **kw: [{"status": "passed", "reason": ""}])
+    pipe = SimpleNamespace(_quality_encoder=None, _quality_processor=None, _execution_device="cpu")
+    result = process_batch([{"source": str(source), "destination": str(target),
+                             "relative": "source.jpg", "reuse_existing": True}],
+                           ProcessingConfig(quality_check=True, scope="full_image"), DeploymentConfig(), pipe)[0]
+    assert result["quality"]["status"] == "passed"
+    assert result["quality"]["dimensions_match"]
+    assert result["quality"]["display_output_size"] == ([40, 60] if orientation >= 5 else [60, 40])
+    assert result["output_size"] == [60, 40]

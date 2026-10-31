@@ -181,3 +181,11 @@ def test_residual_hints_survive_candidate_selection_and_merge(tmp_path):
     result = process_attempts([task], opts, cfg, None, {}, "job", process)[0]
     hints = result["_retry_task"]["_extra_regions"]
     assert len(hints) == 1 and hints[0]["box"] == (.7, .7, 1., 1.)
+
+def test_best_candidate_penalizes_unresolved_local_change_and_flat_fill():
+    unsafe = {"ok": True, "quality": verdict(removed=True)}
+    unsafe["quality"].update(uncertain=True, guard_codes=["outside_repair_change"])
+    safer = {"ok": True, "quality": verdict(removed=False)}
+    assert quality_rank(safer) > quality_rank(unsafe)
+    unsafe["quality"]["guard_codes"] = ["new_flat_fill"]
+    assert quality_rank(safer) > quality_rank(unsafe)

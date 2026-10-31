@@ -16,6 +16,8 @@ def quality_rank(result):
         bool(result.get("ok")),
         q.get("status") == "passed",
         q.get("content_preserved") is True,
+        "outside_repair_change" not in q.get("guard_codes", []),
+        "new_flat_fill" not in q.get("guard_codes", []),
         q.get("watermark_removed") is True,
         q.get("natural") is True,
         q.get("status") != "error",

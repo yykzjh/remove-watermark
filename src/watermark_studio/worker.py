@@ -140,9 +140,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             if task.get("reuse_existing"):
                 existing = load_photo(task["destination"])[0]
                 existing_images[task["relative"]] = existing
+                from PIL import Image
+                with Image.open(task["destination"]) as stored:
+                    stored_size = list(stored.size)
                 results[task["relative"]] = {
                     "file": task["relative"], "ok": True, "action": "existing_output_verified",
-                    "regions": [], "detection_seconds": 0, "output_size": list(existing.size),
+                    "regions": [], "detection_seconds": 0, "output_size": stored_size,
                 }
                 continue
             detection_start = time.monotonic()
@@ -180,7 +183,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 else:
                     atomic_copy(task["source"], task["destination"], options.overwrite)
                     from PIL import Image
-                    output_size = list(source.size)
+                    with Image.open(task["source"]) as stored:
+                        output_size = list(stored.size)
                 results[task["relative"]] = {
                     "file": task["relative"], "ok": True, "regions": [],
                     "action": "no_watermark_detected" if cuda else "mock_copy",
@@ -332,10 +336,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         else None for t in group
                     ],
                 )
-                for task, verdict in zip(group, reviews):
+                for task, verdict, pair in zip(group, reviews, pairs):
                     size = ([options.output_width, options.output_height] if options.output_width
                             else list(source_images[task["relative"]].size))
-                    verdict["dimensions_match"] = results[task["relative"]]["output_size"] == size
+                    verdict["display_output_size"] = list(pair[1].size)
+                    verdict["dimensions_match"] = verdict["display_output_size"] == size
                     if not verdict["dimensions_match"] and verdict["status"] != "error":
                         verdict.update(status="review", reason=(verdict["reason"]+" 输出尺寸与所选设置不符。").strip())
                     results[task["relative"]]["quality"] = verdict
