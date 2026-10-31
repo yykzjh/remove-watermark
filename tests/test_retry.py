@@ -166,3 +166,18 @@ def test_resume_verifies_existing_and_only_regenerates_failed_outputs(tmp_path):
     final = process_attempts([first["_retry_task"]], opts, cfg, None, {}, "job", process)[0]
     assert calls == [True, False]
     assert final["quality"]["status"] == "passed" and target.read_bytes() == b"repaired"
+
+def test_residual_hints_survive_candidate_selection_and_merge(tmp_path):
+    from pathlib import Path
+    cfg = DeploymentConfig(state_dir=str(tmp_path/"state"), backend="mock")
+    opts = ProcessingConfig(quality_check=True, quality_auto_retry=True)
+    task = {"source": "original", "destination": str(tmp_path/"out.png"), "relative": "out.png",
+            "_extra_regions": [{"kind": "logo", "box": [.7, .7, .9, .9]}]}
+    def process(tasks, *_):
+        Path(tasks[0]["destination"]).write_bytes(b"candidate")
+        q = verdict()
+        q["residual_regions"] = [{"kind": "logo", "box": [.8, .8, 1, 1]}]
+        return [{"file": "out.png", "ok": True, "quality": q}]
+    result = process_attempts([task], opts, cfg, None, {}, "job", process)[0]
+    hints = result["_retry_task"]["_extra_regions"]
+    assert len(hints) == 1 and hints[0]["box"] == (.7, .7, 1., 1.)

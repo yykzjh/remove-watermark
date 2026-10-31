@@ -6,7 +6,7 @@ import time
 import traceback
 
 from .config import DeploymentConfig, ProcessingConfig, Region
-from .detection import locate_watermarks_batch
+from .detection import locate_watermarks_batch, merge_regions
 from .images import (
     atomic_copy,
     blend_patch,
@@ -163,6 +163,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 if isinstance(found, Exception):
                     raise found
                 regions, _ = found
+                if task.get("_extra_regions"):
+                    regions = merge_regions(regions + [
+                        Region.model_validate(r) for r in task["_extra_regions"]
+                    ])
                 regions = [r for r in regions if options.remove_logo or r.kind != "logo"]
             else:
                 regions = regions_for(source, options)

@@ -58,6 +58,12 @@ def parse_detection(
             max(0, x0-px), max(0, y0-py),
             min(1, x1+px), min(1, y1+py),
         )))
+    return merge_regions(regions)
+
+
+def merge_regions(regions):
+    """Merge connected overlay groups without restoring earlier edits."""
+    regions = list(regions)
     # Merge overlapping detections so a later repair cannot restore an earlier overlay.
     while True:
         pair = None
@@ -80,6 +86,8 @@ def parse_detection(
             kind="panel" if "panel" in {first.kind, other.kind} else "logo",
             box=(min(x0, a0), min(y0, b0), max(x1, a1), max(y1, b1)),
         )
+    if len(regions) > 8:
+        raise ValueError("合并后的数字覆盖层超过8组")
     for region in regions:
         x0, y0, x1, y1 = region.box
         if (x1-x0)*(y1-y0) > 0.8:

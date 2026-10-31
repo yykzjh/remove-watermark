@@ -1,6 +1,8 @@
 """Compact metadata report; never exports source images or credentials."""
 import collections
 import json
+import subprocess
+from importlib.metadata import version
 from pathlib import Path
 
 root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")
@@ -32,6 +34,8 @@ for backend in ("resident", "independent"):
             "bad_false_pass": [r["case"] for r in rows if r["expected"] == "review" and r["status"] == "passed"],
             "clean_status": dict(collections.Counter(r["status"] for r in rows if r["expected"] == "passed")),
             "errors": sum(r["status"] == "error" for r in rows)})
+report["environment"] = {name: version(name) for name in ("torch", "diffusers", "transformers", "torchao")}
+report["code_revision"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 profile = root/"sample-review/profile-1024/summary.json"
 if profile.exists():
     report["sample_profile"] = json.loads(profile.read_text())

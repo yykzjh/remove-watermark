@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 
-from .images import atomic_copy
+from .images import atomic_copy, load_photo
 
 
 def quality_rank(result):
@@ -81,6 +82,23 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             continue
         folder, candidate, best, history = paths
         current_attempt = int(task.get("_attempt", 1))
+        q = result.get("quality", {})
+        if (config.backend != "mock" and result["ok"] and q.get("status") == "review"
+                and q.get("watermark_removed") is False and not q.get("residual_regions")):
+            # Only rejected candidates pay this extra scan. Never turn a rejection into a pass.
+            from .detection import locate_watermarks
+            started = time.monotonic()
+            try:
+                regions, _ = locate_watermarks(
+                    load_photo(best if task.get("_recheck") else candidate)[0],
+                    pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
+                    max(1024, options.quality_resolution),
+                )
+                q["residual_regions"] = [r.model_dump() for r in regions]
+            except Exception as error:  # noqa: BLE001 - retry hints are not acceptance evidence
+                q["retry_hint_error"] = str(error)[:400]
+            q["retry_hint_seconds"] = round(time.monotonic()-started, 3)
+            q["seconds"] = round(q.get("seconds", 0)+q["retry_hint_seconds"], 3)
         record = {"attempt": current_attempt, "quality": result.get("quality"),
                   "ok": result["ok"], "action": result.get("action"), "error": result.get("error")}
         saved["attempts"].append(record)
@@ -106,7 +124,18 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             not again and selected.get("quality", {}).get("status") in {"review", "error"}
         )
         if again:
+            from .config import Region
+            from .detection import merge_regions
+            hints = task.get("_extra_regions", []) + q.get("residual_regions", [])
+            try:
+                hints = [r.model_dump() for r in merge_regions([
+                    Region.model_validate(r) for r in hints
+                ])]
+            except ValueError:
+                # Keep the previously validated hints if the union is implausibly large.
+                hints = task.get("_extra_regions", [])
             selected["_retry_task"] = task | {
+                "_extra_regions": hints,
                 "_retry": True, "_attempt": current_attempt + 1,
                 "_recheck": selected.get("quality", {}).get("status") == "error",
             }
