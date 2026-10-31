@@ -169,15 +169,15 @@ def detail_sheets(before, after, count=4):
 _GRAMMARS = {}
 
 
-def allowed_review_tokens(tokenizer, eos_ids):
-    key = (id(tokenizer), tuple(eos_ids))
+def allowed_review_tokens(tokenizer, eos_ids, fields=("watermark_removed", "natural", "content_preserved", "uncertain")):
+    key = (id(tokenizer), tuple(eos_ids), fields)
     if key not in _GRAMMARS:
         tree = {}
         areas = ("none", "top_left", "top", "top_right", "left", "center", "right",
                  "bottom_left", "bottom", "bottom_right")
-        for flags in product((True, False), repeat=4):
+        for flags in product((True, False), repeat=len(fields)):
             for area in areas:
-                data = dict(zip(("watermark_removed", "natural", "content_preserved", "uncertain"), flags))
+                data = dict(zip(fields, flags))
                 data["area"] = area
                 ids = tokenizer.encode(json.dumps(data, separators=(",", ":")), add_special_tokens=False)
                 node = tree
@@ -283,35 +283,144 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             "comparison_output_resized": before.size != after.size})
     return results
 
+OUTPUT_PROMPT = """这是一张去水印结果的检验画布：上方为整图，下方（如有）为同一结果图的放大细节。
+只检查照片区域，白边、灰色分隔和细节拼图不是水印或修补。
+watermark_removed：是否完全没有数字叠加的文字、蓝白/灰黑信息卡、黄底黑字、
+绿蓝应用图标、今日水印、相机、日期地点、防伪码、半透明底纹、细小残影？
+真实标牌、机械品牌、衣服上的字和施工标记必须保留，不能当作数字水印。
+natural：修补有无接缝、矩形填块、模糊抹痕、重复纹理、断裂工程线条、人体畸形？
+注意人物手脚、泥水、草木、履带印、模板钢筋及阴影，不得把工地美化成光滑地面。
+uncertain：是否有细节看不清、无法可靠判断？不确定不能默认通过。
+只输出JSON，以上三项为布尔值，area为主要问题在照片总览的位置：
+none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。不要解释。"""
+
+CONTENT_PROMPT = """图1是原照片，图2是去水印后的照片。只比较原来可见的场景内容：
+人物数量、脸和姿势、服装、机械、建筑、道路与沟渠边线、树木、物体位置是否发生变化？
+忽略数字水印的删除，以及水印原来遮住且无法看见的区域的合理重建。
+不能把原图水印面板被背景替代当作改变原来可见内容。缩放及均匀压缩本身不算内容变化。
+content_preserved为布尔值；原来可见内容一致才为true。
+uncertain为布尔值；细节不足以确认则为true。
+只返回JSON及area（none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right），不要解释。"""
+
+
+def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
+    import torch
+
+    started = time.monotonic()
+    tokenizer = processor.tokenizer
+    previous = tokenizer.padding_side
+    try:
+        tokenizer.padding_side = "left"
+        inputs = processor.apply_chat_template(
+            chats, tokenize=True, add_generation_prompt=True, processor_kwargs={"padding": True},
+            return_dict=True, return_tensors="pt",
+        )
+        inputs.pop("token_type_ids", None)
+        inputs = inputs.to(device)
+        eos = encoder.generation_config.eos_token_id or tokenizer.eos_token_id
+        eos_ids = [eos] if isinstance(eos, int) else list(eos)
+        tree = allowed_review_tokens(tokenizer, eos_ids, fields)
+        width = inputs.input_ids.shape[1]
+        def allowed(batch_id, ids):
+            suffix = ids[width:].tolist()
+            if any(t in eos_ids for t in suffix):
+                return eos_ids
+            node = tree
+            for token in suffix:
+                node = node[token]
+            return list(node)
+        with torch.inference_mode():
+            generated = encoder.generate(
+                **inputs, do_sample=False, use_cache=True, max_new_tokens=max_tokens,
+                prefix_allowed_tokens_fn=allowed,
+            )
+        texts = processor.batch_decode(generated[:, width:], skip_special_tokens=True,
+                                       clean_up_tokenization_spaces=False)
+        rows = [json.loads(text) for text in texts]
+        if len(rows) != len(chats) or any(
+            type(row.get(field)) is not bool for row in rows for field in fields
+        ):
+            raise ValueError("Invalid structured verification output")
+        return rows, time.monotonic()-started
+    finally:
+        tokenizer.padding_side = previous
+
+
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4):
     from .detection import locate_watermarks
 
-    verdicts = review_batch(
-        pairs, encoder, processor, device, resolution, max_tokens,
-        prompt=RESIDENT_PROMPT if reviewer == "resident" else None,
-        reviewer=reviewer, detail_patches=detail_patches,
+    output_chats, content_chats, boxes_list = [], [], []
+    for before, after in pairs:
+        aligned = after.resize(before.size, Image.Resampling.LANCZOS) if after.size != before.size else after
+        overview = preview(aligned, resolution)
+        boxes = []
+        if detail_patches:
+            sheets, boxes = detail_sheets(before, aligned, detail_patches)
+            sheet = sheets[1]
+            canvas = Image.new("RGB", (max(overview.width, sheet.width),
+                                       overview.height+sheet.height+24), (48, 48, 48))
+            canvas.paste(overview, ((canvas.width-overview.width)//2, 0))
+            canvas.paste(sheet, ((canvas.width-sheet.width)//2, overview.height+24))
+            overview = canvas
+        output_chats.append([{"role": "user", "content": [
+            {"type": "image", "image": overview}, {"type": "text", "text": OUTPUT_PROMPT},
+        ]}])
+        content_chats.append([{"role": "user", "content": [
+            {"type": "image", "image": preview(before, resolution)},
+            {"type": "image", "image": preview(aligned, resolution)},
+            {"type": "text", "text": CONTENT_PROMPT},
+        ]}])
+        boxes_list.append(boxes)
+    inspected, output_seconds = _structured_vqa(
+        output_chats, ("watermark_removed", "natural", "uncertain"),
+        encoder, processor, device, max_tokens,
     )
-    for verdict, (_, after) in zip(verdicts, pairs):
-        candidate = (verdict["status"] == "passed" or
-                     (verdict.get("model_status") == "passed" and
-                      verdict.get("guard_codes") == ["identical"]))
-        if reviewer != "resident" or not candidate:
-            continue
-        start = time.monotonic()
-        try:
-            regions, _ = locate_watermarks(after, encoder, processor, device, resolution)
-            verdict["residual_regions"] = [r.model_dump() for r in regions]
-            if regions:
-                verdict.update(status="review", watermark_removed=False,
-                               reason="输出残留水印扫描发现数字覆盖层。")
-            elif verdict.get("guard_codes") == ["identical"]:
-                verdict.update(status="passed", uncertain=verdict["model_uncertain"],
-                               reason=verdict["model_reason"],
-                               unchanged_without_detected_watermark=True)
-        except Exception as error:  # noqa: BLE001 - isolate per-image review failures
-            verdict.update(status="error", reason=f"Residual scan: {error}"[:400])
-        verdict["pair_seconds"] = verdict["seconds"]
-        verdict["residual_scan_seconds"] = round(time.monotonic() - start, 3)
-        verdict["seconds"] = round(verdict["seconds"] + verdict["residual_scan_seconds"], 3)
+    compared, content_seconds = _structured_vqa(
+        content_chats, ("content_preserved", "uncertain"),
+        encoder, processor, device, max_tokens,
+    )
+    verdicts = []
+    for check, comparison, (before, after), boxes in zip(inspected, compared, pairs, boxes_list):
+        data = {k: check[k] for k in ("watermark_removed", "natural")}
+        data["content_preserved"] = comparison["content_preserved"]
+        data["uncertain"] = check["uncertain"] or comparison["uncertain"]
+        data["area"] = check.get("area", "none") if not check["watermark_removed"] or not check["natural"] else comparison.get("area", "none")
+        verdict = parse_review(json.dumps(data))
+        verdict["model_status"] = verdict["status"]
+        verdict["model_uncertain"] = verdict["uncertain"]
+        verdict["model_reason"] = verdict["reason"]
+        warnings = deterministic_warnings(before, after)
+        if warnings:
+            if verdict["status"] == "passed":
+                verdict.update(status="review", uncertain=True)
+            verdict["guard_codes"] = [w["code"] for w in warnings]
+            verdict["deterministic_warnings"] = [w["message"] for w in warnings]
+            verdict["reason"] = (verdict["reason"]+" "+" ".join(w["message"] for w in warnings)).strip()[:400]
+        verdict.update(
+            seconds=round((output_seconds+content_seconds)/len(pairs), 3),
+            batch_seconds=round(output_seconds+content_seconds, 3), batch_size=len(pairs),
+            output_inspection_seconds=round(output_seconds/len(pairs), 3),
+            content_comparison_seconds=round(content_seconds/len(pairs), 3),
+            resolution=resolution, detail_boxes=boxes, pixel_mae=pixel_change(before, after),
+            method=reviewer+"_qwen3_vl", review_version="2026-10-31.decomposed-v1",
+        )
+        candidate = verdict["status"] == "passed" or (
+            verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"])
+        if candidate:
+            started = time.monotonic()
+            try:
+                regions, _ = locate_watermarks(after, encoder, processor, device, resolution)
+                verdict["residual_regions"] = [r.model_dump() for r in regions]
+                if regions:
+                    verdict.update(status="review", watermark_removed=False,
+                                   reason="输出残留水印扫描发现数字覆盖层。")
+                elif verdict.get("guard_codes") == ["identical"]:
+                    verdict.update(status="passed", uncertain=verdict["model_uncertain"],
+                                   reason=verdict["model_reason"])
+            except Exception as error:  # noqa: BLE001 - failed scan never means pass
+                verdict.update(status="error", reason=f"Residual scan: {error}"[:400])
+            verdict["residual_scan_seconds"] = round(time.monotonic()-started, 3)
+            verdict["seconds"] = round(verdict["seconds"]+verdict["residual_scan_seconds"], 3)
+        verdicts.append(verdict)
     return verdicts
