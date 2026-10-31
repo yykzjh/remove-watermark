@@ -21,7 +21,7 @@ HELP = {
     "oom_split_batch": "Recursively split a batch on CUDA OOM; singleton failure is reported",
     "replicas_per_gpu": "Full model copies per GPU, 1..4; multiplies VRAM use",
     "quality_backend": "resident: reuse image encoder; independent: separate instruction VLM",
-    "quality_verifier": "Load independent instruction VLM per GPU for post-removal quality review",
+    "quality_verifier": "Enable post-removal review using the selected quality backend",
     "quality_model": "Independent quality VLM repository or local path; adds GPU memory",
     "quality_revision": "Independent quality VLM revision (master for ModelScope)",
     "dtype": "Model weight and inference dtype",

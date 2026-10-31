@@ -269,16 +269,23 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 for task, verdict in zip(group, reviews):
                     if config.quality_backend == "resident" and verdict["status"] == "passed":
                         residual_start = time.monotonic()
-                        after = load_photo(task["destination"])[0]
-                        regions, _ = locate_watermarks(
-                            after, pipe.text_encoder, pipe.processor, pipe._execution_device,
-                            options.quality_resolution,
-                        )
+                        try:
+                            after = load_photo(task["destination"])[0]
+                            regions, _ = locate_watermarks(
+                                after, pipe.text_encoder, pipe.processor, pipe._execution_device,
+                                options.quality_resolution,
+                            )
+                            verdict["residual_regions"] = [r.model_dump() for r in regions]
+                            if regions:
+                                verdict.update(status="review", watermark_removed=False,
+                                               reason="Output residual-watermark scan found digital overlays.")
+                        except Exception as error:  # noqa: BLE001 - isolate per-image review failures
+                            verdict.update(status="error", reason=f"Residual scan: {error}"[:400])
+                        verdict["pair_seconds"] = verdict["seconds"]
                         verdict["residual_scan_seconds"] = round(time.monotonic() - residual_start, 3)
-                        verdict["residual_regions"] = [r.model_dump() for r in regions]
-                        if regions:
-                            verdict.update(status="review", watermark_removed=False,
-                                           reason="Output residual-watermark scan found digital overlays.")
+                        verdict["seconds"] = round(
+                            verdict["seconds"] + verdict["residual_scan_seconds"], 3,
+                        )
                     results[task["relative"]]["quality"] = verdict
             except Exception as error:  # noqa: BLE001 - quality failures must never become passes
                 if isinstance(error, torch.cuda.OutOfMemoryError) and len(group) > 1:
