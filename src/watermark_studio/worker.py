@@ -246,7 +246,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
         results[task["relative"]] = result
     if options.quality_check:
-        from .quality import RESIDENT_PROMPT, review_batch
+        from .quality import verify_batch
         pending = []
         for task in tasks:
             result = results[task["relative"]]
@@ -260,32 +260,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         def review(group):
             try:
                 pairs = [(load_photo(t["source"])[0], load_photo(t["destination"])[0]) for t in group]
-                reviews = review_batch(
+                reviews = verify_batch(
                     pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
                     options.quality_resolution, options.quality_max_tokens,
-                    prompt=RESIDENT_PROMPT if config.quality_backend == "resident" else None,
-                    reviewer=config.quality_backend,
+                    reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                 )
                 for task, verdict in zip(group, reviews):
-                    if config.quality_backend == "resident" and verdict["status"] == "passed":
-                        residual_start = time.monotonic()
-                        try:
-                            after = load_photo(task["destination"])[0]
-                            regions, _ = locate_watermarks(
-                                after, pipe.text_encoder, pipe.processor, pipe._execution_device,
-                                options.quality_resolution,
-                            )
-                            verdict["residual_regions"] = [r.model_dump() for r in regions]
-                            if regions:
-                                verdict.update(status="review", watermark_removed=False,
-                                               reason="Output residual-watermark scan found digital overlays.")
-                        except Exception as error:  # noqa: BLE001 - isolate per-image review failures
-                            verdict.update(status="error", reason=f"Residual scan: {error}"[:400])
-                        verdict["pair_seconds"] = verdict["seconds"]
-                        verdict["residual_scan_seconds"] = round(time.monotonic() - residual_start, 3)
-                        verdict["seconds"] = round(
-                            verdict["seconds"] + verdict["residual_scan_seconds"], 3,
-                        )
                     results[task["relative"]]["quality"] = verdict
             except Exception as error:  # noqa: BLE001 - quality failures must never become passes
                 if isinstance(error, torch.cuda.OutOfMemoryError) and len(group) > 1:

@@ -45,6 +45,7 @@ class ProcessingConfig(BaseModel):
     quality_resolution: int = Field(default=768, ge=384, le=1280, multiple_of=32)
     quality_batch_size: int = Field(default=1, ge=1, le=4)
     quality_max_tokens: int = Field(default=128, ge=64, le=256)
+    quality_detail_patches: int = Field(default=4, ge=0, le=8)
     remove_logo: bool = False
     resolution: int = Field(default=1024, ge=256, le=2048, multiple_of=32)
     context: float = Field(default=0.6, ge=0.1, le=2)

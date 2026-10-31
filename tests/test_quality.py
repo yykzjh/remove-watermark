@@ -43,3 +43,38 @@ def test_unchanged_and_introduced_flat_fill_require_review():
     from PIL import ImageDraw
     ImageDraw.Draw(after).rectangle((0, 0, 200, 150), fill="lime")
     assert deterministic_warnings(before, after)
+
+def test_detail_crops_include_a_small_local_change():
+    from PIL import ImageDraw
+
+    from watermark_studio.quality import detail_sheets
+    before = Image.new("RGB", (1024, 768), "gray")
+    after = before.copy()
+    ImageDraw.Draw(after).rectangle((700, 350, 730, 380), fill="red")
+    sheets, boxes = detail_sheets(before, after, 4)
+    assert len(sheets) == 2 and len(boxes) == 4
+    x0, y0, x1, y1 = boxes[0]
+    assert x0 <= 715/1024 <= x1 and y0 <= 365/768 <= y1
+
+
+def test_review_grammar_only_allows_complete_typed_json():
+    from watermark_studio.quality import allowed_review_tokens
+
+    class CharTokenizer:
+        def encode(self, text, add_special_tokens=False):
+            return [ord(c) for c in text]
+
+    tree = allowed_review_tokens(CharTokenizer(), [0])
+    outputs = []
+    def walk(node, prefix):
+        for token, child in node.items():
+            if token == 0:
+                outputs.append(json.loads("".join(map(chr, prefix))))
+            else:
+                walk(child, prefix+[token])
+    walk(tree, [])
+    assert len(outputs) == 160
+    for row in outputs:
+        assert all(type(row[k]) is bool for k in
+                   ("watermark_removed", "natural", "content_preserved", "uncertain"))
+        assert parse_review(json.dumps(row))["status"] in {"passed", "review"}

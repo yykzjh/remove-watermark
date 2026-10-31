@@ -1,8 +1,8 @@
 """Run real end-to-end quality-stage throughput comparisons on an existing service."""
+import argparse
 import json
 import os
 import random
-import sys
 import time
 from pathlib import Path
 
@@ -10,8 +10,14 @@ from PIL import Image
 
 from watermark_studio.cli import request
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--tag", default="")
+parser.add_argument("--detail-patches", type=int, default=4)
+parser.add_argument("--profiles", nargs="+")
+parser.add_argument("--contact", action="store_true")
+args = parser.parse_args()
 url = "http://127.0.0.1:18770"
-root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/quality-benchmark")
+root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031") / ("quality-benchmark" + ("-" + args.tag if args.tag else ""))
 inputs = root / "input"
 inputs.mkdir(parents=True, exist_ok=True)
 data = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/八标照片集")
@@ -37,7 +43,7 @@ for f in candidates:
         break
 assert len(chosen) == 24
 (root / "sources.json").write_text(json.dumps(chosen, ensure_ascii=False))
-if "--contact" in sys.argv:
+if args.contact:
     from PIL import ImageDraw, ImageOps
     for page in range(3):
         sheet = Image.new("RGB", (768, 336), "white")
@@ -63,12 +69,14 @@ profiles = [
     ("quality-768-b2", True, 768, 2),
 ]
 for label, enabled, resolution, batch in profiles:
+    if args.profiles and label not in args.profiles:
+        continue
     started = time.monotonic()
     job_id = request(url, "/jobs", {
         "input_dir": str(inputs), "output_dir": str(root / label),
         "options": {"concurrency": 20, "resolution": 1024, "overwrite": True,
                     "quality_check": enabled, "quality_resolution": resolution,
-                    "quality_batch_size": batch},
+                    "quality_batch_size": batch, "quality_detail_patches": args.detail_patches},
     })["id"]
     while True:
         state = request(url, "/health")
@@ -80,7 +88,7 @@ for label, enabled, resolution, batch in profiles:
         time.sleep(.5)
     rows = [json.loads(line) for line in
             (Path.home()/".local/state/watermark-studio"/job_id/"results.jsonl").read_text().splitlines()]
-    record = {"label": label, "seconds": round(time.monotonic()-started, 3),
+    record = {"label": label, "tag": args.tag, "detail_patches": args.detail_patches, "seconds": round(time.monotonic()-started, 3),
               "job": job_id, "success": job["succeeded"], "failed": job["failed"],
               "quality_counts": job.get("quality_counts", {}),
               "quality_seconds": round(sum(r.get("quality", {}).get("seconds", 0) for r in rows), 3),

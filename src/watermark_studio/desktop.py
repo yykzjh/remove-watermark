@@ -363,6 +363,13 @@ class MainWindow(QMainWindow):
         self.quality_batch.setEnabled(False)
         self.quality_check.toggled.connect(self.quality_batch.setEnabled)
         form.addRow("每卡检验凑批上限", self.quality_batch)
+        self.quality_details = QSpinBox()
+        self.quality_details.setRange(0, 8)
+        self.quality_details.setValue(4)
+        self.quality_details.setEnabled(False)
+        self.quality_details.setToolTip("自动挑选变化及结构明显的局部进行放大对照；不能覆盖所有细节。0表示仅整图检验。")
+        self.quality_check.toggled.connect(self.quality_details.setEnabled)
+        form.addRow("放大细节片数量", self.quality_details)
         self.overwrite = QCheckBox("覆盖输出目录中的同名文件")
         form.addRow(self.overwrite)
         self.extra_prompt = QLineEdit()
@@ -478,6 +485,7 @@ class MainWindow(QMainWindow):
                 quality_check=self.quality_check.isChecked(),
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
+                quality_detail_patches=self.quality_details.value(),
                 overwrite=self.overwrite.isChecked(),
                 output_width=self.output_width.value() if self.output_mode.currentIndex() else 0,
                 output_height=self.output_height.value() if self.output_mode.currentIndex() else 0,

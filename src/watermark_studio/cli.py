@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--quality-max-tokens", type=int, default=128)
+    parser.add_argument("--quality-detail-patches", type=int, choices=[0, 2, 4, 6, 8], default=4)
     args = parser.parse_args()
     request(
         args.url,
@@ -48,6 +49,7 @@ def main():
                 "quality_resolution": args.quality_resolution,
                 "quality_batch_size": args.quality_batch_size,
                 "quality_max_tokens": args.quality_max_tokens,
+                "quality_detail_patches": args.quality_detail_patches,
 
             },
         },
