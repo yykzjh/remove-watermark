@@ -1,0 +1,25 @@
+{
+  "revision": "3122435",
+  "job": "4247d34288ac44dda2bc3cfbe0693de6",
+  "state": "completed",
+  "seconds": 2.59,
+  "files": 9,
+  "directories": 10,
+  "links": 2,
+  "processed_images": 3,
+  "invalid": 2,
+  "mirror": {
+    "directories": 10,
+    "copied_files": 6,
+    "copied_bytes": 33487,
+    "copied_invalid_images": 2,
+    "copied_links": 2,
+    "existing_files": 0,
+    "copy_failures": 0
+  },
+  "source_unchanged": true,
+  "all_relative_paths_equal": true,
+  "auxiliary_sha256_equal": true,
+  "image_dimensions_equal": true,
+  "exif_orientation_equal": true
+}
