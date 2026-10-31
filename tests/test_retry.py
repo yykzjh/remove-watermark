@@ -84,3 +84,62 @@ def test_runtime_requeues_once_and_counts_only_terminal_result(tmp_path):
     assert not runtime.job["acceptance_complete"]
     assert len((tmp_path/"job/results.jsonl").read_text().splitlines()) == 1
     assert json.loads((tmp_path/"job/summary.json").read_text())["completed"] == 1
+
+def test_dispatch_balances_tail_and_prioritizes_first_pass(tmp_path):
+    from collections import deque
+
+    class Inbox:
+        def __init__(self):
+            self.requests = []
+        def put(self, item):
+            self.requests.append(item)
+
+    runtime = Runtime(DeploymentConfig(backend="mock", state_dir=str(tmp_path),
+                                      batch_size=1, batch_window=4, adaptive_dispatch=True))
+    runtime.job = {"id": "job", "state": "running", "options": {"concurrency": 12}}
+    runtime.workers = [
+        {"state": "idle", "task": None, "queue": Inbox()},
+        {"state": "busy", "task": [{"relative": "busy1"}], "queue": Inbox()},
+        {"state": "busy", "task": [{"relative": "busy2"}], "queue": Inbox()},
+    ]
+    runtime.pending = deque({"relative": str(i)} for i in range(4))
+    runtime.retry_pending = deque([{"relative": "retry"}])
+    runtime._dispatch()
+    request = runtime.workers[0]["queue"].requests[0]
+    assert [t["relative"] for t in request["tasks"]] == ["0", "1"]
+    assert len(runtime.pending) == 2 and len(runtime.retry_pending) == 1
+
+
+def test_cancellation_clears_pending_retries_without_dispatch(tmp_path):
+    from collections import deque
+
+    runtime = Runtime(DeploymentConfig(backend="mock", state_dir=str(tmp_path)))
+    runtime.job = {"id": "job", "state": "cancelling", "options": {"quality_check": True},
+                   "quality_counts": {}, "total": 3, "invalid": 0}
+    runtime._persist()
+    runtime.pending = deque([{"relative": "first"}])
+    runtime.retry_pending = deque([{"relative": "retry1"}, {"relative": "retry2"}])
+    runtime._dispatch()
+    assert runtime.job["state"] == "cancelled"
+    assert runtime.job["unprocessed"] == 3
+    assert not runtime.pending and not runtime.retry_pending
+    assert not runtime.job["acceptance_complete"]
+
+
+def test_successful_retry_installs_pass_and_stops(tmp_path):
+    from pathlib import Path
+
+    cfg = DeploymentConfig(state_dir=str(tmp_path/"state"))
+    opts = ProcessingConfig(quality_check=True, quality_auto_retry=True)
+    target = tmp_path/"out.png"
+    task = {"source": "original", "destination": str(target), "relative": "out.png"}
+    def process(tasks, *_):
+        attempt = tasks[0].get("_attempt", 1)
+        Path(tasks[0]["destination"]).write_bytes(str(attempt).encode())
+        q = verdict("passed", removed=True) if attempt == 2 else verdict()
+        return [{"file": "out.png", "ok": True, "quality": q}]
+    first = process_attempts([task], opts, cfg, None, {}, "job", process)[0]
+    final = process_attempts([first["_retry_task"]], opts, cfg, None, {}, "job", process)[0]
+    assert target.read_bytes() == b"2" and final["best_attempt"] == 2
+    assert final["quality"]["status"] == "passed" and "_retry_task" not in final
+    assert not final["retry_exhausted"]
