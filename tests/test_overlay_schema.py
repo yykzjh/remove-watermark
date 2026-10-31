@@ -49,3 +49,33 @@ def test_coordinates_cannot_exceed_the_normalized_integer_range():
 def test_finished_batch_rows_tolerate_decoder_padding_after_eos():
     grammar=overlay_grammar(Characters(),[0])
     assert grammar(list(map(ord,'{"watermarks":[]}'))+[0,999])==[0]
+
+
+class MergedPunctuation:
+    def __init__(self):
+        self.pieces=['":[]}',': []}',']}]}' ,']},{"kind":"', '{"kind":"', '":[', '":[]']
+        self.tokens={piece:10000+i for i,piece in enumerate(self.pieces)}
+    def encode(self,text,add_special_tokens=False):
+        result=[]
+        while text:
+            match=next((piece for piece in self.pieces if text.startswith(piece)),None)
+            if match:
+                result.append(self.tokens[match]);text=text[len(match):]
+            else:
+                result.append(ord(text[0]));text=text[1:]
+        return result
+
+
+@pytest.mark.parametrize("scene",[False,True])
+@pytest.mark.parametrize("count",[0,1,2,8])
+def test_grammar_keeps_natural_bpe_paths_for_empty_lists_and_joint_closing_tokens(scene,count):
+    tokenizer=MergedPunctuation()
+    value={"scene":"document","watermarks":[]} if scene else {"watermarks":[]}
+    value["watermarks"]=[{"kind":"logo","box":[0,900,1000,1000]}]*count
+    tokens=tokenizer.encode(json.dumps(value,separators=(",",":")))
+    grammar=overlay_grammar(tokenizer,[0],scene)
+    prefix=[]
+    for token in tokens:
+        assert token in grammar(prefix),prefix
+        prefix.append(token)
+    assert grammar(prefix)==[0]

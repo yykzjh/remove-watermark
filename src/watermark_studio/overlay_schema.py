@@ -14,17 +14,28 @@ def overlay_grammar(tokenizer, eos_ids, scene=False):
                 node=node.setdefault(token,{})
             node["_next"]=next_stage
         add("header",'{"watermarks":[',"list")
+        add("header",'{"watermarks":[]}',"done")
         add("scene_header",'{"scene":',"scene")
         for value in ("outdoor","document","indoor","unknown"):
             add("scene",'"'+value+'","watermarks":[',"list")
+            add("scene",'"'+value+'","watermarks":[]}',"done")
         add("list","]}","done")
         add("list",'{"kind":',"kind")
+        for stage in ("list","object"):
+            for kind in ("panel","logo"):
+                add(stage,'{"kind":"'+kind+'","box":[',"n0")
         add("kind",'"panel","box":[',"n0")
         add("kind",'"logo","box":[',"n0")
         for index in range(4):
             for number in range(1001):
                 add("n"+str(index),str(number)+("," if index<3 else "]}"),
                     "n"+str(index+1) if index<3 else "separator")
+        for number in range(1001):
+            add("n3",str(number)+"]}]}","done")
+            add("n3_last",str(number)+"]}]}","done")
+            add("n3_last",str(number)+"]}","separator")
+            for kind in ("panel","logo"):
+                add("n3",str(number)+']},{"kind":"'+kind+'","box":[',"next_number_object")
         add("separator",",","object")
         add("separator","]}","done")
         add("object",'{"kind":',"kind")
@@ -43,6 +54,10 @@ def overlay_grammar(tokenizer, eos_ids, scene=False):
             node=node[token]
             if "_next" in node:
                 stage=node["_next"]
+                if stage=="next_number_object":
+                    groups+=1;stage="n0"
+                if stage=="n3" and groups==7:
+                    stage="n3_last"
                 if stage=="separator":
                     groups+=1
                     if groups==8: stage="finish"
