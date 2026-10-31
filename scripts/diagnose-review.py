@@ -6,9 +6,12 @@ from PIL import Image, ImageDraw, ImageOps
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--export", action="store_true")
+parser.add_argument("--benchmark", default="quality-benchmark-protected-v3-64")
+parser.add_argument("--prefix", default="review")
+parser.add_argument("--output-only", action="store_true")
 args = parser.parse_args()
 
-root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/quality-benchmark-protected-v3-64")
+root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031") / args.benchmark
 for name in ("010.jpg", "057.jpg"):
     photos = []
     for folder in ("input", "quality-768-b2"):
@@ -16,8 +19,10 @@ for name in ("010.jpg", "057.jpg"):
             photos.append(ImageOps.exif_transpose(im).convert("RGB"))
     if args.export:
         for label, photo in zip(("original", "output"), photos):
+            if args.output_only and label != "output":
+                continue
             preview=ImageOps.contain(photo,(1280,1280))
-            target=Path(".run")/f"review-{name[:-4]}-{label}.jpg"
+            target=Path(".run")/f"{args.prefix}-{name[:-4]}-{label}.jpg"
             while True:
                 for q in (80,70,60,50,40,30):
                     preview.save(target,quality=q,optimize=True)
@@ -42,7 +47,7 @@ for name in ("010.jpg", "057.jpg"):
             thumb = ImageOps.contain(crop, (384, height))
             canvas.paste(thumb, (column*384, top))
             draw.text((column*384+3,top-18), ("original " if column==0 else "output ")+label, fill="black")
-    path = Path(".run")/("review-"+name)
+    path = Path(".run")/(args.prefix+"-"+name)
     for quality in (65, 55, 45, 35, 25):
         canvas.save(path, quality=quality, optimize=True)
         if path.stat().st_size <= 65536:

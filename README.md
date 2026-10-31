@@ -14,6 +14,8 @@
 
 图像由用户提前放在开发机。服务在开发机递归读取输入目录，过滤非图像及损坏/多帧图像，并按相同相对路径写入输出目录。桌面窗口通过少量 JSON 控制请求操作；单张框选时按需请求不超过 64 KiB 的预览，不自动下载原图。
 
+最新修补与检验配方：`bash scripts/launch-throughput-quality.sh`，默认独立 Qwen3-VL 检验、调和明暗衔接及局部阴影/纹理检查。客户端须显式启用原图保护、检验、自动返工；见[流程](docs/quality-review.md)和[两张待复核图的修复实测](docs/review-repair-2026-11-01.md)。
+
 ## 启动参数与调优
 
 完整参数脚本：[scripts/launch-server.sh](scripts/launch-server.sh)。支持通过启动命令选择 single/data 并行、GPU 列表及全部部署选项；先用 --print-config 查看最终设置。详细参数表、完整脚本、任务配置和调优顺序见 [启动与调优指南](docs/startup-and-tuning.md)。
