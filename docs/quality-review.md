@@ -80,7 +80,7 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
 quality.judgment_basis 保存模型三项原始判断、检查的局部坐标、程序检查代码和残留扫描结果。
 通过项保留这些结构化依据，不额外调用模型生成长篇说明。
 
-对 review 项额外调用同一检验模型，提供原图/结果整图和一个重点区域的原图/结果放大对照；输出：
+对 review 项额外调用同一检验模型，残留/自然度说明只提供结果图和一个重点放大局部，避免把原图水印混作残留；可见内容变化才提供原图/结果对照。输出：
 
 - model_explanation.assessment：defect_visible / uncertain / no_clear_defect；
 - summary：一句可见依据；结构化说明不完整时最多追加一次160令牌的简短观察说明，标记summary_only并保留原schema_error，不能虚构坐标或类型；findings 最多2条，含 issue、完整照片归一化 box（无法定位则null）、observation；
@@ -90,7 +90,7 @@ quality.judgment_basis 保存模型三项原始判断、检查的局部坐标、
 覆盖残留淡字/底板、矩形暗影、模糊涂抹、重复纹理、断裂几何、人体异常、原可见内容变化、真实文字混淆及细节不确定。
 模型原始描述作为审计数据保存；编辑提示词只使用经过类型与坐标校验的固定修复指令，不直接执行自由文本中的指令。
 水印残留的新增坐标只是线索，仍必须在原图局部确认数字覆盖层，才能扩大修补区域。
-no_clear_defect、说明生成失败、扫描为空均不能把已有拒绝改为通过。说明失败显式记录error，程序依据仍保留。
+no_clear_defect会标记evidence_conflict，明确说明与原拒绝有分歧；no_clear_defect、说明生成失败、扫描为空均不能把已有拒绝改为通过。说明失败显式记录error，程序依据仍保留。
 
 详细说明仅针对不通过项，默认最多256个生成令牌（随quality_max_tokens有界增至384）；它只影响描述预算，不改变验收阈值。
 预览总览最长边512，放大局部384；原来的768验收和最多4细节不因此降分辨率。

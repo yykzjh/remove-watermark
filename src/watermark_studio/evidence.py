@@ -22,7 +22,7 @@ REPAIR_ACTIONS = {
 }
 
 EXPLANATION_PROMPT = """给出去水印验收的可见依据，供人工追查和下一次从原图返工使用。
-前两图分别是原照片、结果照片；后续成对局部图标明完整照片的0..1坐标。
+各图已明确标为结果或原图，局部标明完整照片的0..1坐标。只描述结果图实际可见的问题。
 先前判定和数值检查只是待核实线索，不能据此臆造缺陷。独立观察真实像素。
 只描述可见现象，不输出思维过程；区分数字覆盖层、真实标牌/机械文字、真实阴影。
 注意淡字、极小防伪码、残余底板、矩形暗影、模糊/重复纹理、断线和人体/可见内容变化。
@@ -39,7 +39,7 @@ no_clear_defect时findings可空。uncertain必须说明看不清或缺少哪类
 """
 
 
-SUMMARY_PROMPT = """前两图分别是原图与去水印结果，后续成对图是同一区域的原图/结果放大。
+SUMMARY_PROMPT = """各图已明确标为结果或原图，局部坐标属于完整照片。不要把原图水印当成结果图残留。
 请用一句中文具体描述结果中实际可见的问题及位置，或说明为何不能确认缺陷。
 区分数字水印与真实标牌、机械文字、真实阴影；检查矩形色差、模糊、断线及可见内容变化。
 只写观察依据，不写思维过程，不输出JSON或判定代码，不逐字转录姓名、地址、日期、代码。
@@ -157,8 +157,13 @@ def _explanation_chats(pairs, verdicts, resolution):
     chats = []
     for (before, after), verdict in zip(pairs, verdicts):
         aligned = after.resize(before.size,Image.Resampling.LANCZOS) if before.size != after.size else after
-        content = [{"type":"image","image":preview(before,min(resolution,512))},
-                   {"type":"image","image":preview(aligned,min(resolution,512))}]
+        compare = verdict.get("content_preserved") is False or bool(verdict.get("outside_repair_change",{}).get("tiles"))
+        content = []
+        if compare:
+            content.extend([{"type":"text","text":"下图是原图，只用于比较原来可见的内容，不是被验收的结果。"},
+                            {"type":"image","image":preview(before,min(resolution,512))}])
+        content.extend([{"type":"text","text":"下图是完整去水印结果。只根据此结果判断残留与修补缺陷；真实标牌/机械字样必须保留。"},
+                        {"type":"image","image":preview(aligned,min(resolution,512))}])
         candidates = [f["box"] for f in local_findings(verdict) if f["box"]]
         candidates += verdict.get("detail_boxes", [])
         used = []
@@ -171,9 +176,12 @@ def _explanation_chats(pairs, verdicts, resolution):
             x0,y0,x1,y1=box
             dx,dy=max(.025,(x1-x0)*.25),max(.025,(y1-y0)*.25)
             box=[max(0,x0-dx),max(0,y0-dy),min(1,x1+dx),min(1,y1+dy)]
-            content.append({"type":"text","text":f"下两图为原图/结果的同一区域，完整照片归一化坐标{box}。"})
             native=tuple(round(v*s) for v,s in zip(box,(before.width,before.height,before.width,before.height)))
-            content.extend({"type":"image","image":preview(photo.crop(native),384)} for photo in (before,aligned))
+            if compare:
+                content.extend([{"type":"text","text":f"原图局部，完整照片归一化坐标{box}。"},
+                                {"type":"image","image":preview(before.crop(native),384)}])
+            content.extend([{"type":"text","text":f"结果图局部，完整照片归一化坐标{box}。只检验该结果的像素。"},
+                            {"type":"image","image":preview(aligned.crop(native),384)}])
             if len(used)==1:
                 break
         hints={k:verdict.get(k) for k in ("watermark_removed","natural","content_preserved","uncertain","guard_codes")}
@@ -259,9 +267,11 @@ def attach_evidence(pairs, verdicts, encoder, processor, device, resolution, max
         for index,report in zip(pending,reports):
             verdict=verdicts[index]
             verdict["model_explanation"]=report
+            verdict["evidence_conflict"]=report.get("assessment")=="no_clear_defect"
             verdict["evidence"].extend(report.get("findings",[]))
             if report.get("status") in {"ok","summary_only"}:
-                verdict["reason"]=(verdict["reason"]+" 依据："+report["summary"])[:400]
+                verdict["reason"]=(verdict["reason"]+" 依据："+report["summary"]+
+                    ("（说明未确认缺陷，与原拒绝存在分歧，保留复核）" if verdict["evidence_conflict"] else ""))[:400]
             verdict["explanation_seconds"]=round(seconds,3)
             verdict["seconds"]=round(verdict.get("seconds",0)+seconds,3)
     for verdict in verdicts:

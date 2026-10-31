@@ -133,3 +133,16 @@ def test_malformed_model_json_gets_one_explicit_summary_fallback(monkeypatch):
     assert verdict["model_explanation"]["status"]=="summary_only"
     assert verdict["model_explanation"]["schema_error"]=="summary missing"
     assert "横向暗边" in verdict["reason"] and verdict["retry_feedback"]
+
+
+def test_explanation_separates_output_defects_from_reference_content_changes():
+    from watermark_studio.evidence import _explanation_chats
+
+    before=Image.new("RGB",(100,80),"blue")
+    after=Image.new("RGB",(100,80),"gray")
+    for preserved,count in ((True,2),(False,4)):
+        chats=_explanation_chats([(before,after)],[{"content_preserved":preserved,
+            "detail_boxes":[[.1,.2,.8,.9]]}],768)
+        images=[item["image"] for item in chats[0][0]["content"] if item["type"]=="image"]
+        assert len(images)==count
+        assert images[0].getpixel((0,0))==((128,128,128) if preserved else (0,0,255))

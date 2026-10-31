@@ -358,7 +358,7 @@ class MainWindow(QMainWindow):
         self.repair_blending.setToolTip("从原水印以外的可见像素估计平滑色偏，减少矩形阴影；不扩大处理范围。")
         form.addRow("修补明暗衔接", self.repair_blending)
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
-        self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；建议同时启用自动保护原图内容。待复核或检验错误不算通过。")
+        self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；建议同时启用自动保护原图内容。未通过项提供可见依据和返工建议；待复核或检验错误不算通过。")
         form.addRow(self.quality_check)
         self.quality_resolution = QComboBox()
         for size in (512, 768, 1024, 1280):
