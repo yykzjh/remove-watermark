@@ -129,8 +129,9 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
 def file_hashes(cases):
     result={}
     for case in cases:
-        with open(case["output"],"rb") as stream:
-            result[case["output"]]=hashlib.file_digest(stream,"sha256").hexdigest()
+        for key in ("source","output"):
+            with open(case[key],"rb") as stream:
+                result[case[key]]=hashlib.file_digest(stream,"sha256").hexdigest()
     return result
 
 
@@ -225,7 +226,7 @@ def main():
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,
                 "cross_review_effective":args.cross_review and identity["relation"]=="different_weights",
-                "seconds":seconds,"load_seconds":load_seconds,"cohorts":cohorts,"outputs_unchanged":True}
+                "seconds":seconds,"load_seconds":load_seconds,"cohorts":cohorts,"outputs_unchanged":True,"sources_unchanged":True}
         (target/"summary.json").write_text(json.dumps(result,indent=2))
         print(json.dumps(result),flush=True)
     finally:
