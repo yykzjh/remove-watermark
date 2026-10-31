@@ -168,7 +168,7 @@ if args.numeric_only:
         regions=known_regions.get(label)
         if regions is None:
             regions=[Region.model_validate(r) for r in priors.get(label,{}).get("source_regions",[])]
-        result=repair_texture_warnings(after,regions,before=before)
+        result=repair_texture_warnings(after,regions,before=before,debug=True)
         numeric.append({"case":label,"expected":expected,**result})
     print(json.dumps(numeric,ensure_ascii=False),flush=True)
     raise SystemExit

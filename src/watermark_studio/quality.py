@@ -229,7 +229,7 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
             "source_unchanged_segments":unchanged_segments}
 
 
-def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=None):
+def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=None, debug=False):
     """Detect box-aligned sharpness collapse while allowing genuine low-detail surfaces."""
     scale=min(1,resolution/max(image.size))
     size=(max(1,round(image.width*scale)),max(1,round(image.height*scale)))
@@ -240,6 +240,7 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                 np.asarray(gray.filter(ImageFilter.GaussianBlur(1)),dtype=np.float32))
     reference=None
     records=[]
+    probes=[]
     for region_index,region in enumerate(regions):
         box=region.box if hasattr(region,"box") else region["box"]
         x0,y0,x1,y1=box
@@ -270,6 +271,10 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                     colours.append(colour.mean(axis=(0,1)))
                 inner,near,outside=stats
                 ratio=inner/max(outside,.001)
+                if debug and outside>.8 and ratio<.6:
+                    probes.append({"side":side,"lo":lo,"ratio":round(ratio,4),
+                        "in":round(inner,3),"near":round(near,3),"out":round(outside,3),
+                        "colour_delta":round(float(np.abs(colours[0]-colours[2]).mean()),3)})
                 if outside<2.2 or ratio>.22 or near<outside*.5 or np.abs(colours[0]-colours[2]).mean()>32:
                     hits.append(None)
                     continue
@@ -288,7 +293,8 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                 if first is not None and second is not None:
                     records.append(first)
     return {"method":"mask_texture_collapse_v1","count":len(records),
-            "suspect_segments":records[:12],"comparison_size":list(size)}
+            "suspect_segments":records[:12],"comparison_size":list(size),
+            **({"probes":sorted(probes,key=lambda p:p["ratio"])[:12]} if debug else {})}
 
 
 def detail_sheets(before, after, count=4):
