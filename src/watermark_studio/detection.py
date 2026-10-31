@@ -330,7 +330,7 @@ def complete_edge_strokes(image, regions):
             expanded.append(region)
             continue
         original=pixel_box(region.box,image.size)
-        bounds=list(original)
+        normalized=list(region.box)
         records=[]
         for side in ("left","right","top","bottom"):
             vertical=side in {"left","right"}
@@ -378,11 +378,10 @@ def complete_edge_strokes(image, regions):
             target=(max(0,lo+min(c[0] for c in candidates)-2) if side in {"left","top"} else
                     min(extent,lo+max(c[2] for c in candidates)+2))
             coordinate={"left":0,"top":1,"right":2,"bottom":3}[side]
-            bounds[coordinate]=target
+            normalized[coordinate]=target/extent
             records.append({"side":side,"from_pixel":position,"to_pixel":target,
                             "source_stroke_components":len(candidates)})
-        candidate=Region(kind=region.kind,box=(bounds[0]/image.width,bounds[1]/image.height,
-                                               bounds[2]/image.width,bounds[3]/image.height))
+        candidate=Region(kind=region.kind,box=tuple(normalized))
         intersects_other=any(other_index!=index and
             max(candidate.box[0],other.box[0])<min(candidate.box[2],other.box[2]) and
             max(candidate.box[1],other.box[1])<min(candidate.box[3],other.box[3])

@@ -220,3 +220,16 @@ def test_edge_stroke_evidence_works_without_assuming_a_fixed_watermark_corner(si
     ImageDraw.Draw(image).rectangle(box,fill="white")
     found,proof=complete_edge_strokes(image,[region])
     assert proof and found[0].box[coordinate]==expected
+
+
+def test_edge_completion_preserves_exact_normalized_coordinates_on_unmodified_sides():
+    from PIL import ImageDraw
+
+    from watermark_studio.detection import complete_edge_strokes
+    from watermark_studio.images import pixel_box
+    image=Image.new("RGB",(400,300),(70,90,60))
+    ImageDraw.Draw(image).rectangle((395,282,399,291),fill="white")
+    region=Region(kind="logo",box=(.8501,.8601,.9921,1))
+    found,proof=complete_edge_strokes(image,[region])
+    assert proof and found[0].box==(.8501,.8601,1,1)
+    assert pixel_box(found[0].box,image.size)==(340,258,400,300)
