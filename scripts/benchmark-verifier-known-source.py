@@ -10,6 +10,7 @@ import multiprocessing as mp
 import os
 import queue
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -185,6 +186,7 @@ def main():
             raise RuntimeError("Cannot establish that the inference server is stopped") from error
     else:
         raise RuntimeError("Stop the inference server before the standalone verifier benchmark")
+    code_revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
     target=args.state_dir/"verifier-benchmarks"/args.tag/args.profile
     target.mkdir(parents=True,exist_ok=False)
     cases=known_control_cases(args.controls) if args.controls else []
@@ -248,8 +250,7 @@ def main():
                     clean_refused=sum(r["expected"]=="passed" and r["quality"]["status"]!="passed" for r in selected),
                     defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected))
         result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
-                 "code_revision":__import__("subprocess").check_output(
-                     ["git","rev-parse","--short","HEAD"],text=True).strip(),"images":len(cases),
+                 "code_revision":code_revision,"images":len(cases),
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,
                 "cross_review_effective":args.cross_review and identity["relation"]=="different_weights",
