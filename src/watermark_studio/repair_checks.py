@@ -32,8 +32,8 @@ def rectangular_repairs(before, after, regions, resolution=1024, minimum_step=4,
             extent=size[0] if vertical else size[1]
             zextent=size[1] if vertical else size[0]
             start,end=(t,b) if vertical else (l,r)
-            start=round((start+(end-start)*.18)*zextent)
-            end=round((end-(end-start)*.18)*zextent)
+            trim=(end-start)*.18
+            start,end=round((start+trim)*zextent),round((end-trim)*zextent)
             margin=px if vertical else py
             candidates=[]
             for fraction in (0,.25,.5,.75,1,1.25,1.5,1.75):
