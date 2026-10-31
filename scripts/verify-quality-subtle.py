@@ -21,16 +21,18 @@ parser.add_argument("--compare-details", action="store_true", help="Experimental
 parser.add_argument("--run-label", choices=["", "local-guard"], default="")
 parser.add_argument("--repair-cases", action="store_true")
 parser.add_argument("--only-extra", action="store_true")
+parser.add_argument("--numeric-only", action="store_true")
 args = parser.parse_args()
 if args.compare_details and not args.combined:
     parser.error("--compare-details requires --combined")
 folder = "Qwen--Qwen-Image-2.1-Turbo" if args.backend == "resident" else "Qwen--Qwen3-VL-4B-Instruct"
 snapshot = Path.home()/".cache/watermark-models/models"/folder/"snapshots/master"
-encoder = Qwen3VLForConditionalGeneration.from_pretrained(
-    snapshot/"text_encoder" if args.backend == "resident" else snapshot, dtype=torch.bfloat16, local_files_only=True,
-).to("cuda").eval()
-processor = Qwen3VLProcessor.from_pretrained(
-    snapshot/"processor" if args.backend == "resident" else snapshot, local_files_only=True)
+if not args.numeric_only:
+    encoder = Qwen3VLForConditionalGeneration.from_pretrained(
+        snapshot/"text_encoder" if args.backend == "resident" else snapshot, dtype=torch.bfloat16, local_files_only=True,
+    ).to("cuda").eval()
+    processor = Qwen3VLProcessor.from_pretrained(
+        snapshot/"processor" if args.backend == "resident" else snapshot, local_files_only=True)
 root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031/quality-benchmark")
 files = sorted((root/"input").glob("*"))
 cases = []
@@ -156,6 +158,20 @@ if args.repair_cases:
         extra_labels.add(key)
 if args.only_extra:
     cases=[case for case in cases if case[0] in extra_labels]
+if args.numeric_only:
+    from watermark_studio.config import Region
+    from watermark_studio.quality import repair_texture_warnings
+    saved=root/"subtle-controls-independent-combined-local-guard-repair/results.jsonl"
+    priors={r["case"]:r for r in map(json.loads,saved.read_text().splitlines())}
+    numeric=[]
+    for label,before,after,expected in cases:
+        regions=known_regions.get(label)
+        if regions is None:
+            regions=[Region.model_validate(r) for r in priors.get(label,{}).get("source_regions",[])]
+        result=repair_texture_warnings(after,regions,before=before)
+        numeric.append({"case":label,"expected":expected,**result})
+    print(json.dumps(numeric,ensure_ascii=False),flush=True)
+    raise SystemExit
 if args.compare_details:
     from watermark_studio import quality
     original_vqa = quality._structured_vqa

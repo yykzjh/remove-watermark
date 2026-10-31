@@ -229,6 +229,68 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
             "source_unchanged_segments":unchanged_segments}
 
 
+def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=None):
+    """Detect box-aligned sharpness collapse while allowing genuine low-detail surfaces."""
+    scale=min(1,resolution/max(image.size))
+    size=(max(1,round(image.width*scale)),max(1,round(image.height*scale)))
+    photo=image.convert("RGB").resize(size,Image.Resampling.LANCZOS)
+    rgb=np.asarray(photo,dtype=np.float32)
+    gray=photo.convert("L")
+    high=np.abs(np.asarray(gray,dtype=np.float32)-
+                np.asarray(gray.filter(ImageFilter.GaussianBlur(1)),dtype=np.float32))
+    reference=None
+    records=[]
+    for region_index,region in enumerate(regions):
+        box=region.box if hasattr(region,"box") else region["box"]
+        x0,y0,x1,y1=box
+        left,top,right,bottom=(round(x0*size[0]),round(y0*size[1]),
+                               round(x1*size[0]),round(y1*size[1]))
+        if min(right-left,bottom-top)<48:
+            continue
+        deep=min(28,max(12,round(min(right-left,bottom-top)*.12)))
+        outer=max(12,round(feather*scale)+8)
+        for side in ("left","right","top","bottom"):
+            vertical=side in {"left","right"}
+            pos=(left if side=="left" else right) if vertical else (top if side=="top" else bottom)
+            direction=1 if side in {"left","top"} else -1
+            start,end=(top,bottom) if vertical else (left,right)
+            extent=size[0] if vertical else size[1]
+            if not (outer+5<pos<extent-outer-5):
+                continue
+            hits=[]
+            for lo in range(start+8,end-31,16):
+                hi=lo+32
+                stats=[]
+                colours=[]
+                for offset in (deep,2,-outer):
+                    at=pos+direction*offset
+                    tile=high[lo:hi,at-4:at+5] if vertical else high[at-4:at+5,lo:hi]
+                    colour=rgb[lo:hi,at-4:at+5] if vertical else rgb[at-4:at+5,lo:hi]
+                    stats.append(float(tile.mean()))
+                    colours.append(colour.mean(axis=(0,1)))
+                inner,near,outside=stats
+                ratio=inner/max(outside,.001)
+                if outside<2.2 or ratio>.22 or near<outside*.5 or np.abs(colours[0]-colours[2]).mean()>32:
+                    hits.append(None)
+                    continue
+                at=pos+direction*deep
+                if before is not None:
+                    if reference is None:
+                        reference=np.asarray(before.convert("RGB").resize(size,Image.Resampling.LANCZOS),dtype=np.float32)
+                    source=reference[lo:hi,at-4:at+5] if vertical else reference[at-4:at+5,lo:hi]
+                    output=rgb[lo:hi,at-4:at+5] if vertical else rgb[at-4:at+5,lo:hi]
+                    if float(np.abs(source-output).mean())<3:
+                        hits.append(None)
+                        continue
+                hits.append({"side":side,"region":region_index,"lo":lo,"ratio":round(ratio,4),
+                             "outside_detail":round(outside,3),"inside_detail":round(inner,3)})
+            for first,second in pairwise(hits):
+                if first is not None and second is not None:
+                    records.append(first)
+    return {"method":"mask_texture_collapse_v1","count":len(records),
+            "suspect_segments":records[:12],"comparison_size":list(size)}
+
+
 def detail_sheets(before, after, count=4):
     """Choose diverse changed/structural patches; these are evidence, not full coverage."""
     if after.mode != "RGB":
