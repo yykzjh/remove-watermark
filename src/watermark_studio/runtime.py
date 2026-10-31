@@ -44,6 +44,7 @@ class Runtime:
             with self.lock:
                 self.stage = "downloading"
             model_path = self.config.model
+            quality_path = None
             if self.config.backend != "mock":
                 from .download import download_model
 
@@ -56,6 +57,11 @@ class Runtime:
                 snapshot_name = Path(model_path).name
                 if len(snapshot_name) == 40 and all(c in "0123456789abcdef" for c in snapshot_name):
                     self.model_revision = snapshot_name
+                if self.config.quality_verifier:
+                    quality_path = download_model(
+                        self.config.quality_model, self.config.model_source,
+                        self.config.quality_revision, self.config.cache_dir,
+                    )
             if self.stop.is_set():
                 return
             gate = self.ctx.Semaphore(self.config.load_parallelism)
@@ -75,6 +81,7 @@ class Runtime:
                                 inbox,
                                 self.events,
                                 gate,
+                                quality_path,
                             ),
                             daemon=True,
                         )
@@ -215,6 +222,9 @@ class Runtime:
                 raise ValueError("模型尚未就绪")
             if self.job and self.job["state"] in {"scanning", "running", "paused", "cancelling"}:
                 raise ValueError("已有任务正在处理")
+            if (request.options.quality_check and self.config.backend != "mock"
+                    and not self.config.quality_verifier):
+                raise ValueError("质量检验需要服务启动时指定 --quality-verifier 加载独立检验模型")
             if request.options.concurrency > self.config.capacity:
                 raise ValueError(f"在途图片数不能超过工作进程缓冲容量 {self.config.capacity}")
             single = None

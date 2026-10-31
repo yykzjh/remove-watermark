@@ -4,7 +4,7 @@ import pytest
 from PIL import Image
 
 from watermark_studio.config import ProcessingConfig
-from watermark_studio.quality import parse_review, pixel_change
+from watermark_studio.quality import deterministic_warnings, parse_review, pixel_change
 
 
 def verdict(**changes):
@@ -34,3 +34,12 @@ def test_quality_is_opt_in_and_parameters_are_bounded():
     assert not ProcessingConfig().quality_check
     with pytest.raises(ValueError):
         ProcessingConfig(quality_batch_size=16)
+
+
+def test_unchanged_and_introduced_flat_fill_require_review():
+    before = Image.new("RGB", (400, 300), "blue")
+    assert deterministic_warnings(before, before.copy())
+    after = before.copy()
+    from PIL import ImageDraw
+    ImageDraw.Draw(after).rectangle((0, 0, 200, 150), fill="lime")
+    assert deterministic_warnings(before, after)

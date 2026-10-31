@@ -1,4 +1,4 @@
-"""Bounded reference/output review using the pipeline's resident Qwen3-VL encoder."""
+"""Bounded reference/output review with an independent instruction vision model."""
 from __future__ import annotations
 
 import json
@@ -69,6 +69,23 @@ def pixel_change(before, after):
     return round(float(np.abs(a - b).mean()) / 255, 5)
 
 
+def deterministic_warnings(before, after):
+    a = np.asarray(before.convert("RGB").resize((256, 256)), dtype=np.uint8)
+    b = np.asarray(after.convert("RGB").resize((256, 256)), dtype=np.uint8)
+    warnings = []
+    if np.abs(a.astype(np.float32) - b.astype(np.float32)).mean()/255 < 0.002:
+        warnings.append("Output is almost unchanged; watermark removal is not established.")
+    # A large newly introduced constant-color area suggests a blank or painted repair.
+    def bins(x):
+        x = x.astype(np.int32)//8
+        return x[..., 0]*1024 + x[..., 1]*32 + x[..., 2]
+    ah = np.bincount(bins(a).ravel(), minlength=32768)
+    bh = np.bincount(bins(b).ravel(), minlength=32768)
+    if float((bh-ah).max())/b.shape[0]/b.shape[1] > 0.10:
+        warnings.append("A large new flat-color area requires review.")
+    return warnings
+
+
 def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128):
     import torch
 
@@ -107,8 +124,14 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             result = parse_review(text)
         except (ValueError, TypeError, KeyError) as exc:
             result = {"status": "error", "reason": str(exc)[:400], "raw": text[:1000]}
+        warnings = deterministic_warnings(before, after)
+        if warnings:
+            if result["status"] == "passed":
+                result.update(status="review", uncertain=True)
+            result["deterministic_warnings"] = warnings
+            result["reason"] = (result.get("reason", "") + " " + " ".join(warnings)).strip()[:400]
         results.append(result | {"seconds": round(elapsed / len(pairs), 3),
             "batch_seconds": round(elapsed, 3), "batch_size": len(pairs),
             "resolution": resolution, "pixel_mae": pixel_change(before, after),
-            "method": "resident_qwen3_vl"})
+            "method": "independent_qwen3_vl"})
     return results

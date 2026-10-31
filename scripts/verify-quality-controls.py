@@ -13,9 +13,11 @@ from transformers import Qwen3VLForConditionalGeneration, Qwen3VLProcessor
 from watermark_studio.download import download_model
 from watermark_studio.quality import review_batch
 
-snapshot = Path(download_model(
-    "Qwen/Qwen3-VL-4B-Instruct", "modelscope", "master", "~/.cache/watermark-models",
-))
+snapshot = Path.home()/".cache/watermark-models/models/Qwen--Qwen3-VL-4B-Instruct/snapshots/master"
+if not all((snapshot/f"model-{i:05d}-of-00002.safetensors").is_file() for i in (1, 2)):
+    snapshot = Path(download_model(
+        "Qwen/Qwen3-VL-4B-Instruct", "modelscope", "master", "~/.cache/watermark-models",
+    ))
 encoder = Qwen3VLForConditionalGeneration.from_pretrained(
     snapshot, dtype=torch.bfloat16, local_files_only=True,
 ).to("cuda").eval()

@@ -261,7 +261,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             try:
                 pairs = [(load_photo(t["source"])[0], load_photo(t["destination"])[0]) for t in group]
                 reviews = review_batch(
-                    pairs, pipe.text_encoder, pipe.processor, pipe._execution_device,
+                    pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
                     options.quality_resolution, options.quality_max_tokens,
                 )
                 for task, verdict in zip(group, reviews):
@@ -295,7 +295,7 @@ def process_image(task, options, config, pipe):
     return process_batch([task], options, config, pipe)[0]
 
 
-def worker_main(index, gpu, settings, model_path, requests, events, load_gate):
+def worker_main(index, gpu, settings, model_path, requests, events, load_gate, quality_path=None):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     config = DeploymentConfig.model_validate(settings)
@@ -304,6 +304,16 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate):
     try:
         with load_gate:
             pipe = None if config.backend == "mock" else load_pipeline(config, model_path)
+            if pipe is not None and quality_path:
+                import torch
+                from transformers import Qwen3VLForConditionalGeneration, Qwen3VLProcessor
+                torch.cuda.empty_cache()
+                pipe._quality_encoder = Qwen3VLForConditionalGeneration.from_pretrained(
+                    quality_path, dtype=getattr(torch, config.dtype), local_files_only=True,
+                ).to(pipe._execution_device).eval()
+                pipe._quality_processor = Qwen3VLProcessor.from_pretrained(
+                    quality_path, local_files_only=True,
+                )
         events.put({"type": "ready", "worker": index})
     except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
         traceback.print_exc()

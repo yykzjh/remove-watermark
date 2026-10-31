@@ -97,6 +97,9 @@ class DeploymentConfig(BaseModel):
     batch_bucketing: bool = False
     oom_split_batch: bool = False
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
+    quality_verifier: bool = False
+    quality_model: str = "Qwen/Qwen3-VL-4B-Instruct"
+    quality_revision: str = "master"
     dtype: Literal["bfloat16", "float16"] = "bfloat16"
     attention: Literal["sdpa", "flex"] = "sdpa"
     attention_backend: Literal["native", "native_flash", "native_cudnn", "native_efficient", "flash_hub", "sage_hub"] = "native"
