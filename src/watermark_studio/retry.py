@@ -145,8 +145,13 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         if saved["best"] is not None:
             atomic_copy(best, task["destination"], options.overwrite or bool(task.get("_retry")))
         again = retry_allowed(selected, options, current_attempt)
+        if (again and task.get("_protect_disputed_text") and task.get("_recheck")
+                and selected.get("quality",{}).get("status") in {"review","error"}):
+            again = False
+            selected["retry_blocked"] = "unresolved_physical_text_dispute"
         selected["retry_exhausted"] = bool(
             not again and selected.get("quality", {}).get("status") in {"review", "error"}
+            and not selected.get("retry_blocked")
         )
         if again:
             from .config import Region

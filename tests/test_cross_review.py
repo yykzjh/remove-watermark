@@ -128,3 +128,26 @@ def test_cross_review_defaults_false_and_requires_quality_check():
     assert ProcessingConfig().quality_cross_review is False
     with pytest.raises(ValueError):
         ProcessingConfig(quality_cross_review=True)
+
+
+def test_recovering_a_missing_flag_uses_new_model_judgment_not_a_default(monkeypatch):
+    from watermark_studio.cross_review import _recover_classification
+
+    def structured(*args):
+        return [report(physical_scene_text=False,digital_overlay=True,uncertain=True)],.1
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    result=_recover_classification([{ "role":"user","content":[{"type":"text","text":"classify"}]}],
+        '{"physical_scene_text":true,"evidence":"文字位于载体表面"}',"missing fields",None,None,"cpu")
+    assert result["format_recovered"]
+    assert result["physical_scene_text"] is False and result["digital_overlay"] is True
+
+
+def test_corrected_claim_requires_actual_observable_explanation(monkeypatch):
+    from watermark_studio.cross_review import _recover_classification
+
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",lambda *a:([report()],.1))
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[
+        {"status":"error","error":"no visible evidence"}])
+    with pytest.raises(ValueError,match="observable explanation"):
+        _recover_classification([{ "role":"user","content":[{"type":"text","text":"classify"}]}],
+                                '{}',"missing fields",None,None,"cpu")

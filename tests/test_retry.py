@@ -267,3 +267,25 @@ def test_dispute_budget_is_once_and_supported_physical_text_is_not_blindly_repai
     first=process_attempts([task],opts,cfg,None,{},"job",process)[0]
     retry=first["_retry_task"]
     assert retry["_cross_review_used"] and retry["_protect_disputed_text"] and retry["_recheck"]
+
+
+def test_inconclusive_physical_text_recheck_ends_in_review_even_in_unlimited_mode(tmp_path):
+    cfg=DeploymentConfig(state_dir=str(tmp_path/"state"),backend="mock")
+    opts=ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_cross_review=True,
+                          quality_max_attempts=0)
+    task={"source":"original","destination":str(tmp_path/"out.png"),"relative":"out.png"}
+    calls=[]
+    def process(tasks,*_):
+        t=tasks[0];calls.append(t.get("reuse_existing",False))
+        if not calls[-1]:
+            Path(t["destination"]).write_bytes(b"preserved physical text")
+        q=verdict();q["cross_review"]={"attempted":True,"status":"unresolved"}
+        q["retry_recheck_only"]=True
+        return [{"file":"out.png","ok":True,"quality":q}]
+    first=process_attempts([task],opts,cfg,None,{},"job",process)[0]
+    final=process_attempts([first["_retry_task"]],opts,cfg,None,{},"job",process)[0]
+    assert calls==[False,True] and "_retry_task" not in final
+    assert final["quality"]["status"]=="review"
+    assert final["retry_blocked"]=="unresolved_physical_text_dispute"
+    assert final["retry_exhausted"] is False
+    assert (tmp_path/"out.png").read_bytes()==b"preserved physical text"
