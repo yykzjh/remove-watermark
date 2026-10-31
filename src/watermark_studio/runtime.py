@@ -139,6 +139,14 @@ class Runtime:
     def _record(self, result):
         job = self.job
         job["current"] = result["file"]
+        if result.get("quality_attempts",1)==1:
+            if result.get("action")=="existing_output_verified":
+                job["first_pass_existing"] = job.get("first_pass_existing",0)+1
+            else:
+                status=(result.get("quality") or {}).get("status","unchecked") if result["ok"] else "processing_failed"
+                counts=job.setdefault("first_pass_counts",{})
+                counts[status]=counts.get(status,0)+1
+                job["first_pass_total"]=job.get("first_pass_total",0)+1
         cross = result.get("quality",{}).get("cross_review",{})
         for key,event,fallback in (
             ("cross_review_attempts","cross_review_attempted_now",bool(cross.get("attempted"))),
@@ -304,6 +312,9 @@ class Runtime:
                 "succeeded": 0,
                 "no_watermark": 0,
                 "existing_outputs": 0,
+                "first_pass_total": 0,
+                "first_pass_existing": 0,
+                "first_pass_counts": {},
                 "quality_counts": {},
                 "cross_review_attempts": 0,
                 "cross_review_corrected": 0,

@@ -42,6 +42,7 @@ class ProcessingConfig(BaseModel):
     regions: list[Region] = Field(default_factory=list, max_length=8)
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
     preserve_background: bool = False
+    first_pass_mode: Literal["whole", "focused", "thorough"] = "whole"
     repair_blending: Literal["feather", "harmonic"] = "harmonic"
     quality_check: bool = False
     quality_cross_review: bool = False
@@ -62,6 +63,8 @@ class ProcessingConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_regions(self):
+        if self.first_pass_mode != "whole" and not self.preserve_background:
+            raise ValueError("首轮精细策略需要启用原图保护")
         if self.quality_cross_review and not self.quality_check:
             raise ValueError("编辑侧争议复核需要启用质量检验")
         if self.quality_auto_retry and not self.quality_check:

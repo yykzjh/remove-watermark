@@ -187,3 +187,47 @@ def locate_watermarks(image, encoder, processor, device, resolution=1280):
     if isinstance(result, Exception):
         raise result
     return result
+
+
+def refine_source_details(images, detections, encoder, processor, device, resolution=1280, batch_size=1):
+    """Source-only full-frame overlapping tiles; never use generated outputs as hints.
+
+    Only add small disconnected overlays. Large panel coordinates remain those
+    from the global view, avoiding truncated-panel fragments expanding a mask.
+    """
+    jobs,crops=[],[]
+    for index,(image,detection) in enumerate(zip(images,detections)):
+        if isinstance(detection,Exception):
+            continue
+        regions=detection[0]
+        if max(image.size)<=1400 or any((r.box[2]-r.box[0])*(r.box[3]-r.box[1])<.035 for r in regions):
+            continue
+        for x0,y0,x1,y1 in ((0,0,.56,.56),(.44,0,1,.56),(0,.44,.56,1),(.44,.44,1,1)):
+            box=(round(x0*image.width),round(y0*image.height),round(x1*image.width),round(y1*image.height))
+            jobs.append((index,box));crops.append(image.crop(box))
+    results=locate_watermarks_batch(crops,encoder,processor,device,resolution,batch_size)
+    output=list(detections)
+    additions={}
+    for (index,box),result in zip(jobs,results):
+        if isinstance(result,Exception):
+            output[index]=RuntimeError(f"Source detail scan failed: {result}")
+            continue
+        image=images[index];left,top,right,bottom=box
+        original=detections[index][0]
+        for region in result[0]:
+            a,b,c,d=region.box
+            mapped=((left+a*(right-left))/image.width,(top+b*(bottom-top))/image.height,
+                    (left+c*(right-left))/image.width,(top+d*(bottom-top))/image.height)
+            if (mapped[2]-mapped[0])*(mapped[3]-mapped[1])>.035:
+                continue
+            if any(max(mapped[0],r.box[0])<min(mapped[2],r.box[2]) and
+                   max(mapped[1],r.box[1])<min(mapped[3],r.box[3]) for r in original):
+                continue
+            additions.setdefault(index,[]).append(Region(kind=region.kind,box=mapped))
+    for index,extra in additions.items():
+        if not isinstance(output[index],Exception):
+            try:
+                output[index]=(merge_regions(detections[index][0]+extra),detections[index][1])
+            except ValueError as error:
+                output[index]=error
+    return output,{i:sum(index==i for index,_ in jobs) for i in range(len(images))}

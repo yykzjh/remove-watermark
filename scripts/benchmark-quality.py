@@ -15,6 +15,7 @@ parser.add_argument("--tag", default="")
 parser.add_argument("--images", type=int, default=24)
 parser.add_argument("--concurrency", type=int, default=20)
 parser.add_argument("--preserve-background", action="store_true")
+parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough"],default="whole")
 parser.add_argument("--repair-blending", choices=["feather","harmonic"], default="harmonic")
 parser.add_argument("--quality-cross-review", action="store_true")
 parser.add_argument("--quality-auto-retry", action="store_true")
@@ -86,7 +87,7 @@ for label, enabled, resolution, batch in profiles:
                     "quality_check": enabled, "quality_cross_review": enabled and args.quality_cross_review,
                     "quality_auto_retry": enabled and args.quality_auto_retry,
                     "quality_max_attempts": args.quality_max_attempts, "preserve_background": args.preserve_background,
-                    "repair_blending": args.repair_blending, "quality_resolution": resolution,
+                    "first_pass_mode":args.first_pass_mode,"repair_blending": args.repair_blending, "quality_resolution": resolution,
                     "quality_batch_size": batch, "quality_detail_patches": args.detail_patches},
     })["id"]
     while True:
@@ -108,6 +109,9 @@ for label, enabled, resolution, batch in profiles:
               "quality_counts": job.get("quality_counts", {}),
               "retry_attempts": job.get("retry_attempts", 0),
               "retry_exhausted": job.get("retry_exhausted", 0),
+              "first_pass_mode":args.first_pass_mode,
+              "first_pass_counts":job.get("first_pass_counts",{}),
+              "first_pass_existing":job.get("first_pass_existing",0),
               "preserve_background": args.preserve_background,
               "repair_blending": args.repair_blending,
               "cross_review_attempts": sum(q.get("cross_review", {}).get("attempted", False) for q in quality_attempts),

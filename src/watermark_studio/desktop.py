@@ -352,6 +352,12 @@ class MainWindow(QMainWindow):
         self.preserve_background = QCheckBox("自动保护原图内容（减少非水印内容被重绘）")
         self.preserve_background.setToolTip("完整图像仍送入编辑模型；自动定位水印后合成，保留其余原图内容。定位也可能出错，建议同时检验。")
         form.addRow(self.preserve_background)
+        self.first_pass_mode = QComboBox()
+        self.first_pass_mode.addItem("整图推理（原策略）","whole")
+        self.first_pass_mode.addItem("首轮自动精细处理","focused")
+        self.first_pass_mode.addItem("首轮精细处理与源图细节定位","thorough")
+        self.first_pass_mode.setToolTip("精细策略需启用原图保护，内部自动分配模型输入预算；细小覆盖层使用可读的输入视图，无需统一框选。它可能包含多个模型调用，不等于仅调用模型一次。")
+        form.addRow("首轮去水印策略",self.first_pass_mode)
         self.repair_blending = QComboBox()
         self.repair_blending.addItem("自动校正修补区域明暗（推荐）", "harmonic")
         self.repair_blending.addItem("仅边缘羽化（对照）", "feather")
@@ -525,6 +531,7 @@ class MainWindow(QMainWindow):
                 quality_retry_resolution=self.retry_resolution.currentData(),
                 preserve_background=self.preserve_background.isChecked(),
                 repair_blending=self.repair_blending.currentData(),
+                first_pass_mode=self.first_pass_mode.currentData(),
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
                 quality_detail_patches=self.quality_details.value(),
@@ -617,6 +624,8 @@ class MainWindow(QMainWindow):
             f"（不可处理图像 {mirror.get('copied_invalid_images', 0)}）  "
             f"链接 {mirror.get('copied_links', 0)}  已有附带文件保留 {mirror.get('existing_files', 0)}  "
             f"复制失败 {mirror.get('copy_failures', 0)}\n"
+            f"首次处理首轮验收 {job.get('first_pass_counts',{}).get('passed',0)}/{job.get('first_pass_total',0)}  "
+            f"已有结果复检 {job.get('first_pass_existing',0)}  "
             f"争议复核 {job.get('cross_review_attempts',0)}  已纠正误报 {job.get('cross_review_corrected',0)}  "
             f"复核错误 {job.get('cross_review_errors',0)}"
         )
@@ -658,6 +667,8 @@ def default_ssh_program():
 
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
+    mode=getattr(args,"first_pass_mode","whole")
+    window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData(mode))
     window.repair_blending.setCurrentIndex(0 if getattr(args,"repair_blending","harmonic")=="harmonic" else 1)
     window.preserve_background.setChecked(args.preserve_background)
     window.quality_check.setChecked(args.quality_check)
@@ -689,6 +700,7 @@ def main():
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
     parser.add_argument("--preserve-background", action="store_true", help="Preselect original background protection")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
+    parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough"],default="whole")
     parser.add_argument("--repair-blending", choices=["feather","harmonic"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")

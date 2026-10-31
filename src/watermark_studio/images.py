@@ -258,7 +258,8 @@ def harmonize_repair(original, generated, regions):
     return output
 
 
-def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: int, blending="feather"):
+def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: int, blending="feather",
+                *, reference_original=None, exclude_regions=()):
     # Alpha is 1 throughout the specified watermark, fading OUTSIDE it.
     # A blurred mask that fades inside the watermark would leave text ghosts.
     x0, y0, x1, y1 = box
@@ -279,7 +280,15 @@ def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: i
         from .config import Region
         local = Region(box=((x0-cx0)/(cx1-cx0), (y0-cy0)/(cy1-cy0),
                             (x1-cx0)/(cx1-cx0), (y1-cy0)/(cy1-cy0)))
-        resized = harmonize_repair(original.crop(crop), resized, [local])
+        excluded=[local]
+        for region in exclude_regions:
+            rx0,ry0,rx1,ry1=pixel_box(region.box,original.size)
+            left,top,right,bottom=max(cx0,rx0),max(cy0,ry0),min(cx1,rx1),min(cy1,ry1)
+            if left<right and top<bottom:
+                excluded.append(Region(box=((left-cx0)/(cx1-cx0),(top-cy0)/(cy1-cy0),
+                                            (right-cx0)/(cx1-cx0),(bottom-cy0)/(cy1-cy0))))
+        reference=reference_original if reference_original is not None else original
+        resized = harmonize_repair(reference.crop(crop), resized, excluded)
     result = original.copy()
     result.paste(resized, (cx0, cy0), mask)
     if "harmonization" in resized.info:

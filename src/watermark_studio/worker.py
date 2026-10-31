@@ -17,7 +17,7 @@ from .images import (
     regions_for,
     save_output,
 )
-from .prompts import build_full_prompt, build_prompt
+from .prompts import build_full_prompt, build_prompt, build_small_overlay_prompt
 
 
 def load_pipeline(config, model_path):
@@ -108,6 +108,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         import torch
         torch.cuda.reset_peak_memory_stats()
     detections, decoded = {}, {}
+    detail_counts = {}
     needs_detection = cuda and (
         (options.scope == "full_image" and options.preserve_background)
         or (options.scope == "regions" and options.preset == "auto")
@@ -128,6 +129,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             pipe.text_encoder, pipe.processor, pipe._execution_device,
             options.detection_resolution, config.detection_batch_size,
         )
+        if options.first_pass_mode == "thorough":
+            from .detection import refine_source_details
+            found, counts = refine_source_details([decoded[t["relative"]][0] for t in detect_tasks],found,
+                pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,config.detection_batch_size)
+            detail_counts={t["relative"]:counts[i] for i,t in enumerate(detect_tasks)}
         for index, task in enumerate(detect_tasks):
             if task.get("_extra_regions") and not isinstance(found[index], Exception):
                 try:
@@ -169,7 +175,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     if isinstance(found, Exception):
                         raise found
                     protected_regions, _ = found
-                    regions = [Region(box=(0, 0, 1, 1))] if protected_regions else []
+                    regions = ([Region(box=(0, 0, 1, 1))] if options.first_pass_mode == "whole"
+                               else protected_regions) if protected_regions else []
                 else:
                     regions = [Region(box=(0, 0, 1, 1))]
             elif options.preset == "auto":
@@ -201,6 +208,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 continue
             state = {"task": task, "source": source, "result": source.copy(), "exif": exif, "icc": icc,
                          "alpha": alpha, "regions": regions, "protected_regions": protected_regions,
+                         "whole_generation":options.scope=="full_image" and options.first_pass_mode=="whole",
                          "detection_seconds": detected,
                          "batches": [], "failed": None}
             states.append(state)
@@ -215,12 +223,16 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     local_guidance = local_retry_guidance(task["_retry_feedback"], crop, source.size)
                     if local_guidance:
                         extra_prompt += "\n本次实际模型输入中的返工位置：\n" + local_guidance
+                focused = options.scope=="full_image" and options.first_pass_mode!="whole"
+                small = focused and (region.box[2]-region.box[0])*(region.box[3]-region.box[1])<.035
+                budget = min(options.resolution,512) if small else options.resolution
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
-                    "prompt": (build_full_prompt(extra_prompt) if options.scope == "full_image"
-                               else build_prompt(region.kind, box, crop, extra_prompt)),
+                    "prompt": (build_full_prompt(extra_prompt) if state["whole_generation"] else
+                               build_small_overlay_prompt(box,crop,extra_prompt)
+                               if small else build_prompt(region.kind,box,crop,extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
-                    "size": dimensions(reference, options.resolution),
+                    "resolution":budget, "size": dimensions(reference,budget),
                 })
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             if state is not None:
@@ -239,7 +251,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         if edit["size"] != previous:
             run += 1
         previous = edit["size"]
-        key = edit["size"] if config.batch_bucketing else (run, edit["size"])
+        key = (edit["resolution"],edit["size"]) if config.batch_bucketing else (run,edit["resolution"],edit["size"])
         buckets[key].append(edit)
     oom_retries = 0
     quality_oom_splits = 0
@@ -248,7 +260,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         nonlocal oom_retries
         failure = None
         try:
-            patches = independent_batch(pipe, group, options.resolution, config.kv_cache)
+            patches = independent_batch(pipe,group,group[0]["resolution"],config.kv_cache)
             if len(patches) != len(group):
                 raise RuntimeError("Pipeline returned wrong image count")
             for edit, patch in zip(group, patches):
@@ -263,7 +275,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             if is_oom:
                 oom_retries += 1
                 if split:
-                    batch_limits[(options.resolution, group[0]["size"])] = len(group) // 2
+                    batch_limits[(group[0]["resolution"],group[0]["size"])] = len(group) // 2
         # Release exception traceback and transient tensors before retrying.
         torch.cuda.empty_cache()
         if split:
@@ -277,13 +289,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     for bucket in buckets.values():
         offset = 0
         while offset < len(bucket):
-            size = min(config.batch_size, batch_limits.get((options.resolution, bucket[0]["size"]), config.batch_size))
+            size = min(config.batch_size, batch_limits.get((bucket[0]["resolution"],bucket[0]["size"]),config.batch_size))
             execute(bucket[offset:offset + size])
             offset += size
     for edit in edits:
         state = edit["state"]
         if not state["failed"]:
-            if options.scope == "full_image":
+            if state["whole_generation"]:
                 from PIL import Image
                 state["result"] = edit["patch"].convert("RGB").resize(
                     state["source"].size, Image.Resampling.LANCZOS
@@ -294,7 +306,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     )
             else:
                 state["result"] = blend_patch(
-                    state["result"], edit["patch"], edit["box"], edit["crop"], options.feather, options.repair_blending
+                    state["result"],edit["patch"],edit["box"],edit["crop"],options.feather,options.repair_blending,
+                    reference_original=state["source"],exclude_regions=state["regions"]
                 )
     for state in states:
         task = state["task"]
@@ -303,6 +316,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "regions": [r.model_dump() for r in state["regions"]],
             "detection_seconds": state["detection_seconds"], "batch_sizes": state["batches"],
             "background_preserved": state["protected_regions"] is not None or options.scope == "regions",
+            "first_pass_mode":options.first_pass_mode,
+            "source_detail_views":detail_counts.get(task["relative"],0),
+            "model_inferences":len(state["regions"]),
+            "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
             "repair_blending": options.repair_blending,
             "harmonization": state["result"].info.get("harmonization"),
             "repair_regions": [r.model_dump() for r in (state["protected_regions"] if state["protected_regions"] is not None
