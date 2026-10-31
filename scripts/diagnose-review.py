@@ -8,6 +8,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--export", action="store_true")
 parser.add_argument("--benchmark", default="quality-benchmark-protected-v3-64")
 parser.add_argument("--prefix", default="review")
+parser.add_argument("--output-folder",default="quality-768-b2")
 parser.add_argument("--output-only", action="store_true")
 parser.add_argument("--names", nargs="+", default=["010.jpg", "057.jpg"])
 args = parser.parse_args()
@@ -15,7 +16,7 @@ args = parser.parse_args()
 root = Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031") / args.benchmark
 for name in args.names:
     photos = []
-    for folder in ("input", "quality-768-b2"):
+    for folder in ("input",args.output_folder):
         with Image.open(root/folder/name) as im:
             photos.append(ImageOps.exif_transpose(im).convert("RGB"))
     if args.export:

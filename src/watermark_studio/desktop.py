@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
         self.repair_blending = QComboBox()
         self.repair_blending.addItem("自动校正修补区域明暗（推荐）", "harmonic")
         self.repair_blending.addItem("仅边缘羽化（对照）", "feather")
-        self.repair_blending.addItem("更精细的明暗衔接（额外CPU开销）","harmonic-fine")
+        self.repair_blending.addItem("1024参考网格衔接（实验，额外CPU开销）","harmonic-fine")
         self.repair_blending.setToolTip("从原水印以外的可见像素估计平滑色偏，减少矩形阴影；不扩大处理范围。")
         form.addRow("修补明暗衔接", self.repair_blending)
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
@@ -614,6 +614,10 @@ class MainWindow(QMainWindow):
         self.progress.setValue(job["completed"])
         qc = job.get("quality_counts", {})
         mirror = job.get("mirror", {})
+        first=job.get("first_pass_counts",{}); first_total=job.get("first_pass_total",0)
+        first_text=(f"首次处理已完成 {first_total}（未执行有效验收）" if first_total and
+                    first.get("unchecked",0)+first.get("skipped",0)==first_total else
+                    f"首次处理首轮验收 {first.get('passed',0)}/{first_total}")
         self.metrics.setText(
             f"{names.get(self.job_state, self.job_state)}  ·  {job['completed']}/{total}  "
             f"输出成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
@@ -625,7 +629,7 @@ class MainWindow(QMainWindow):
             f"（不可处理图像 {mirror.get('copied_invalid_images', 0)}）  "
             f"链接 {mirror.get('copied_links', 0)}  已有附带文件保留 {mirror.get('existing_files', 0)}  "
             f"复制失败 {mirror.get('copy_failures', 0)}\n"
-            f"首次处理首轮验收 {job.get('first_pass_counts',{}).get('passed',0)}/{job.get('first_pass_total',0)}  "
+            f"{first_text}  "
             f"已有结果复检 {job.get('first_pass_existing',0)}  "
             f"争议复核 {job.get('cross_review_attempts',0)}  已纠正误报 {job.get('cross_review_corrected',0)}  "
             f"复核错误 {job.get('cross_review_errors',0)}"
@@ -670,6 +674,7 @@ def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     mode=getattr(args,"first_pass_mode","whole")
     window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData(mode))
+    window.resolution.setCurrentIndex(window.resolution.findData(getattr(args,"input_resolution",1024)))
     window.repair_blending.setCurrentIndex(window.repair_blending.findData(getattr(args,"repair_blending","harmonic")))
     window.preserve_background.setChecked(args.preserve_background)
     window.quality_check.setChecked(args.quality_check)
@@ -701,6 +706,7 @@ def main():
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
     parser.add_argument("--preserve-background", action="store_true", help="Preselect original background protection")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
+    parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough"],default="whole")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")

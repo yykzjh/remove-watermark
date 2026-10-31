@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import multiprocessing as mp
 import queue
+import subprocess
 import threading
 import time
 import uuid
@@ -34,6 +35,12 @@ class Runtime:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.roots = [Path(r).expanduser().resolve() for r in config.allowed_roots]
         self.model_revision = config.revision
+        try:
+            result=subprocess.run(["git","rev-parse","--short","HEAD"],cwd=Path(__file__).resolve().parents[2],
+                                  capture_output=True,text=True,timeout=2,check=False)
+            self.code_revision=result.stdout.strip() if result.returncode==0 else "unknown"
+        except (OSError,subprocess.TimeoutExpired):
+            self.code_revision="unknown"
 
     def start(self):
         thread = threading.Thread(target=self._bootstrap, daemon=True)
@@ -334,6 +341,7 @@ class Runtime:
                 "backend": self.config.backend,
                 "model": self.config.model,
                 "model_revision": self.model_revision,
+                "code_revision":self.code_revision,
                 "model_source": self.config.model_source,
             }
             self._persist()
@@ -421,6 +429,7 @@ class Runtime:
         with self.lock:
             return {
                 "stage": self.stage,
+                "code_revision":self.code_revision,
                 "error": self.error,
                 "backend": self.config.backend,
                 "workers": [{"gpu": w["gpu"], "state": w["state"]} for w in self.workers],

@@ -70,7 +70,7 @@ for profile in args.profiles:
     rows=[json.loads(line) for line in (Path.home()/".local/state/watermark-studio"/job/"results.jsonl").read_text().splitlines()]
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
     record={"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
-        "blending":args.blending,"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
+        "blending":args.blending,"code_revision":state.get("code_revision","unrecorded"),"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
         "first_pass_rate":round(counts["passed"]/len(paths),5),"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),
         "input_budgets":dict(collections.Counter(str(n) for r in rows for n in r.get("model_input_budgets",[]))),
