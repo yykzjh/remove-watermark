@@ -261,3 +261,23 @@ def test_clean_identity_final_scan_cannot_hide_any_remaining_overlay(monkeypatch
     run(before,after,q)
     assert q["status"] == "review" and q["guard_codes"] == ["identical"]
     assert q["cross_review"]["reason"] == "other_residual_overlays"
+
+
+def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds(monkeypatch):
+    from watermark_studio.cross_review import discover_dispute
+    captured = []
+    def explain(chats, *args):
+        captured.extend(chats)
+        return [{"status":"ok","assessment":"uncertain","summary":"metal label",
+                 "findings":[{"issue":"physical_text","box":[.2,.1,.5,.3],
+                              "observation":"printing follows metal surface"}]}]
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations", explain)
+    source=Image.new("RGB",(401,307),"gray")
+    result=discover_dispute(source,source.copy(),"center",None,None,"cpu")
+    l,t,r,b=result["crop_in_photo"]
+    assert result["findings"][0]["box"] == pytest.approx(
+        [l+.2*(r-l),t+.1*(b-t),l+.5*(r-l),t+.3*(b-t)],abs=1e-6)
+    assert result["local_findings"][0]["box"] == [.2,.1,.5,.3]
+    assert result["coordinate_source"] == "crop_local_mapped_by_program"
+    text=" ".join(item.get("text","") for item in captured[0][0]["content"])
+    assert "当前局部图像0..1000" in text and "不要使用完整照片坐标" in text
