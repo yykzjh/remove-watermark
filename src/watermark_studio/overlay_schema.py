@@ -15,6 +15,14 @@ def overlay_grammar(tokenizer, eos_ids, scene=False):
             node["_next"]=next_stage
         add("header",'{"watermarks":[',"list")
         add("header",'{"watermarks":[]}',"done")
+        for kind in ("panel","logo"):
+            add("header",'{"watermarks":[{"kind":"'+kind+'","box":[',"n0")
+        for value in ("outdoor","document","indoor","unknown"):
+            prefix='{"scene":"'+value+'","watermarks":'
+            add("scene_header",prefix+"[]}","done")
+            add("scene_header",prefix+"[","list")
+            for kind in ("panel","logo"):
+                add("scene_header",prefix+'[{"kind":"'+kind+'","box":[',"n0")
         add("scene_header",'{"scene":',"scene")
         for value in ("outdoor","document","indoor","unknown"):
             add("scene",'"'+value+'","watermarks":[',"list")

@@ -53,7 +53,7 @@ def test_finished_batch_rows_tolerate_decoder_padding_after_eos():
 
 class MergedPunctuation:
     def __init__(self):
-        self.pieces=['":[]}',': []}',']}]}' ,']},{"kind":"', '{"kind":"', '":[', '":[]']
+        self.pieces=['":[{"','":"','":[]}',': []}',']}]}' ,']},{"kind":"', '{"kind":"', '":[', '":[]']
         self.tokens={piece:10000+i for i,piece in enumerate(self.pieces)}
     def encode(self,text,add_special_tokens=False):
         result=[]
