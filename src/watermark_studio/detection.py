@@ -37,12 +37,14 @@ class DetectionSchemaError(ValueError):
 
 
 def parse_detection(
-    text: str, padding: float = 0.008, relative_padding: float = 0.06
+    text: str, padding: float = 0.008, relative_padding: float = 0.06, *, allow_direct_list: bool = False
 ) -> list[Region]:
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     data = json.loads(text)
+    if allow_direct_list and isinstance(data,list):
+        data={"watermarks":data}
     if not isinstance(data, dict) or not isinstance(data.get("watermarks"), list):
         raise TypeError("自动检测未返回有效的 watermarks JSON；该图不会套用固定区域")
     if len(data["watermarks"]) > 8:
@@ -112,6 +114,7 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
     """Bounded independent requests; preserve ordering and isolate per-image errors."""
     import torch
 
+    allow_direct_list=getattr(getattr(encoder,"config",None),"model_type",None)=="qwen3_5"
     outputs = []
     def run(group, format_retry=False):
         previous = processor.tokenizer.padding_side
@@ -154,7 +157,7 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
             results = []
             for image,text in zip(group,texts):
                 try:
-                    results.append((parse_detection(text), text))
+                    results.append((parse_detection(text,allow_direct_list=allow_direct_list), text))
                 except (json.JSONDecodeError,TypeError,KeyError,DetectionSchemaError) as error:
                     if format_retry:
                         results.append(error)
@@ -166,6 +169,8 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
                             if raw.startswith("```"):
                                 raw=raw.split("\n",1)[1].rsplit("```",1)[0].strip()
                             data=json.loads(raw)
+                            if allow_direct_list and isinstance(data,list):
+                                data={"watermarks":data}
                             data["format_recovery"]={"used":True,"initial_error":str(error)[:160]}
                             recovered=(regions,json.dumps(data))
                         results.append(recovered)

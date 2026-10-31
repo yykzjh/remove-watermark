@@ -127,3 +127,17 @@ def test_locator_repairs_only_malformed_format_once_and_never_defaults_to_empty(
     assert processor.tokenizer.padding_side=="right"
     if valid and expected_calls==2:
         assert json.loads(result[1])["format_recovery"]["used"] is True
+
+
+
+def test_candidate_direct_detection_list_keeps_every_item_and_geometry_check():
+    direct='[{"kind":"logo","box":[800,800,990,990]}]'
+    object_form='{"watermarks":'+direct+'}'
+    assert parse_detection(direct,allow_direct_list=True)==parse_detection(object_form)
+    assert parse_detection("[]",allow_direct_list=True)==[]
+    with pytest.raises(TypeError):
+        parse_detection(direct)
+    for malformed in ('{}','null','[{}]','[{"kind":"text","box":[800,800,990,990]}]',
+                      '[{"kind":"logo","box":[0,0,1000,1000]}]'):
+        with pytest.raises((ValueError,TypeError,KeyError)):
+            parse_detection(malformed,allow_direct_list=True)
