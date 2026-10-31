@@ -426,6 +426,15 @@ wheels = [
 ]
 
 [[package]]
+name = "einops"
+version = "0.8.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/2c/77/850bef8d72ffb9219f0b1aac23fbc1bf7d038ee6ea666f331fa273031aa2/einops-0.8.2.tar.gz", hash = "sha256:609da665570e5e265e27283aab09e7f279ade90c4f01bcfca111f3d3e13f2827" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/2a/09/f8d8f8f31e4483c10a906437b4ce31bdf3d6d417b73fe33f1a8b59e34228/einops-0.8.2-py3-none-any.whl", hash = "sha256:54058201ac7087911181bfec4af6091bb59380360f069276601256a76af08193" },
+]
+
+[[package]]
 name = "email-validator"
 version = "2.3.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -462,6 +471,31 @@ source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/35/c8/1d457d9150ff948f2ce6ada7715e0eeebbe5d3b58a45271a1e222474bcd3/filelock-4.1.1.tar.gz", hash = "sha256:7ba0927482c5a814b0a7f391d029ccdb8010f576f0a74c0dcde1811e8bc4c1b6" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/d7/8b/f837f52905395ba4510fe61f753c24833fb0a9c76e21267bb9f828b664a9/filelock-4.1.1-py3-none-any.whl", hash = "sha256:3f4a557945a7b0f95efeb1f432267affe5d45ac8ddde2aed1b97ebb62382c089" },
+]
+
+[[package]]
+name = "fla-core"
+version = "0.6.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+dependencies = [
+    { name = "einops", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/49/2d/3181d715d021c12db379ce0bc51ba78c5b6282ff6c3c79cc2f64d183d1b2/fla_core-0.6.0.tar.gz", hash = "sha256:cdd5b7ff6d5c0e5c08fde73f2624d76e0b506f8684af4e316bc7f2d8bfd9a623" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/23/08/a1a16725117cddded90bb11afed4b31f23d97f7f554775e66af998818ef9/fla_core-0.6.0-py3-none-any.whl", hash = "sha256:b0708b70e0b119cd58a0a5146ea56cb175cef6ed969d8ac60267e3e077ce3ebd" },
+]
+
+[[package]]
+name = "flash-linear-attention"
+version = "0.6.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+dependencies = [
+    { name = "fla-core", marker = "sys_platform == 'linux'" },
+    { name = "transformers", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/86/2f/6e07920d032e97fcc1a09d7578a7aa595b7dece535280bd712bb7077a3fa/flash_linear_attention-0.6.0.tar.gz", hash = "sha256:4110ff0f94ca54b76fc5499f0c169f5cbd44738d875e0199adc3a11ab0e241fa" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/3c/c1/ad271e49528b06c7032c35e6dca85592f96ef8390e6ce1b803d6b23eae0a/flash_linear_attention-0.6.0-py3-none-any.whl", hash = "sha256:6dec9735f8454523c13553622e98aff30152dde6586b4ac7d88010fbb7a06b5f" },
 ]
 
 [[package]]
@@ -1733,6 +1767,9 @@ desktop = [
 kernels = [
     { name = "kernels", marker = "sys_platform == 'linux'" },
 ]
+quality-linear-attention = [
+    { name = "flash-linear-attention", marker = "sys_platform == 'linux'" },
+]
 quality-quantization = [
     { name = "bitsandbytes", marker = "sys_platform == 'linux'" },
 ]
@@ -1767,6 +1804,7 @@ requires-dist = [
     { name = "bitsandbytes", marker = "extra == 'quality-quantization'", specifier = ">=0.48.2" },
     { name = "diffusers", marker = "extra == 'server'", url = "https://github.com/huggingface/diffusers/archive/916a5791ed5f29d966200d2eee53f06862ec4434.tar.gz" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115" },
+    { name = "flash-linear-attention", marker = "extra == 'quality-linear-attention'", specifier = "==0.6.0" },
     { name = "httpx", marker = "extra == 'desktop'", specifier = ">=0.28" },
     { name = "huggingface-hub", marker = "extra == 'server'", specifier = ">=0.34" },
     { name = "kernels", marker = "extra == 'kernels'", specifier = ">=0.14" },
@@ -1782,7 +1820,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'server'", specifier = ">=5.17.0" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34" },
 ]
-provides-extras = ["server", "desktop", "quantization", "kernels", "quality-quantization"]
+provides-extras = ["server", "desktop", "quantization", "kernels", "quality-quantization", "quality-linear-attention"]
 
 [package.metadata.requires-dev]
 dev = [
