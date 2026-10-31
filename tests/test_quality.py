@@ -222,3 +222,31 @@ def test_material_context_is_per_image_and_does_not_leak_between_documents_and_o
         texts=[" ".join(item.get("text","") for item in chat[0]["content"]) for chat in batch]
         assert "完整原图是票据" in texts[0] and "完整原图是票据" not in texts[1]
     assert [r["scene_context"] for r in results]==["document","outdoor"]
+
+
+@pytest.mark.parametrize("visible,expected",[(False,"passed"),(True,"review")])
+def test_new_inset_cues_need_visual_confirmation_and_cannot_exempt_confirmed_damage(monkeypatch,visible,expected):
+    from watermark_studio.config import Region
+    from watermark_studio.quality import verify_batch
+
+    def structured(chats,fields,*args):
+        return [{f: (visible if f=="defect_visible" else f!="uncertain") for f in fields}|{"area":"none"}
+                for _ in chats],.01
+    def seam(*args,**kwargs):
+        return {"count":int(kwargs.get("inset_search",False)),
+                "suspect_segments":[{"box":[.2,.2,.3,.3],"side":"left","luma_step":5}]}
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    monkeypatch.setattr("watermark_studio.quality.repair_boundary_warnings",seam)
+    monkeypatch.setattr("watermark_studio.quality.repair_texture_warnings",
+                        lambda *a,**k:{"count":0,"suspect_segments":[]})
+    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[([],"")])
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda chats,*a:[
+        {"status":"ok","assessment":"no_clear_defect","summary":"No clear defect","findings":[]} for _ in chats])
+    photo=Image.new("RGB",(400,300),"gray")
+    q=verify_batch([(photo,photo.copy())],None,None,"cpu",detail_patches=0,
+                   source_regions=[[Region(box=(.15,.15,.5,.5))]])[0]
+    assert q["status"]==expected
+    assert q["repair_cue_assessment"]["model"]["defect_visible"]==visible
+    # Even a simultaneous natural_boundary=true cannot excuse defect_visible=true.
+    assert ("repair_inset_confirmed" in q.get("guard_codes",[]))==visible

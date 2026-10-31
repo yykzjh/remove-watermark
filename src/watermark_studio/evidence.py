@@ -108,6 +108,10 @@ def local_findings(verdict):
         add("visible_content_change",box,"原水印和羽化范围外出现局部像素变化，需核实真实内容。")
     for item in verdict.get("residual_regions", [])[:2]:
         add("residual_text",item["box"],"结果扫描仍检测到疑似数字覆盖层，返工前须在原图确认。")
+    if "repair_inset_confirmed" in verdict.get("guard_codes",[]):
+        cue=verdict.get("repair_cue_assessment",{})
+        for box in cue.get("boxes",[])[:2]:
+            add("rectangular_shadow" if cue.get("numeric_seam_segments") else "blur_smear",box,"检测框内侧的明暗/纹理候选经正常局部与明暗诊断图复核，需检查修补衔接。")
     if "new_flat_fill" in verdict.get("guard_codes", []):
         add("blur_smear",None,"结果新增大面积近乎纯色的区域，需检查填块或纹理丢失。")
     return records[:8]

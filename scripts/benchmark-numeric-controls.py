@@ -21,8 +21,8 @@ for record in records:
     x,y=((.02,.66),(.60,.03),(.30,.38),(.03,.03),(.60,.67))[index%5]
     regions=[] if record["kind"]=="identity" else parse_detection(json.dumps({"watermarks":[{
         "kind":"panel","box":[round(x*1000),round(y*1000),round((x+.37)*1000),round(min(1,y+.25)*1000)]}]}))
-    seam=repair_boundary_warnings(after,regions,before=before)
-    texture=repair_texture_warnings(after,regions,before=before)
+    seam=repair_boundary_warnings(after,regions,before=before,inset_search=True)
+    texture=repair_texture_warnings(after,regions,before=before,inset_search=True)
     results.append(record|{"seam":seam["count"],"texture":texture["count"]})
 summary={kind:{"samples":sum(r["kind"]==kind for r in results),
                "seam":sum(bool(r["seam"]) for r in results if r["kind"]==kind),
