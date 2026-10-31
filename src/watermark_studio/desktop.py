@@ -246,7 +246,9 @@ class MainWindow(QMainWindow):
         batch = QWidget()
         self.tabs.addTab(batch, "批量去除水印")
         batch_form = QFormLayout(batch)
-        batch_form.addRow(QLabel("逐张处理完整图像，自动去除任意位置的水印。递归遍历目录并保留输出目录结构。"))
+        batch_hint = QLabel("逐张去水印，深层递归镜像全部目录（含空目录），原样复制非图像文件；默认保持图像原名和原始宽高。")
+        batch_hint.setWordWrap(True)
+        batch_form.addRow(batch_hint)
         self.input_dir, self.output_dir = QLineEdit(), QLineEdit()
         for label, edit in [("输入目录", self.input_dir), ("输出目录", self.output_dir)]:
             row = QHBoxLayout()
@@ -410,6 +412,7 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         layout.addWidget(self.progress)
         self.metrics = QLabel("请选择开发机上的输入与输出路径。")
+        self.metrics.setWordWrap(True)
         layout.addWidget(self.metrics)
         self.current = QLabel()
         self.current.setWordWrap(True)
@@ -596,13 +599,18 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 0 if self.job_state == "scanning" else max(1, total))
         self.progress.setValue(job["completed"])
         qc = job.get("quality_counts", {})
+        mirror = job.get("mirror", {})
         self.metrics.setText(
             f"{names.get(self.job_state, self.job_state)}  ·  {job['completed']}/{total}  "
             f"输出成功 {job['succeeded']}（未检出 {job.get('no_watermark', 0)}）  失败 {job['failed']}  "
             f"已有文件跳过 {job['skipped']}  无效图片 {job['invalid']}  "
             f"在途 {state.get('inflight_images', 0)}  "
             f"检验通过 {qc.get('passed', 0)}  待复核 {qc.get('review', 0)}  检验错误 {qc.get('error', 0)}  "
-            f"返工次数 {job.get('retry_attempts', 0)}  返工排队 {state.get('pending_retries', 0)}"
+            f"返工次数 {job.get('retry_attempts', 0)}  返工排队 {state.get('pending_retries', 0)}\n"
+            f"目录 {mirror.get('directories', 0)}  原样复制 {mirror.get('copied_files', 0)} 个文件"
+            f"（不可处理图像 {mirror.get('copied_invalid_images', 0)}）  "
+            f"链接 {mirror.get('copied_links', 0)}  已有附带文件保留 {mirror.get('existing_files', 0)}  "
+            f"复制失败 {mirror.get('copy_failures', 0)}"
         )
         self.current.setText(job.get("current", ""))
         self.errors.setPlainText(

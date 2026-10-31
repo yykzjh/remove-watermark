@@ -4,6 +4,7 @@ import json
 import math
 import os
 import shutil
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,34 +34,95 @@ def validate_directories(input_dir: str, output_dir: str) -> tuple[Path, Path]:
     return source, target
 
 
-def scan_images(source: Path, target: Path, overwrite: bool, stop=None, workers=1):
+def scan_images(source: Path, target: Path, overwrite: bool, stop=None, workers=1,
+                *, copy_overwrite=None, mirror_stats=None, progress=None):
+    """Mirror the complete tree; queue only supported, valid single-frame images.
+
+    Non-images and unsupported/invalid images are copied byte-for-byte. Symlinks
+    are preserved as links, never followed. Copy failures remain explicit failures.
+    Image admission and auxiliary copying use separate overwrite policies because
+    quality-only jobs may inspect existing images without replacing other files.
+    """
     tasks, skipped, invalid, candidates = [], 0, [], []
+    stats = mirror_stats if mirror_stats is not None else {}
+    stats.update(directories=0, copied_files=0, copied_bytes=0, copied_invalid_images=0,
+                 copied_links=0, existing_files=0, copy_failures=0, errors=[])
+    copy_overwrite = overwrite if copy_overwrite is None else copy_overwrite
+    last_progress = 0
     target.mkdir(parents=True, exist_ok=True)
+
+    def report(force=False):
+        nonlocal last_progress
+        now = time.monotonic()
+        if progress and (force or now-last_progress >= .25):
+            progress({key: value for key, value in stats.items() if key != "errors"})
+            last_progress = now
+
+    def copy_error(path, error):
+        stats["copy_failures"] += 1
+        stats["errors"].append({"file": str(path), "error": str(error)[:300]})
+        report()
+
+    def preserve(path, invalid_image=False):
+        if stop and stop.is_set():
+            return
+        relative = path.relative_to(source)
+        destination = target / relative
+        try:
+            is_link = path.is_symlink()
+            if destination.is_symlink() and not is_link:
+                raise ValueError("输出文件不能是符号链接")
+            if destination.is_dir() and not destination.is_symlink():
+                raise IsADirectoryError(f"输出同名路径是目录: {relative}")
+            if (destination.exists() or destination.is_symlink()) and not copy_overwrite:
+                stats["existing_files"] += 1
+                report()
+                return
+            if is_link:
+                atomic_symlink(path, destination, copy_overwrite)
+                stats["copied_links"] += 1
+            elif path.is_file():
+                atomic_copy(path, destination, copy_overwrite, preserve_metadata=True)
+                stats["copied_files"] += 1
+                stats["copied_bytes"] += destination.stat().st_size
+                stats["copied_invalid_images"] += int(invalid_image)
+            else:
+                raise ValueError("不支持复制此特殊文件类型")
+        except (OSError, ValueError) as error:
+            copy_error(relative, error)
+        report()
 
     def scan_error(error):
         invalid.append({"file": str(error.filename), "error": str(error)[:300]})
+        copy_error(error.filename, error)
 
     for folder, dirs, names in os.walk(source, followlinks=False, onerror=scan_error):
         if stop and stop.is_set():
             break
-        dirs[:] = sorted(d for d in dirs if not (Path(folder) / d).is_symlink())
         relative_folder = Path(folder).relative_to(source)
         destination_folder = target / relative_folder
-        destination_folder.mkdir(parents=True, exist_ok=True)
         if destination_folder.resolve() != destination_folder:
             raise ValueError("输出目录包含符号链接，无法保证安全写入")
+        destination_folder.mkdir(parents=True, exist_ok=True)
+        stats["directories"] += 1
+        for name in sorted(dirs):
+            path = Path(folder) / name
+            if path.is_symlink():
+                preserve(path)
+        dirs[:] = sorted(d for d in dirs if not (Path(folder) / d).is_symlink())
         for name in sorted(names):
+            if stop and stop.is_set():
+                break
             path = Path(folder) / name
             if path.is_symlink() or path.suffix.lower() not in EXTENSIONS:
+                preserve(path)
                 continue
             relative = path.relative_to(source)
             destination = target / relative
             if destination.is_symlink():
                 raise ValueError("输出文件不能是符号链接")
-            if destination.exists() and not overwrite:
-                skipped += 1
-                continue
             candidates.append(ImageTask(str(path), str(destination), relative.as_posix()))
+        report()
 
     def verify(task):
         if stop and stop.is_set():
@@ -76,11 +138,16 @@ def scan_images(source: Path, target: Path, overwrite: bool, stop=None, workers=
 
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for result in pool.map(verify, candidates):
+        for task, result in zip(candidates, pool.map(verify, candidates)):
             if isinstance(result, ImageTask):
-                tasks.append(result)
+                if Path(result.destination).exists() and not overwrite:
+                    skipped += 1
+                else:
+                    tasks.append(result)
             elif result is not None:
                 invalid.append(result)
+                preserve(Path(task.source), invalid_image=True)
+    report(force=True)
     return tasks, skipped, invalid
 
 
@@ -277,16 +344,32 @@ def atomic_save(image, destination, exif=b"", icc=None, overwrite=False):
         temp.unlink(missing_ok=True)
 
 
-def atomic_copy(source, destination, overwrite=False):
+def atomic_copy(source, destination, overwrite=False, *, preserve_metadata=False):
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name("." + path.name + "." + uuid.uuid4().hex + ".tmp")
     try:
         shutil.copyfile(source, temp)
+        if preserve_metadata:
+            shutil.copystat(source, temp)
         if overwrite:
             os.replace(temp, path)
         else:
             os.link(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def atomic_symlink(source, destination, overwrite=False):
+    """Recreate a link verbatim, including dangling/cyclic links, without traversal."""
+    path = Path(destination)
+    temp = path.with_name("." + path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        os.symlink(os.readlink(source), temp)
+        if overwrite:
+            os.replace(temp, path)
+        else:
+            os.link(temp, path, follow_symlinks=False)
     finally:
         temp.unlink(missing_ok=True)
 

@@ -67,12 +67,15 @@ def main():
     previous = None
     while True:
         job = request(args.url, "/health")["job"]
-        update = (job["state"], job["completed"], job["total"])
+        update = (job["state"], job["completed"], job["total"],
+                  job.get("mirror", {}).get("copied_files", 0),
+                  job.get("mirror", {}).get("copy_failures", 0))
         if update != previous:
             print(
                 f"{job['state']}: {job['completed']}/{job['total']}; "
                 f"success={job['succeeded']}, no_watermark={job.get('no_watermark', 0)}, "
-                f"failed={job['failed']}, existing_review={job.get('existing_outputs', 0)}, quality={job.get('quality_counts', {})}",
+                f"failed={job['failed']}, existing_review={job.get('existing_outputs', 0)}, quality={job.get('quality_counts', {})}; "
+                f"mirror={job.get('mirror', {})}",
                 flush=True,
             )
             previous = update

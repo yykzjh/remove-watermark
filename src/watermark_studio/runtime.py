@@ -229,10 +229,13 @@ class Runtime:
             temp.replace(root / "summary.json")
 
     def _finish(self):
+        if self.job.get("state") == "completed" and self.job.get("mirror", {}).get("copy_failures", 0):
+            self.job["state"] = "failed"
         counts = self.job.get("quality_counts", {})
         self.job["acceptance_complete"] = bool(
             self.job["options"]["quality_check"] and self.job["total"] > 0
             and counts.get("passed", 0) == self.job["total"] and not self.job["invalid"]
+            and not self.job.get("mirror", {}).get("copy_failures", 0)
         )
         self.job["finished_at"] = time.time()
         self._persist()
@@ -294,6 +297,7 @@ class Runtime:
                 "failed": 0,
                 "skipped": 0,
                 "invalid": 0,
+                "mirror": {},
                 "errors": [],
                 "current": "",
                 "started_at": time.time(),
@@ -314,9 +318,15 @@ class Runtime:
 
     def _scan(self, source, target, single=None):
         try:
+            mirror = {}
             if single is None:
+                def progress(stats):
+                    with self.lock:
+                        self.job["mirror"] = stats
                 tasks, skipped, invalid = scan_images(
-                    source, target, self.job["options"]["overwrite"] or self.job["options"]["quality_check"], self.cancel_scan, self.config.scan_workers
+                    source, target, self.job["options"]["overwrite"] or self.job["options"]["quality_check"], self.cancel_scan, self.config.scan_workers,
+                    copy_overwrite=self.job["options"]["overwrite"],
+                    mirror_stats=mirror, progress=progress,
                 )
             else:
                 from .images import ImageTask
@@ -345,8 +355,13 @@ class Runtime:
                         and Path(t.destination).is_file()
                     )} for t in tasks
                 )
+                copy_errors = mirror.pop("errors", [])
                 self.job.update(
-                    total=len(tasks), skipped=skipped, invalid=len(invalid), errors=invalid[-20:]
+                    total=len(tasks), skipped=skipped, invalid=len(invalid),
+                    mirror=mirror, errors=(invalid + copy_errors)[-20:],
+                )
+                (self.state_dir / self.job["id"] / "copy-errors.json").write_text(
+                    json.dumps(copy_errors, ensure_ascii=False), encoding="utf-8"
                 )
                 self.job["state"] = "cancelling" if self.cancel_scan.is_set() else "running"
                 (self.state_dir / self.job["id"] / "invalid.json").write_text(

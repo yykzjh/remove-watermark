@@ -25,6 +25,9 @@ def test_walk_filters_and_preserves_tree(tmp_path):
     assert [t.relative for t in tasks] == ["nested/photo.PNG"]
     assert Path(tasks[0].destination) == target / "nested" / "photo.PNG"
     assert (target / "nested" / "empty").is_dir()
+    assert (target / "nested" / "notes.txt").read_bytes() == b"not an image"
+    assert (target / "bad.jpg").read_bytes() == b"broken"
+    assert (target / "cycle").is_symlink()
     assert skipped == 0 and len(invalid) == 1
     Image.new("RGB", (20, 20)).save(target / "nested" / "photo.PNG")
     assert scan_images(source, target, False)[1] == 1
@@ -92,3 +95,84 @@ def test_all_exif_orientations_preserve_stored_and_display_dimensions(tmp_path):
         stored.save(output, exif=restored_exif)
         with Image.open(path) as a, Image.open(output) as b:
             assert ImageOps.exif_transpose(a).tobytes() == ImageOps.exif_transpose(b).tobytes()
+
+
+def test_deep_complete_mirror_and_nonprocessable_images(tmp_path):
+    import os
+
+    source, target = tmp_path/"input", tmp_path/"output"
+    leaf = source/"某镇"/"某村"/"施工照片"/"第五层"/"第六层"
+    (leaf/"隐藏目录"/"空目录").mkdir(parents=True)
+    (source/"另一乡"/"另一村").mkdir(parents=True)
+    payloads = {"说明.txt": "保留内容及命名".encode(), "表格.xlsx": bytes(range(256))*30,
+                "无扩展名": b"opaque", ".hidden": b"hidden", "坏图.JPG": b"broken"}
+    for name, payload in payloads.items():
+        (leaf/name).write_bytes(payload)
+    os.utime(leaf/"说明.txt", ns=(1234567890123456789, 1234567890123456789))
+    Image.new("RGB", (73, 41), "red").save(leaf/"照片.JPG")
+    Image.new("RGB", (39, 71), "blue").save(source/"另一乡"/"另一村"/"照片.JPG")
+    Image.new("RGB", (7, 9)).save(leaf/"动画.gif")
+    Image.new("RGB", (9, 7)).save(leaf/"多页.tiff", save_all=True,
+                                         append_images=[Image.new("RGB", (9, 7))])
+    (leaf/"相对链接").symlink_to("说明.txt")
+    (leaf/"失效链接").symlink_to("missing")
+    stats = {}
+    tasks, skipped, invalid = scan_images(source, target, False, workers=2, mirror_stats=stats)
+    rel = leaf.relative_to(source)
+    assert {t.relative for t in tasks} == {(rel/"照片.JPG").as_posix(), "另一乡/另一村/照片.JPG"}
+    assert len(invalid) == 2 and skipped == 0
+    assert (target/rel/"隐藏目录"/"空目录").is_dir()
+    for name in (*payloads, "动画.gif", "多页.tiff"):
+        assert (target/rel/name).read_bytes() == (leaf/name).read_bytes()
+    for name in ("相对链接", "失效链接"):
+        assert os.readlink(target/rel/name) == os.readlink(leaf/name)
+    assert (target/rel/"说明.txt").stat().st_mtime_ns == (leaf/"说明.txt").stat().st_mtime_ns
+    assert stats["copied_files"] == 7 and stats["copied_invalid_images"] == 2
+    assert stats["copied_links"] == 2 and stats["copy_failures"] == 0
+
+
+def test_auxiliary_copy_overwrite_is_separate_from_image_review(tmp_path):
+    source, target = tmp_path/"input", tmp_path/"output"
+    source.mkdir(); target.mkdir()
+    (source/"notes.txt").write_bytes(b"new")
+    (target/"notes.txt").write_bytes(b"old")
+    Image.new("RGB", (4, 5)).save(source/"photo.png")
+    stats = {}
+    assert len(scan_images(source, target, True, copy_overwrite=False, mirror_stats=stats)[0]) == 1
+    assert (target/"notes.txt").read_bytes() == b"old" and stats["existing_files"] == 1
+    scan_images(source, target, True, mirror_stats=stats)
+    assert (target/"notes.txt").read_bytes() == b"new" and stats["copied_files"] == 1
+
+
+def test_mirror_copy_failure_preserves_source_and_leaves_no_partial_file(tmp_path, monkeypatch):
+    from watermark_studio import images
+
+    source, target = tmp_path/"input", tmp_path/"output"
+    source.mkdir()
+    (source/"notes.txt").write_bytes(b"unchanged source")
+    def interrupted_copy(_source, destination):
+        Path(destination).write_bytes(b"partial")
+        raise OSError("disk full")
+    monkeypatch.setattr(images.shutil, "copyfile", interrupted_copy)
+    stats = {}
+    scan_images(source, target, False, mirror_stats=stats)
+    assert stats["copy_failures"] == 1 and stats["errors"][0]["file"] == "notes.txt"
+    assert not list(target.iterdir()) and (source/"notes.txt").read_bytes() == b"unchanged source"
+
+
+def test_mirror_rejects_output_link_escape_and_file_directory_conflicts(tmp_path):
+    source, target, outside = tmp_path/"input", tmp_path/"output", tmp_path/"outside"
+    source.mkdir(); target.mkdir(); outside.mkdir()
+    (source/"notes.txt").write_bytes(b"input")
+    (outside/"sentinel").write_bytes(b"protected")
+    (target/"notes.txt").symlink_to(outside/"sentinel")
+    stats = {}
+    scan_images(source, target, True, mirror_stats=stats)
+    assert stats["copy_failures"] == 1
+    assert (outside/"sentinel").read_bytes() == b"protected"
+    (target/"notes.txt").unlink(); (target/"notes.txt").mkdir()
+    scan_images(source, target, False, mirror_stats=stats)
+    assert stats["copy_failures"] == 1 and stats["existing_files"] == 0
+    (source/"sub").mkdir(); (target/"sub").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="符号链接"):
+        scan_images(source, target, False)
