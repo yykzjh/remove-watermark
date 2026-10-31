@@ -202,7 +202,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 results[task["relative"]] = {
                     "file": task["relative"], "ok": True, "regions": [],
                     "action": "no_watermark_detected" if cuda else "mock_copy",
-                    "first_pass_mode":options.first_pass_mode,
+                    "first_pass_strategy_version":"2026-11-01.source-details-core-v2",
+            "first_pass_mode":options.first_pass_mode,
                     "source_detail_views":detail_counts.get(task["relative"],0),
                     "model_inferences":0,"model_input_budgets":[],
                     "detection_seconds": detected, "output_size": output_size,
@@ -215,6 +216,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                          "detection_seconds": detected,
                          "batches": [], "failed": None}
             states.append(state)
+            core_regions=[]
+            if options.scope=="full_image" and options.first_pass_mode!="whole":
+                from .detection import parse_detection
+                try:
+                    core_regions=parse_detection(detections[task["relative"]][0][1],relative_padding=0)
+                except (ValueError,TypeError,KeyError):
+                    pass  # A missing raw core keeps the fully opaque padded mask.
             stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
             for index, region in enumerate(regions):
                 box = pixel_box(region.box, source.size)
@@ -229,12 +237,18 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 focused = options.scope=="full_image" and options.first_pass_mode!="whole"
                 small = focused and (region.box[2]-region.box[0])*(region.box[3]-region.box[1])<.035
                 budget = min(options.resolution,512) if small else options.resolution
+                cores=[pixel_box(r.box,source.size) for r in core_regions
+                       if not small and r.box[0]>=region.box[0] and r.box[1]>=region.box[1]
+                       and r.box[2]<=region.box[2] and r.box[3]<=region.box[3]]
+                core_box=(min(b[0] for b in cores),min(b[1] for b in cores),
+                          max(b[2] for b in cores),max(b[3] for b in cores)) if cores else None
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
                     "prompt": (build_full_prompt(extra_prompt) if state["whole_generation"] else
                                build_small_overlay_prompt(box,crop,extra_prompt)
                                if small else build_prompt(region.kind,box,crop,extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
+                    "core_box":core_box,
                     "resolution":budget, "size": dimensions(reference,budget),
                 })
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
@@ -310,7 +324,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             else:
                 state["result"] = blend_patch(
                     state["result"],edit["patch"],edit["box"],edit["crop"],options.feather,options.repair_blending,
-                    reference_original=state["source"],exclude_regions=state["regions"]
+                    reference_original=state["source"],exclude_regions=state["regions"],core_box=edit.get("core_box")
                 )
     for state in states:
         task = state["task"]
@@ -323,6 +337,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "source_detail_views":detail_counts.get(task["relative"],0),
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
+            "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
             "repair_blending": options.repair_blending,
             "harmonization": state["result"].info.get("harmonization"),
             "repair_regions": [r.model_dump() for r in (state["protected_regions"] if state["protected_regions"] is not None

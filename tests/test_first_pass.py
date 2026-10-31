@@ -104,3 +104,19 @@ def test_fine_harmonization_keeps_unoccluded_pixels_and_does_not_change_geometry
     assert after.size==before.size
     assert np.array_equal(np.asarray(before)[:150],np.asarray(after)[:150])
     assert max(abs(a-b) for a,b in zip(after.getpixel((100,270)),before.getpixel((100,270))))<=1
+
+
+def test_soft_safety_margin_never_reintroduces_opaque_watermark_core():
+    import numpy as np
+    from PIL import ImageDraw
+
+    from watermark_studio.images import blend_patch
+    before=Image.new("RGB",(200,160),"black")
+    ImageDraw.Draw(before).rectangle((30,100,100,140),fill="blue")
+    result=blend_patch(before,Image.new("RGB",(150,150),"gray"),(24,90,110,150),(0,0,150,160),12,
+                       core_box=(28,98,103,143))
+    pixels=np.asarray(result)
+    assert (pixels[100:141,30:101]==128).all()
+    assert np.array_equal(pixels[:80],np.asarray(before)[:80])
+    assert np.array_equal(pixels[:,111:],np.asarray(before)[:,111:])
+    assert 0 < pixels[95,60,0] < 128

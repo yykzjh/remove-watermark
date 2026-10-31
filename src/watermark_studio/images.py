@@ -262,7 +262,7 @@ def harmonize_repair(original, generated, regions, reference_resolution=512):
 
 
 def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: int, blending="feather",
-                *, reference_original=None, exclude_regions=()):
+                *, reference_original=None, exclude_regions=(), core_box=None):
     # Alpha is 1 throughout the specified watermark, fading OUTSIDE it.
     # A blurred mask that fades inside the watermark would leave text ghosts.
     x0, y0, x1, y1 = box
@@ -276,6 +276,15 @@ def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: i
         if feather == 0
         else np.clip(1 - distance / feather, 0, 1)
     )
+    if core_box is not None:
+        kx0,ky0,kx1,ky1=core_box
+        if not (x0<=kx0<kx1<=x1 and y0<=ky0<ky1<=y1):
+            raise ValueError("Opaque repair core must be inside the padded overlay")
+        def ramp(values,outer0,inner0,inner1,outer1):
+            left=(values>=inner0).astype(np.float32) if inner0==outer0 else np.clip((values-outer0).astype(np.float32)/(inner0-outer0),0,1)
+            right=(values<inner1).astype(np.float32) if inner1==outer1 else np.clip((outer1-1-values).astype(np.float32)/(outer1-inner1),0,1)
+            return np.minimum(left,right)
+        alpha=np.minimum(ramp(xx,x0,kx0,kx1,x1),ramp(yy,y0,ky0,ky1,y1))
     alpha = alpha * alpha * (3 - 2 * alpha)
     mask = Image.fromarray(np.uint8(np.round(alpha * 255)))
     resized = patch.convert("RGB").resize((cx1 - cx0, cy1 - cy0), Image.Resampling.LANCZOS)
