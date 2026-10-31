@@ -18,10 +18,14 @@ for name in ("010.jpg", "057.jpg"):
         for label, photo in zip(("original", "output"), photos):
             preview=ImageOps.contain(photo,(1280,1280))
             target=Path(".run")/f"review-{name[:-4]}-{label}.jpg"
-            for q in (80,70,60,50,40,30):
-                preview.save(target,quality=q,optimize=True)
+            while True:
+                for q in (80,70,60,50,40,30):
+                    preview.save(target,quality=q,optimize=True)
+                    if target.stat().st_size<=98304:
+                        break
                 if target.stat().st_size<=98304:
                     break
+                preview.thumbnail((round(preview.width*.8),round(preview.height*.8)))
             assert target.stat().st_size<=98304
             print(target.name,target.stat().st_size)
         continue
