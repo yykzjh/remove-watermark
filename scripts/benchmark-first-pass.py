@@ -33,7 +33,9 @@ if not re.fullmatch(r"[a-zA-Z0-9_-]+",args.tag) or not 1<=args.images<=10000:
 root=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")
 base=root/"quality-benchmark-cross-review-v7-64"
 work=root/("first-pass-"+args.tag)
-inputs=work/"input";inputs.mkdir(parents=True,exist_ok=True)
+work.mkdir(parents=True,exist_ok=False)
+inputs=work/"input";inputs.mkdir()
+prior_hashes=set()
 if args.subset in {"hard","all"}:
     names=(["000.jpg","008.jpg","043.jpg","028.jpg","031.jpg","011.jpg","019.jpg","017.jpg","054.jpg",
             "001.jpg","002.jpg","010.jpg","057.jpg","063.jpg"] if args.subset=="hard" else
@@ -76,6 +78,7 @@ else:
         if not re.fullmatch(r"[a-zA-Z0-9_-]+",name): parser.error("Invalid excluded benchmark name")
         seen.update(json.loads((root/name/"sources.json").read_text()))
     seen_hashes={hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in seen if Path(p).is_file()}
+    prior_hashes=set(seen_hashes)
     random.Random(args.seed).shuffle(candidates)
     paths=[]
     for p in candidates:
@@ -95,10 +98,24 @@ if args.files:
     selected=[(p,n) for p,n in zip(paths,names) if n in args.files]
     paths=[p for p,n in selected]; names=[n for p,n in selected]
 assert len(paths)==len(names) and paths
+if args.subset=="holdout" and not args.files and len(paths)!=args.images:
+    raise ValueError("Incomplete requested holdout selection")
 for p,name in zip(paths,names):
     (inputs/name).parent.mkdir(parents=True,exist_ok=True)
     if not (inputs/name).exists(): os.link(p,inputs/name)
 (work/"sources.json").write_text(json.dumps([str(p) for p in paths],ensure_ascii=False))
+source_hashes={name:hashlib.sha256((inputs/name).read_bytes()).hexdigest() for name in names}
+if args.subset=="holdout" and (len(set(source_hashes.values()))!=len(paths)
+        or set(source_hashes.values())&prior_hashes):
+    raise ValueError("Holdout hashes must be unique and disjoint from all excluded inputs")
+selection={"subset":args.subset,"sampling_seed":args.seed,"images":len(paths),
+    "exclusions":args.exclude_benchmarks,"prior_sha256_overlap":len(set(source_hashes.values())&prior_hashes),
+    "unique_sha256":len(set(source_hashes.values())),"source_sha256":source_hashes,
+    "sources":[str(p) for p in paths]}
+selection_text=json.dumps(selection,ensure_ascii=False,sort_keys=True)
+(work/"source-selection.json").write_text(selection_text)
+selection_sha256=hashlib.sha256(selection_text.encode()).hexdigest()
+
 while request(args.url,"/health")["stage"]!="ready": time.sleep(2)
 for profile in args.profiles:
     match=re.fullmatch(r"(whole|focused|thorough|complete)(?:@([0-9.]+))?-([0-9]+)",profile)
@@ -110,7 +127,7 @@ for profile in args.profiles:
     job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(target),"options":{
         "concurrency":20,"resolution":budget,"preserve_background":True,"first_pass_mode":mode,"context":context,
         "repair_blending":args.blending,"quality_check":not args.generation_only,"quality_batch_size":args.quality_batch_size,
-        "quality_detail_patches":4,"quality_cross_review":args.cross_review,"overwrite":True}})["id"]
+        "quality_detail_patches":4,"quality_cross_review":args.cross_review,"quality_auto_retry":False,"seed":42,"overwrite":True}})["id"]
     last_progress=started
     while True:
         state=request(args.url,"/health");status=state["job"]
@@ -123,10 +140,20 @@ for profile in args.profiles:
         if time.monotonic()-started>10800: raise TimeoutError(job)
         time.sleep(.5)
     rows=[json.loads(line) for line in (Path.home()/".local/state/watermark-studio"/job/"results.jsonl").read_text().splitlines()]
+    elapsed=time.monotonic()-started
+    audit_started=time.monotonic()
+    source_unchanged=all(hashlib.sha256((inputs/name).read_bytes()).hexdigest()==digest
+                         for name,digest in source_hashes.items())
+    if not source_unchanged:
+        raise ValueError("Frozen source input changed during generation; benchmark invalid")
+    source_audit_seconds=round(time.monotonic()-audit_started,3)
+    if any(r.get("quality_attempts",1)>1 for r in rows):
+        raise ValueError("A generation retry cannot count as a first-pass result")
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
     record={"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
         "blending":args.blending,"context":context,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"quality_weight_identity":state.get("quality_weight_identity"),
-        "quality_model":state.get("quality_model"),"quality_backend":state.get("quality_backend"),"seconds":round(time.monotonic()-started,3),"first_counts":dict(counts),
+        "quality_model":state.get("quality_model"),"quality_backend":state.get("quality_backend"),"seconds":round(elapsed,3),"source_inputs_unchanged":source_unchanged,"source_hash_audit_seconds":source_audit_seconds,
+        "source_selection_sha256":selection_sha256,"sampling_seed":args.seed,"model_seed":42,"first_counts":dict(counts),
         "first_pass_rate":None if args.generation_only else round(counts["passed"]/len(paths),5),
         "generation_only":args.generation_only,"quality_batch_size":args.quality_batch_size,"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),
