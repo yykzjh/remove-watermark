@@ -20,6 +20,7 @@ parser.add_argument("--combined", action="store_true", help="Include removed ove
 parser.add_argument("--compare-details", action="store_true", help="Experimental paired content detail comparison")
 parser.add_argument("--run-label", choices=["", "local-guard"], default="")
 parser.add_argument("--repair-cases", action="store_true")
+parser.add_argument("--only-extra", action="store_true")
 args = parser.parse_args()
 if args.compare_details and not args.combined:
     parser.error("--compare-details requires --combined")
@@ -96,6 +97,7 @@ if args.run_label == "local-guard":
     resized = clean.resize((clean.width//2, clean.height//2), Image.Resampling.LANCZOS)
     cases.append(("known_clean_removal_resize", combined_before, resized, "passed"))
 known_regions = {}
+extra_labels=set()
 if args.repair_cases:
     from watermark_studio.config import Region
     from watermark_studio.images import load_photo
@@ -136,6 +138,24 @@ if args.repair_cases:
             key=label+"_inside_residue_"+str(opacity)
             cases.append((key,marked,partial,"review"))
             known_regions[key]=[source_mask]
+        blank=Image.new("RGBA",(pw,ph),(220,220,220,240))
+        ImageDraw.Draw(blank).rectangle((0,0,pw,ph//3),fill=(30,110,220,255))
+        layer=Image.new("RGBA",clean_crop.size,(0,0,0,0))
+        layer.paste(blank,(px,py))
+        output_blank=Image.alpha_composite(clean_crop.convert("RGBA"),layer).convert("RGB")
+        key=label+"_retained_background"
+        cases.append((key,marked,output_blank,"review"))
+        known_regions[key]=[source_mask]
+        extra_labels.add(key)
+        output_blur=clean_crop.copy()
+        blur_box=(px,py,px+pw,py+ph)
+        output_blur.paste(clean_crop.crop(blur_box).filter(ImageFilter.GaussianBlur(8)),blur_box)
+        key=label+"_inside_blur"
+        cases.append((key,marked,output_blur,"review"))
+        known_regions[key]=[source_mask]
+        extra_labels.add(key)
+if args.only_extra:
+    cases=[case for case in cases if case[0] in extra_labels]
 if args.compare_details:
     from watermark_studio import quality
     original_vqa = quality._structured_vqa

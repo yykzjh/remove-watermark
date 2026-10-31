@@ -76,3 +76,13 @@ def test_original_visible_object_edge_is_not_a_new_patch_seam():
     assert repair_boundary_warnings(clean,[region])["count"]>0
     checked=repair_boundary_warnings(clean,[region],before=before)
     assert checked["count"] == 0 and checked["source_unchanged_segments"]>0
+
+def test_observed_large_colour_offset_is_not_artificially_capped_at_64():
+    original=Image.new("RGB",(512,384),(210,210,210))
+    region=Region(box=(0,.45,.35,1))
+    ImageDraw.Draw(original).rectangle((0,173,179,383),fill=(20,70,220))
+    generated=Image.new("RGB",original.size,(110,110,110))
+    result=composite_protected(original,generated,[region],12,"harmonic")
+    assert result.getpixel((80,250)) == (210,210,210)
+    assert result.info["harmonization"]["offset_max"]>64
+    assert repair_boundary_warnings(result,[region],before=original)["count"]==0

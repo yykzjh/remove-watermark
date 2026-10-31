@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 import shutil
@@ -117,6 +118,13 @@ def harmonize_repair(original, generated, regions):
         raise ValueError("Harmonization requires matching image dimensions")
     if not regions:
         return generated
+    capture=os.environ.get("WATERMARK_REPAIR_CAPTURE")
+    if capture:
+        folder=Path(capture)/f"{os.getpid()}-{original.width}x{original.height}"
+        folder.mkdir(parents=True,exist_ok=True)
+        original.save(folder/"original.png",compress_level=1)
+        generated.save(folder/"generated.png",compress_level=1)
+        (folder/"regions.json").write_text(json.dumps([r.model_dump() for r in regions]))
     previous = None
     for longest, iterations in ((16, 96), (32, 64), (64, 40), (128, 24), (256, 24), (512, 16)):
         scale = min(1, longest/max(original.size))
@@ -130,7 +138,18 @@ def harmonize_repair(original, generated, regions):
                   max(0, int(x0*size[0])):min(size[0], math.ceil(x1*size[0]))] = False
         if valid.sum() < 4:
             return generated
-        boundary = np.clip(source-candidate, -64, 64)
+        raw_delta=source-candidate
+        weighted=np.where(valid[...,None],raw_delta,0)
+        weights=np.pad(valid.astype(np.float32),1,mode="edge")
+        padded_delta=np.pad(weighted,((1,1),(1,1),(0,0)),mode="edge")
+        numerator=np.zeros_like(weighted)
+        denominator=np.zeros_like(valid,dtype=np.float32)
+        for dy in range(3):
+            for dx in range(3):
+                numerator+=padded_delta[dy:dy+size[1],dx:dx+size[0]]
+                denominator+=weights[dy:dy+size[1],dx:dx+size[0]]
+        boundary=numerator/np.maximum(denominator[...,None],1)
+
         if previous is None:
             field = np.broadcast_to(np.median(boundary[valid], axis=0), boundary.shape).copy()
         else:
@@ -153,12 +172,19 @@ def harmonize_repair(original, generated, regions):
                 largest_update = max(largest_update, float(np.abs(delta).max()))
             if largest_update < .02:
                 break
-        previous = np.clip(field, -64, 64)
+        previous = np.clip(field, -255, 255)
     result = np.asarray(generated.convert("RGB"), dtype=np.float32).copy()
     for channel in range(3):
         offset = Image.fromarray(previous[..., channel]).resize(original.size, Image.Resampling.BILINEAR)
         result[..., channel] += np.asarray(offset, dtype=np.float32)
-    return Image.fromarray(np.clip(np.rint(result), 0, 255).astype(np.uint8))
+    output=Image.fromarray(np.clip(np.rint(result),0,255).astype(np.uint8))
+    output.info["harmonization"]={
+        "method":"masked_harmonic_rgb_v2","reference_grid":list(size),
+        "reference_max_abs_delta":round(float(np.abs(raw_delta[valid]).max()),3),
+        "reference_over_64_fraction":round(float((np.abs(raw_delta[valid])>64).mean()),5),
+        "offset_min":round(float(previous.min()),3),"offset_max":round(float(previous.max()),3),
+    }
+    return output
 
 
 def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: int, blending="feather"):
@@ -185,6 +211,8 @@ def blend_patch(original: Image.Image, patch: Image.Image, box, crop, feather: i
         resized = harmonize_repair(original.crop(crop), resized, [local])
     result = original.copy()
     result.paste(resized, (cx0, cy0), mask)
+    if "harmonization" in resized.info:
+        result.info["harmonization"]=resized.info["harmonization"]
     return result
 
 
@@ -294,6 +322,7 @@ def composite_protected(original, generated, regions, feather=12, blending="feat
         generated = harmonize_repair(original, generated, regions)
     result = original.copy()
     w, h = original.size
+    result.info.update({k:v for k,v in generated.info.items() if k=="harmonization"})
     for region in regions:
         box = pixel_box(region.box, original.size)
         x0, y0, x1, y1 = box

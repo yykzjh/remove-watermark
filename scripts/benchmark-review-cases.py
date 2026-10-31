@@ -49,6 +49,7 @@ for strategy in args.strategies:
             "state":status["state"],"source_unchanged":hashes()==before,
             "quality_counts":status["quality_counts"],"failed":status["failed"],
             "cases":[{"file":r["file"],"quality":r.get("quality"),"output_size":r.get("output_size"),
+                      "harmonization":r.get("harmonization"),
                       "peak_allocated_mib":r.get("peak_allocated_mib"),"oom_retries":r.get("oom_retries")} for r in rows]}
     (work/(strategy+".json")).write_text(json.dumps(record,ensure_ascii=False,indent=2))
     for row in rows:
@@ -70,5 +71,5 @@ for strategy in args.strategies:
         "cases":[{"file":r["file"],"status":r["quality"]["status"],"reason":r["quality"]["reason"],
                   "boundary":r["quality"].get("repair_boundary"),
                   "outside_tiles":r["quality"].get("outside_repair_change",{}).get("tiles"),
-                  "size":r["output_size"]} for r in record["cases"]]},ensure_ascii=False),flush=True)
+                  "size":r["output_size"],"harmonization":r.get("harmonization")} for r in record["cases"]]},ensure_ascii=False),flush=True)
     assert status["failed"]==0 and record["source_unchanged"]
