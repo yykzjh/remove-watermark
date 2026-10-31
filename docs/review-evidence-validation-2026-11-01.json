@@ -1,0 +1,171 @@
+{
+  "functional_revision": "3d6d0ab",
+  "source_hashes_unchanged": true,
+  "real_sample_tests": [
+    {
+      "job": "15677b5ad0a547f1b537e11cc0e3d416",
+      "retry": false,
+      "seconds": 11.488,
+      "quality_counts": {
+        "passed": 1,
+        "review": 2
+      },
+      "cases": [
+        {
+          "file": "057.jpg",
+          "status": "passed",
+          "quality_attempts": 1,
+          "feedback_attempts": 0,
+          "feedback_codes_used": [],
+          "explanation_seconds": 0,
+          "evidence_version": "2026-11-01.evidence-v6",
+          "explanation_status": "not_requested_passed",
+          "assessment": null,
+          "findings": 0,
+          "evidence_count": 0
+        },
+        {
+          "file": "010.jpg",
+          "status": "review",
+          "quality_attempts": 1,
+          "feedback_attempts": 0,
+          "feedback_codes_used": [],
+          "explanation_seconds": 0.771,
+          "evidence_version": "2026-11-01.evidence-v6",
+          "explanation_status": "ok",
+          "assessment": "no_clear_defect",
+          "findings": 0,
+          "evidence_count": 2
+        },
+        {
+          "file": "054.jpg",
+          "status": "review",
+          "quality_attempts": 1,
+          "feedback_attempts": 0,
+          "feedback_codes_used": [],
+          "explanation_seconds": 2.119,
+          "evidence_version": "2026-11-01.evidence-v6",
+          "explanation_status": "ok",
+          "assessment": "defect_visible",
+          "findings": 1,
+          "evidence_count": 2
+        }
+      ]
+    },
+    {
+      "job": "e68b30f40cf047d682171a5cfdb38a57",
+      "retry": true,
+      "seconds": 44.057,
+      "quality_counts": {
+        "passed": 2,
+        "review": 1
+      },
+      "cases": [
+        {
+          "file": "057.jpg",
+          "status": "passed",
+          "quality_attempts": 1,
+          "feedback_attempts": 0,
+          "feedback_codes_used": [],
+          "explanation_seconds": 0,
+          "evidence_version": "2026-11-01.evidence-v6",
+          "explanation_status": "not_requested_passed",
+          "assessment": null,
+          "findings": 0,
+          "evidence_count": 0
+        },
+        {
+          "file": "010.jpg",
+          "status": "review",
+          "quality_attempts": 3,
+          "feedback_attempts": 2,
+          "feedback_codes_used": [
+            "rectangular_shadow",
+            "rectangular_shadow",
+            "rectangular_shadow",
+            "rectangular_shadow"
+          ],
+          "explanation_seconds": 0.634,
+          "evidence_version": "2026-11-01.evidence-v6",
+          "explanation_status": "ok",
+          "assessment": "no_clear_defect",
+          "findings": 0,
+          "evidence_count": 2
+        },
+        {
+          "file": "054.jpg",
+          "status": "passed",
+          "quality_attempts": 3,
+          "feedback_attempts": 2,
+          "feedback_codes_used": [
+            "residual_text",
+            "residual_text",
+            "residual_text",
+            "residual_text"
+          ],
+          "explanation_seconds": 0,
+          "evidence_version": "2026-11-01.evidence-v6",
+          "explanation_status": "not_requested_passed",
+          "assessment": null,
+          "findings": 0,
+          "evidence_count": 0
+        }
+      ]
+    }
+  ],
+  "performance": [
+    {
+      "label": "baseline-hot",
+      "tag": "evidence-v6-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 119.968,
+      "job": "9ea095e65fdc4751899fd14f0bb1bf48",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {},
+      "retry_attempts": 0,
+      "retry_exhausted": 0,
+      "preserve_background": true,
+      "repair_blending": "harmonic",
+      "explained_attempts": 0,
+      "explanation_errors": 0,
+      "explanation_seconds": 0,
+      "explanation_oom_splits_max": 0,
+      "feedback_retries": 0,
+      "quality_seconds": 0,
+      "bad_sizes": 0,
+      "quality_oom_splits_max": 0,
+      "peak_allocated_mib": 42108,
+      "quality_errors": []
+    },
+    {
+      "label": "quality-768-b2",
+      "tag": "evidence-v6-64",
+      "images": 64,
+      "detail_patches": 4,
+      "seconds": 188.054,
+      "job": "73e40d97799e43b994c5e9a59c5eb1c0",
+      "success": 64,
+      "failed": 0,
+      "quality_counts": {
+        "passed": 61,
+        "review": 3
+      },
+      "retry_attempts": 13,
+      "retry_exhausted": 3,
+      "preserve_background": true,
+      "repair_blending": "harmonic",
+      "explained_attempts": 16,
+      "explanation_errors": 0,
+      "explanation_seconds": 16.567,
+      "explanation_oom_splits_max": 0,
+      "feedback_retries": 13,
+      "quality_seconds": 172.043,
+      "bad_sizes": 0,
+      "quality_oom_splits_max": 0,
+      "peak_allocated_mib": 42108,
+      "quality_errors": []
+    }
+  ]
+}
