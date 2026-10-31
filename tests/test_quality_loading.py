@@ -30,10 +30,55 @@ def test_verifier_quantization_is_explicit_and_leaves_visual_modules_unquantized
         assert "moved" not in captured
         assert captured["device_map"]=={"":"cuda:0"}
         quant=captured["quantization_config"]
-        assert quant["llm_int8_skip_modules"]==["visual","lm_head"]
+        assert quant["llm_int8_skip_modules"]==["model.visual","visual","lm_head"]
         assert quant.get("load_in_4bit",False)==(mode=="nf4")
 
 
 def test_quantized_verification_requires_the_separate_verifier():
     with pytest.raises(ValueError):
         DeploymentConfig(quality_quantization="nf4")
+
+
+def test_quantization_exclusion_matches_full_visual_module_paths(monkeypatch):
+    # Transformers matches these patterns from the beginning of the full name.
+    import re
+    captured = {}
+    class Encoder:
+        def eval(self): return self
+        def named_modules(self): return []
+    class Factory:
+        @staticmethod
+        def from_pretrained(path, **kwargs):
+            captured.update(kwargs)
+            return Encoder()
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(bfloat16="bf16"))
+    monkeypatch.setitem(sys.modules, "bitsandbytes", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(
+        BitsAndBytesConfig=lambda **kw: kw, Qwen3VLForConditionalGeneration=Factory))
+    config = DeploymentConfig(quality_verifier=True, quality_backend="independent",
+                              quality_quantization="nf4")
+    load_quality_encoder("/cached/model", config, "cuda:0")
+    patterns = captured["quantization_config"]["llm_int8_skip_modules"]
+    def excluded(name):
+        return any(re.match(f"{key}\\.", name) or re.match(key, name) or name.endswith(key)
+                   for key in patterns)
+    assert excluded("model.visual.blocks.0.attn.qkv")
+    assert excluded("model.visual.merger.mlp.0")
+    assert excluded("lm_head")
+    assert not excluded("model.language_model.layers.0.self_attn.q_proj")
+
+
+def test_quantized_visual_module_fails_closed(monkeypatch):
+    class Encoder:
+        def eval(self): return self
+        def named_modules(self):
+            return [("model.visual.blocks.0.attn.qkv", type("Linear4bit", (), {})())]
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(bfloat16="bf16"))
+    monkeypatch.setitem(sys.modules, "bitsandbytes", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(
+        BitsAndBytesConfig=lambda **kw: kw, Qwen3VLForConditionalGeneration=SimpleNamespace(
+            from_pretrained=lambda *a, **kw: Encoder())))
+    config = DeploymentConfig(quality_verifier=True, quality_backend="independent",
+                              quality_quantization="nf4")
+    with pytest.raises(RuntimeError, match="vision encoder"):
+        load_quality_encoder("/cached/model", config, "cuda:0")

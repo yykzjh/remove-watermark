@@ -61,7 +61,7 @@ if not fixture.exists():
         small=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",max(12,w//90))
         x,y=((.02,.66),(.60,.03),(.30,.38),(.03,.03),(.60,.67))[index%5]
         box=(int(x*w),int(y*h),int((x+.37)*w),int(min(1,y+.25)*h))
-        def overlay(style):
+        def overlay(style, clean=clean, box=box, h=h, font=font, small=small):
             layer=Image.new("RGBA",clean.size,(0,0,0,0))
             d=ImageDraw.Draw(layer)
             if style in {"panel","background"}:

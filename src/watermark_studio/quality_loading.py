@@ -9,7 +9,7 @@ def load_quality_encoder(path, config, device):
             import bitsandbytes  # noqa: F401 - fail early with a useful install message
         except ImportError as error:
             raise RuntimeError("Install uv extra quality-quantization before quantized verifier deployment") from error
-        settings={"llm_int8_skip_modules":["visual","lm_head"]}
+        settings={"llm_int8_skip_modules":["model.visual","visual","lm_head"]}
         if config.quality_quantization=="nf4":
             settings.update(load_in_4bit=True,bnb_4bit_quant_type="nf4",
                             bnb_4bit_compute_dtype=getattr(torch,config.dtype))

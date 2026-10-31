@@ -1,6 +1,5 @@
 """CPU ablation on controlled known masks; not an end-to-end semantic score."""
 import argparse
-import collections
 import json
 from pathlib import Path
 
