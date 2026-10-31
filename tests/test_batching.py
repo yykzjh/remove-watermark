@@ -1,5 +1,6 @@
 import sys
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -102,3 +103,43 @@ def test_preparation_failure_never_writes_partial_repair(tmp_path, monkeypatch):
     )
     assert not results[0]["ok"] and "invalid second crop" in results[0]["error"]
     assert not target.exists()
+
+
+@pytest.mark.parametrize("small_oom", [False, True])
+def test_small_input_batch_cap_never_increases_large_input_batch_or_leaks_images(tmp_path, monkeypatch, small_oom):
+    class OutOfMemoryError(RuntimeError): pass
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda: None, synchronize=lambda: None,
+        max_memory_allocated=lambda: 0, max_memory_reserved=lambda: 0,
+        empty_cache=lambda: None, OutOfMemoryError=OutOfMemoryError)))
+    regions = [Region(kind="panel", box=(0,.6,.4,1)),
+               Region(kind="logo", box=(.85,.95,1,1))]
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",
+                        lambda images, *a: [(regions, '{"scene":"outdoor"}') for _ in images])
+    monkeypatch.setattr("watermark_studio.batching.dimensions", lambda image, resolution: (resolution,resolution))
+    calls = []
+    def inference(pipe, items, resolution, kv):
+        calls.append((resolution, len(items)))
+        assert len({item["seed"] for item in items}) == len(items)
+        if resolution == 512 and len(items) > 1 and small_oom:
+            raise OutOfMemoryError("small batch also respects OOM isolation")
+        return [Image.new("RGB", (32,32), "gray") for item in items]
+    monkeypatch.setattr("watermark_studio.batching.independent_batch", inference)
+    tasks = []
+    for index in range(2):
+        source, target = tmp_path/f"in-{index}.png", tmp_path/f"out-{index}.png"
+        Image.new("RGB", (800,600), (30+index*40,60,90)).save(source)
+        tasks.append({"source": str(source), "destination": str(target), "relative": str(index)})
+    originals = [Path(t["source"]).read_bytes() for t in tasks]
+    pipe = SimpleNamespace(text_encoder=None, processor=None, _execution_device="cpu")
+    results = process_batch(tasks, ProcessingConfig(scope="full_image", preserve_background=True,
+        first_pass_mode="focused", resolution=1024), DeploymentConfig(
+            batch_size=1, small_batch_size=2, batch_bucketing=True, oom_split_batch=True), pipe)
+    assert [n for budget,n in calls if budget == 1024] == [1,1]
+    assert [n for budget,n in calls if budget == 512] == ([2,1,1] if small_oom else [2])
+    assert all(r["ok"] for r in results)
+    for i, task in enumerate(tasks):
+        assert Path(task["source"]).read_bytes() == originals[i]
+        with Image.open(task["destination"]) as output, Image.open(task["source"]) as source:
+            assert output.size == source.size
+            assert output.getpixel((450,50)) == source.getpixel((450,50))

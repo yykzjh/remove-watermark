@@ -443,6 +443,7 @@ class Runtime:
                     self.config.worker_count * max(4, self.config.batch_size * min(2, self.config.batch_window)),
                 ),
                 "batch_size": self.config.batch_size,
+                "small_batch_size": self.config.small_batch_size,
                 "batch_window": self.config.batch_window,
                 "quality_verifier": self.config.quality_verifier,
                 "quality_model": (self.config.quality_model if self.config.quality_backend=="independent"

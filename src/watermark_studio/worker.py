@@ -322,7 +322,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     for bucket in buckets.values():
         offset = 0
         while offset < len(bucket):
-            size = min(config.batch_size, batch_limits.get((bucket[0]["resolution"],bucket[0]["size"]),config.batch_size))
+            maximum = (config.small_batch_size if config.small_batch_size and bucket[0]["resolution"] <= 512
+                       else config.batch_size)
+            size = min(maximum, batch_limits.get((bucket[0]["resolution"],bucket[0]["size"]),maximum))
             execute(bucket[offset:offset + size])
             offset += size
     for edit in edits:

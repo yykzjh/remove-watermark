@@ -13,6 +13,7 @@
 |--gpus|[0, 1, 2, 3, 4, 5, 6, 7]|Comma-separated physical GPU indices, e.g. 1,2,3|
 |--parallelism|data|single: exactly one worker; data: independent image workers on selected GPUs|
 |--batch-size|2|Maximum independent edits per GPU forward, 1..16|
+|--small-batch-size|0|Separate cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it. Does not raise the raw-image concurrency/window. Exact shapes and OOM learned caps still apply.|
 |--batch-window|4|Images gathered per worker = batch size times window, 1..8|
 |--batch-bucketing|False|Group edits by identical inference dimensions within the window|
 |--adaptive-dispatch|False|Shrink worker windows near job tail to balance remaining work|

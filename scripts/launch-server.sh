@@ -17,6 +17,7 @@ exec bash scripts/start-server.sh \
   --parallelism data \
   --gpus 0,1,2,3,4,5,6,7 \
   --batch-size 2 \
+  --small-batch-size 0 \
   --batch-window 4 \
   --batch-bucketing \
   --oom-split-batch \
