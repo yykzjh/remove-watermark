@@ -121,6 +121,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     detections, decoded = {}, {}
     detail_counts = {}
     edge_evidence = {}
+    context_evidence = {}
     needs_detection = cuda and (
         (options.scope == "full_image" and options.preserve_background)
         or (options.scope == "regions" and options.preset == "auto")
@@ -144,11 +145,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         if options.first_pass_mode in {"thorough","complete"}:
             from .detection import refine_source_details
             edge_audit={}
+            context_audit={}
             found, counts = refine_source_details([decoded[t["relative"]][0] for t in detect_tasks],found,
                 pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,config.detection_batch_size,
-                complete=options.first_pass_mode=="complete",edge_audit=edge_audit)
+                complete=options.first_pass_mode=="complete",edge_audit=edge_audit,context_audit=context_audit)
             detail_counts={t["relative"]:counts[i] for i,t in enumerate(detect_tasks)}
             edge_evidence={t["relative"]:edge_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
+            context_evidence={t["relative"]:context_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
         for index, task in enumerate(detect_tasks):
             if task.get("_extra_regions") and not isinstance(found[index], Exception):
                 try:
@@ -221,6 +224,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     "first_pass_mode":options.first_pass_mode,
                     "source_detail_views":detail_counts.get(task["relative"],0),
             "source_edge_completion":edge_evidence.get(task["relative"],[]),
+            "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
                     "model_inferences":0,"model_input_budgets":[],
                     "detection_seconds": detected, "output_size": output_size,
                     "background_preserved": bool(protected_regions is not None),
@@ -369,6 +373,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "first_pass_mode":options.first_pass_mode,
             "source_detail_views":detail_counts.get(task["relative"],0),
             "source_edge_completion":edge_evidence.get(task["relative"],[]),
+            "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],

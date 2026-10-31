@@ -28,6 +28,10 @@ Coordinates are integers normalized to 0..1000, origin top left. At most 8 group
 If no digital overlay is visible return {"watermarks":[]}. Do not invent boxes."""
 
 
+class DetectionAreaError(ValueError):
+    """A valid-looking box would redraw too much of the current visual context."""
+
+
 class DetectionSchemaError(ValueError):
     """A malformed protocol reply; discard and request one fresh scan."""
 
@@ -58,7 +62,7 @@ def parse_detection(
         raw = Region(kind=kind, box=tuple(v / 1000 for v in coords))
         x0, y0, x1, y1 = raw.box
         if (x1 - x0) * (y1 - y0) > 0.8:
-            raise ValueError("自动检测区域覆盖过大，已避免整图重绘")
+            raise DetectionAreaError("自动检测区域覆盖过大，已避免整图重绘")
         # A proportional margin covers slightly underestimated panel edges, without
         # giving a small logo the same large margin as a large information panel.
         px = padding + (x1-x0)*relative_padding
@@ -100,7 +104,7 @@ def merge_regions(regions):
     for region in regions:
         x0, y0, x1, y1 = region.box
         if (x1-x0)*(y1-y0) > 0.8:
-            raise ValueError("合并后的检测范围过大，已避免整图重绘")
+            raise DetectionAreaError("合并后的检测范围过大，已避免整图重绘")
     return regions
 
 
@@ -233,9 +237,10 @@ COMPLETENESS_PROMPT = (
 
 
 def refine_source_details(images, detections, encoder, processor, device, resolution=1280,
-                          batch_size=1, *, complete=False, edge_audit=None):
+                          batch_size=1, *, complete=False, edge_audit=None, context_audit=None):
     """Bounded source-only scans; complete small clusters without fixed corners."""
     jobs,crops=[],[]
+    extra_views={}
     area=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1])
     for index,(image,detection) in enumerate(zip(images,detections)):
         if isinstance(detection,Exception):
@@ -266,6 +271,28 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
             for i,result in zip(indices,found): results[i]=result
     else:
         results=locate_watermarks_batch(crops,encoder,processor,device,resolution,batch_size)
+    # A small footer can fill a zoomed crop. One wider SOURCE view can resolve
+    # ambiguity without clipping an invalid box or weakening either area limit.
+    if complete:
+        for position,((index,box,completion),result) in enumerate(zip(jobs,results)):
+            if not completion or not isinstance(result,DetectionAreaError):
+                continue
+            left,top,right,bottom=box
+            px,py=max(12,round((right-left)*.35)),max(12,round((bottom-top)*.35))
+            wider=(max(0,left-px),max(0,top-py),min(images[index].width,right+px),
+                   min(images[index].height,bottom+py))
+            if wider==box:
+                continue
+            retry=locate_watermarks_batch([images[index].crop(wider)],encoder,processor,device,
+                                          resolution,1,False,COMPLETENESS_PROMPT)[0]
+            results[position]=retry
+            jobs[position]=(index,wider,True)
+            extra_views[index]=extra_views.get(index,0)+1
+            if context_audit is not None:
+                context_audit.setdefault(index,[]).append({"reason":"oversized_local_overlay",
+                    "original_crop":list(box),"context_crop":list(wider),
+                    "status":"error" if isinstance(retry,Exception) else "valid",
+                    "maximum_global_added_area":.035})
     output=list(detections)
     additions={}
     for (index,box,completion),result in zip(jobs,results):
@@ -309,7 +336,7 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
                     edge_audit[index]=evidence
             except Exception as error:  # noqa: BLE001 - isolate one source, never accept an incomplete scan
                 output[index]=RuntimeError(f"Source edge scan failed: {type(error).__name__}: {error}")
-    return output,{i:sum(index==i for index,_,_ in jobs) for i in range(len(images))}
+    return output,{i:sum(index==i for index,_,_ in jobs)+extra_views.get(i,0) for i in range(len(images))}
 
 
 def complete_edge_strokes(image, regions):

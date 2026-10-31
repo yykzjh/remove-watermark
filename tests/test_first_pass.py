@@ -260,3 +260,37 @@ def test_a_failed_source_edge_scan_does_not_fail_neighboring_photos(monkeypatch)
     monkeypatch.setattr("watermark_studio.detection.complete_edge_strokes",scan)
     results,_=refine_source_details([bad,good],[([],"{}"),([],"{}")],None,None,"cpu",complete=True)
     assert isinstance(results[0],Exception) and results[1]==([],"{}")
+
+
+@pytest.mark.parametrize("valid", [True,False])
+def test_oversized_local_source_detection_gets_only_one_wider_context_with_same_global_cap(monkeypatch,valid):
+    from watermark_studio.detection import DetectionAreaError, refine_source_details
+    photo=Image.new("RGB",(1600,1200))
+    logo=Region(kind="logo",box=(.85,.9,.98,.99))
+    views=[]
+    def scan(crops,*args):
+        views.append(crops[0].size)
+        if len(views)==1 or not valid:
+            return [DetectionAreaError("oversized crop group")]
+        return [([Region(kind="logo",box=(.7,.7,.8,.8))],"{}")]
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",scan)
+    audit={}
+    found,counts=refine_source_details([photo],[([logo],"{}")],None,None,"cpu",
+                                      complete=True,context_audit=audit)
+    assert len(views)==2 and views[1][0]>views[0][0] and views[1][1]>views[0][1]
+    assert counts[0]==2 and audit[0][0]["reason"]=="oversized_local_overlay"
+    if valid:
+        assert not isinstance(found[0],Exception)
+        assert all((r.box[2]-r.box[0])*(r.box[3]-r.box[1])<=.035 for r in found[0][0])
+    else:
+        assert isinstance(found[0],Exception)
+
+
+def test_global_oversize_detection_is_not_reinterpreted_as_a_small_detail(monkeypatch):
+    from watermark_studio.detection import DetectionAreaError, refine_source_details
+    calls=[]
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+                        lambda images,*a:calls.append(len(images)) or [])
+    error=DetectionAreaError("oversized full photograph")
+    found,counts=refine_source_details([Image.new("RGB",(1600,1200))],[error],None,None,"cpu",complete=True)
+    assert found[0] is error and calls==[] and counts[0]==0
