@@ -57,8 +57,13 @@ def main():
         "especially its lowest code line even when touching the photograph edge. Large brand text "
         "is still a digital overlay; do not ignore it because this is an enlarged crop. "
         "Do not invent text or confuse real physical printing with digital overlays.")
+    whole_line=named+(
+        "\nThe final 防伪 line may extend LEFT and RIGHT beyond the brand. "
+        "Include the entire lowest line from its FIRST to LAST visible symbol, "
+        "not just symbols directly below the larger logo. Use a SEPARATE tight box "
+        "for the complete code line if necessary. Inspect the very bottom edge.")
     results=[]
-    for name,prompt in (("dedicated",COMPLETENESS_PROMPT),("general",DETECTION_PROMPT),("named_footer",named)):
+    for name,prompt in (("dedicated",COMPLETENESS_PROMPT),("general",DETECTION_PROMPT),("named_footer",named),("whole_footer_line",whole_line)):
         started=time.monotonic()
         result=locate_watermarks_batch([image.crop(crop)],encoder,processor,"cuda:0",1280,1,False,prompt)[0]
         record={"mode":name,"seconds":round(time.monotonic()-started,3)}
