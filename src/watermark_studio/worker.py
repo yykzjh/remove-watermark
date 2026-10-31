@@ -388,6 +388,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             if state["failed"]:
                 raise RuntimeError(state["failed"])
             output = state["result"]
+            from .images import protect_edge_completion_context
+            output,restored=protect_edge_completion_context(
+                state["source"],output,edge_evidence.get(task["relative"],[]))
+            result["edge_context_pixels_preserved"]=restored
             if output.size != state["source"].size:
                 raise RuntimeError("Output dimensions differ from original")
             if state["alpha"] is not None:

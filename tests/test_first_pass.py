@@ -294,3 +294,32 @@ def test_global_oversize_detection_is_not_reinterpreted_as_a_small_detail(monkey
     error=DetectionAreaError("oversized full photograph")
     found,counts=refine_source_details([Image.new("RGB",(1600,1200))],[error],None,None,"cpu",complete=True)
     assert found[0] is error and calls==[] and counts[0]==0
+
+
+
+def test_completed_edge_preserves_real_context_outside_the_actual_source_stroke():
+    from PIL import ImageDraw
+
+    from watermark_studio.detection import complete_edge_strokes
+    from watermark_studio.images import pixel_box, protect_edge_completion_context
+    source=Image.new("RGB",(400,300),(70,90,60))
+    ImageDraw.Draw(source).rectangle((395,282,399,291),fill="white")
+    regions,proof=complete_edge_strokes(source,[Region(kind="logo",box=(.85,.86,.9925,1))])
+    generated=source.copy()
+    box=pixel_box(regions[0].box,source.size)
+    ImageDraw.Draw(generated).rectangle((box[0],box[1],box[2]-1,box[3]-1),fill=(80,100,70))
+    original=source.tobytes()
+    result,count=protect_edge_completion_context(source,generated,proof)
+    assert count>0 and source.tobytes()==original
+    assert result.getpixel((399,270))==source.getpixel((399,270))  # real grass, not a stroke
+    assert result.getpixel((398,285))==(80,100,70)  # the overhanging digital stroke
+    assert result.getpixel((350,280))==(80,100,70)  # original confirmed overlay area
+    assert result.getpixel((300,270))==source.getpixel((300,270))
+
+
+def test_incomplete_edge_evidence_cannot_overwrite_or_restore_arbitrary_background():
+    from watermark_studio.images import protect_edge_completion_context
+    source=Image.new("RGB",(100,100))
+    proof=[{"box":[.8,.8,1,1],"original_box":[.8,.8,.99,1],"sides":[{"side":"right"}]}]
+    with pytest.raises(ValueError,match="stroke bounds"):
+        protect_edge_completion_context(source,source.copy(),proof)

@@ -478,3 +478,39 @@ def prefill_overlay_reference(original, box, crop, regions):
     result=reference.copy()
     result.paste(field.crop(target),target)
     return result,True
+
+
+
+def protect_edge_completion_context(original, edited, evidence):
+    """Use generated extension pixels only for source stroke bounds plus 2px."""
+    from PIL import ImageDraw
+
+    if not evidence:
+        return edited,0
+    if original.size!=edited.size:
+        raise ValueError("Edge context protection requires the original pixel grid")
+    result=edited.copy()
+    restored=0
+    for record in evidence:
+        outer=pixel_box(record["box"],original.size)
+        inner=pixel_box(record["original_box"],original.size)
+        if not (outer[0]<=inner[0]<inner[2]<=outer[2] and outer[1]<=inner[1]<inner[3]<=outer[3]):
+            raise ValueError("Original edge mask must stay inside its completion")
+        width,height=outer[2]-outer[0],outer[3]-outer[1]
+        mask=Image.new("L",(width,height),0)
+        draw=ImageDraw.Draw(mask)
+        draw.rectangle((inner[0]-outer[0],inner[1]-outer[1],
+                        inner[2]-outer[0]-1,inner[3]-outer[1]-1),fill=255)
+        for side in record["sides"]:
+            boxes=side.get("source_stroke_boxes")
+            if not boxes:
+                raise ValueError("Source edge completion needs explicit stroke bounds")
+            for x0,y0,x1,y1 in boxes:
+                if not (0<=x0<x1<=original.width and 0<=y0<y1<=original.height):
+                    raise ValueError("Source stroke bounds must stay inside the photo")
+                draw.rectangle((max(0,x0-outer[0]-2),max(0,y0-outer[1]-2),
+                                min(width-1,x1-outer[0]+1),min(height-1,y1-outer[1]+1)),fill=255)
+        restore=ImageOps.invert(mask)
+        restored+=int(np.count_nonzero(np.asarray(restore)))
+        result.paste(original.crop(outer).convert(result.mode),outer,restore)
+    return result,restored
