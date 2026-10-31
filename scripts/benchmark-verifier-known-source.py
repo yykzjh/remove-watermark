@@ -80,9 +80,12 @@ def known_control_cases(root):
 def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
     try:
         import torch
         from transformers import Qwen3VLProcessor
+        from transformers.utils import logging
+        logging.disable_progress_bar()
 
         from watermark_studio.config import DeploymentConfig, Region
         from watermark_studio.images import load_photo
@@ -212,7 +215,7 @@ def main():
         for process in workers:
             process.join(timeout=15)
         if before!=file_hashes(cases):
-            raise RuntimeError("Read-only benchmark changed a candidate output")
+            raise RuntimeError("Source or candidate changed during the read-only benchmark")
         cohorts={}
         for cohort in sorted({c["cohort"] for c in cases}):
             selected=[r for r in results if r["cohort"]==cohort]
