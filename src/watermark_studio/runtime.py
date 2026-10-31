@@ -341,7 +341,8 @@ class Runtime:
                 self.pending = deque(
                     asdict(t) | {"reuse_existing": bool(
                         self.job["options"]["quality_check"] and
-                        not self.job["options"]["overwrite"] and Path(t.destination).is_file()
+                        (not self.job["options"]["overwrite"] or self.job["options"]["quality_auto_retry"])
+                        and Path(t.destination).is_file()
                     )} for t in tasks
                 )
                 self.job.update(

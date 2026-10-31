@@ -37,7 +37,7 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
     # Keep normal first-pass batching; retries have compatible per-request settings.
     prepared, records = [], []
     for task in tasks:
-        if task.get("reuse_existing") and not task.get("_retry"):
+        if task.get("reuse_existing") and not task.get("_retry") and not options.overwrite:
             records.append((task, None, None))
             prepared.append(task)
             continue
@@ -49,7 +49,10 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         best = folder / ("best" + suffix)
         history = folder / "attempts.json"
         saved = json.loads(history.read_text()) if history.exists() else {"attempts": [], "best": None}
-        prepared.append(task | {"destination": str(candidate), "reuse_existing": False})
+        verify_existing = bool(task.get("reuse_existing") and not task.get("_retry"))
+        if verify_existing:
+            atomic_copy(task["destination"], candidate, True)
+        prepared.append(task | {"destination": str(candidate), "reuse_existing": verify_existing})
         records.append((task, (folder, candidate, best, history), saved))
     attempt = int(tasks[0].get("_attempt", 1))
     settings = options.model_copy(deep=True)

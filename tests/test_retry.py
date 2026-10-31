@@ -143,3 +143,26 @@ def test_successful_retry_installs_pass_and_stops(tmp_path):
     assert target.read_bytes() == b"2" and final["best_attempt"] == 2
     assert final["quality"]["status"] == "passed" and "_retry_task" not in final
     assert not final["retry_exhausted"]
+
+def test_resume_verifies_existing_and_only_regenerates_failed_outputs(tmp_path):
+    from pathlib import Path
+
+    cfg = DeploymentConfig(state_dir=str(tmp_path/"state"))
+    opts = ProcessingConfig(quality_check=True, quality_auto_retry=True, overwrite=True)
+    target = tmp_path/"out.png"
+    target.write_bytes(b"previous")
+    task = {"source": "original", "destination": str(target), "relative": "out.png",
+            "reuse_existing": True}
+    calls = []
+    def process(tasks, *_):
+        t = tasks[0]
+        calls.append(t["reuse_existing"])
+        if t["reuse_existing"]:
+            assert Path(t["destination"]).read_bytes() == b"previous"
+            return [{"file": "out.png", "ok": True, "quality": verdict()}]
+        Path(t["destination"]).write_bytes(b"repaired")
+        return [{"file": "out.png", "ok": True, "quality": verdict("passed", removed=True)}]
+    first = process_attempts([task], opts, cfg, None, {}, "job", process)[0]
+    final = process_attempts([first["_retry_task"]], opts, cfg, None, {}, "job", process)[0]
+    assert calls == [True, False]
+    assert final["quality"]["status"] == "passed" and target.read_bytes() == b"repaired"

@@ -19,6 +19,8 @@ parser.add_argument("--backend", choices=["resident", "independent"], default="r
 parser.add_argument("--combined", action="store_true", help="Include removed overlays with subtle new defects")
 parser.add_argument("--compare-details", action="store_true", help="Experimental paired content detail comparison")
 args = parser.parse_args()
+if args.compare_details and not args.combined:
+    parser.error("--compare-details requires --combined")
 folder = "Qwen--Qwen-Image-2.1-Turbo" if args.backend == "resident" else "Qwen--Qwen3-VL-4B-Instruct"
 snapshot = Path.home()/".cache/watermark-models/models"/folder/"snapshots/master"
 encoder = Qwen3VLForConditionalGeneration.from_pretrained(
@@ -84,7 +86,7 @@ if args.combined:
         after = next(c[2] for c in cases if c[0] == label)
         cases.append(("removed_plus_"+label, combined_before, after, "review"))
 if args.compare_details:
-    import watermark_studio.quality as quality
+    from watermark_studio import quality
     original_vqa = quality._structured_vqa
     active_pair = None
     def with_details(chats, fields, *arguments):

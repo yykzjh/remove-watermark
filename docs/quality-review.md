@@ -74,6 +74,8 @@ quality_auto_retry启用后：
 - 达到上限仍不合格时保留最佳输出并标记review/error与retry_exhausted，绝不改记passed。
 - 暂停阻止下一轮分发；取消后不再安排新返工，等待已在途窗口完成。
 - 未勾选overwrite时已有输出只检验、不自动返工覆盖；需要修改已有文件时显式允许覆盖。
+- 同时启用检验、自动返工及overwrite可续跑：已有输出先检验，通过就沿用，不重新生成；
+  不通过才进入原图返工队列。重启后的历史内存队列不恢复，但可利用这些输出继续。
 
 ## 输出和验收记录
 
@@ -90,6 +92,7 @@ quality_auto_retry启用后：
 
 quality.status：passed / review / error / skipped；后面三种都不能充当通过。
 quality_attempts含首次；best_attempt记录最佳输出来自哪次；attempt_history保留最近20次展示。
+quality_total_seconds累计所有尝试的检验耗时；全任务开销以wall time衡量。
 acceptance_complete只有所有已扫描输入都检验通过且无无效图时才为true。
 “输出成功”和“处理结束”不代表全部验收通过。
 CLI退出码0=完成且无待复核或检验错误（也可能未开启检验），1=处理/任务失败，2=待复核或检验错误。
