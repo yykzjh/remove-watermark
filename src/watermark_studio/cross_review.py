@@ -214,6 +214,9 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
         log["editor_claims"]=editor
         if not all(physical(r) for r in editor):
             log.update(status="unresolved",reason="editor_did_not_establish_physical_text"); return
+        # Once the editor has supported physical-text evidence, any later
+        # dispute must preserve those pixels rather than blindly repaint them.
+        verdict["retry_recheck_only"]=True
         verified=_classify(chats,encoder,processor,device)
         log["validator_findings"]=verified
         if not all(physical(r) for r in verified):
@@ -233,6 +236,7 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
         log["remaining_regions"]=remaining
         if remaining:
             log.update(status="unresolved",reason="other_residual_overlays"); return
+        verdict.pop("retry_recheck_only",None)
         snapshot={k:verdict.get(k) for k in ("status","watermark_removed","natural","content_preserved",
             "uncertain","reason","residual_regions","model_explanation","evidence_conflict")}
         verdict["pre_cross_review"]=snapshot

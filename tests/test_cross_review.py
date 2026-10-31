@@ -53,7 +53,7 @@ def test_corrected_false_alarm_keeps_original_verdict_and_observable_reports(mon
     assert q["pre_cross_review"]["watermark_removed"] is False
     assert q["model_explanation"]["status"]=="adjudicated"
     assert q["evidence"][0]["issue"]=="physical_text"
-    assert not q["retry_feedback"]
+    assert not q["retry_feedback"] and "retry_recheck_only" not in q
 
 
 @pytest.mark.parametrize("code",["repair_boundary_step","repair_texture_collapse",
@@ -103,6 +103,7 @@ def test_fresh_full_image_scan_never_whitelists_even_confirmed_dispute_regions(m
     calls(monkeypatch,residuals=[Region(kind="logo",box=(.55,.3,.7,.45))])
     run(before,after,q)
     assert q["status"]=="review" and q["cross_review"]["reason"]=="other_residual_overlays"
+    assert q["retry_recheck_only"] is True
 
 
 def test_reinspection_rejection_is_retained(monkeypatch):
@@ -110,6 +111,7 @@ def test_reinspection_rejection_is_retained(monkeypatch):
     calls(monkeypatch,recheck={"watermark_removed":False,"natural":True,"uncertain":False})
     run(before,after,q)
     assert q["status"]=="review" and q["cross_review"]["reason"]=="global_reinspection_rejected"
+    assert q["retry_recheck_only"] is True
 
 
 def test_same_model_cannot_supply_independent_confirmation(monkeypatch):
