@@ -29,9 +29,15 @@ output areas and the originally unoccluded scene. A partly erased panel, remaini
 background rectangle or new fake lettering is not clean removal.
 Resizing/compression alone is allowed. If details are too small or evidence is
 ambiguous, set uncertain=true; do not claim a verified pass.
-Return ONLY JSON, no markdown or explanation:
-{"watermark_removed":true,"natural":true,"content_preserved":true,"uncertain":false,
-"reason":"short specific issue or empty string"}"""
+Return ONLY one JSON object. Set these boolean fields from visual evidence:
+watermark_removed: true ONLY when no digital overlay or panel fragment remains.
+natural: true ONLY when repair texture, anatomy and boundaries look plausible.
+content_preserved: true ONLY when originally visible scene content is consistent.
+uncertain: true when you cannot reliably assess any of the three checks.
+reason: a string of at most 16 words identifying any defect and its image location;
+use an empty string only if all checks are satisfied.
+Do not copy a preset verdict. Unchanged watermarked images MUST fail watermark_removed.
+An obvious colored fill, missing object or changed person MUST fail the relevant checks."""
 
 
 def parse_review(text):
@@ -77,7 +83,7 @@ def review_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
     try:
         tokenizer.padding_side = "left"
         inputs = processor.apply_chat_template(
-            chats, tokenize=True, add_generation_prompt=True, padding=True,
+            chats, tokenize=True, add_generation_prompt=True, processor_kwargs={"padding": True},
             return_dict=True, return_tensors="pt",
         )
         inputs.pop("token_type_ids", None)

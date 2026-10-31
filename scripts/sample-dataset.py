@@ -22,7 +22,8 @@ for row in manifest:
         continue
     if not f.is_file() or not row["size"] or f.stat().st_size != row["size"]:
         continue
-    key = "/".join(Path(rel).parts[:2])
+    parts = Path(rel).parts
+    key = parts[0] if ("-" in parts[0] and "村" in parts[0]) else "/".join(parts[:2])
     groups[key].append(f)
 rng = random.Random(20261031)
 keys = sorted(groups)
