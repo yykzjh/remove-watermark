@@ -16,6 +16,8 @@ torch.set_num_threads(1)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--backend", choices=["resident", "independent"], default="resident")
+parser.add_argument("--combined", action="store_true", help="Include removed overlays with subtle new defects")
+parser.add_argument("--compare-details", action="store_true", help="Experimental paired content detail comparison")
 args = parser.parse_args()
 folder = "Qwen--Qwen-Image-2.1-Turbo" if args.backend == "resident" else "Qwen--Qwen3-VL-4B-Instruct"
 snapshot = Path.home()/".cache/watermark-models/models"/folder/"snapshots/master"
@@ -63,6 +65,7 @@ after.paste(patch, box)
 cases.append(("small_head_region_replaced", clean, after, "review"))
 # Known-good removals: overlays are added to a real clean photo, then the exact
 # clean photo is used as output. Hidden ground truth is known for these fixtures.
+combined_before = None
 for label, location in (("bottom_left", (.02, .72)), ("top_right", (.60, .02)), ("center", (.30, .42))):
     panel = Image.new("RGBA", (int(w*.36), int(h*.25)), (225, 225, 225, 225))
     draw = ImageDraw.Draw(panel)
@@ -73,11 +76,39 @@ for label, location in (("bottom_left", (.02, .72)), ("top_right", (.60, .02)), 
     layer.paste(panel, (int(w*location[0]), int(h*location[1])))
     before = Image.alpha_composite(clean.convert("RGBA"), layer).convert("RGB")
     cases.append(("known_clean_removal_"+label, before, clean.copy(), "passed"))
-out = root/("subtle-controls-"+args.backend+"-v2")
+    if label == "bottom_left":
+        combined_before = before
+if args.combined:
+    for label in ("faint_text_residue", "localized_person_blur",
+                  "small_edge_displacement", "small_head_region_replaced"):
+        after = next(c[2] for c in cases if c[0] == label)
+        cases.append(("removed_plus_"+label, combined_before, after, "review"))
+if args.compare_details:
+    import watermark_studio.quality as quality
+    original_vqa = quality._structured_vqa
+    active_pair = None
+    def with_details(chats, fields, *arguments):
+        if fields == ("content_preserved", "uncertain"):
+            sheets, _ = quality.detail_sheets(*active_pair, 4)
+            content = chats[0][0]["content"]
+            for item, sheet in zip(content[:2], sheets):
+                overview = item["image"]
+                canvas = Image.new("RGB", (max(overview.width, sheet.width),
+                                           overview.height+sheet.height+24), (48, 48, 48))
+                canvas.paste(overview, ((canvas.width-overview.width)//2, 0))
+                canvas.paste(sheet, ((canvas.width-sheet.width)//2, overview.height+24))
+                item["image"] = canvas
+            content[-1]["text"] += ("\n两图均为上方总览、下方同位置放大细节。"
+                                    "只对比原来可见的真实内容；不要把原图数字水印被背景替代当成内容破坏。"
+                                    "灰色分隔和白边只是排版。")
+        return original_vqa(chats, fields, *arguments)
+    quality._structured_vqa = with_details
+out = root/("subtle-controls-"+args.backend+("-combined-details" if args.compare_details else "-combined") if args.combined else "subtle-controls-"+args.backend+"-v2")
 out.mkdir(exist_ok=True)
-for detail in (0, 4):
+for detail in ((4,) if args.combined else (0, 4)):
     records = []
     for label, before, after, expected in cases:
+        active_pair = (before, after)
         result = verify_batch([(before, after)], encoder, processor, "cuda",
                               resolution=768, max_tokens=128, reviewer=args.backend,
                               detail_patches=detail)[0]

@@ -38,13 +38,14 @@ deadline = time.monotonic() + 600
 while time.monotonic() < deadline:
     try:
         state = request(url, "/health")
-        if state["stage"] == "ready":
-            break
-        if state["stage"] == "failed":
-            raise RuntimeError(state["error"])
     except (OSError, RuntimeError):
         if time.monotonic() + 5 > deadline:
             raise
+        state = {"stage": "starting"}
+    if state["stage"] == "ready":
+        break
+    if state["stage"] == "failed":
+        raise RuntimeError(state["error"])
     time.sleep(3)
 else:
     raise TimeoutError("Model load")

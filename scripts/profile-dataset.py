@@ -133,6 +133,10 @@ def main():
     for key in ("panel_style", "position", "logo", "physical_text", "person_overlap", "indoor", "low_contrast", "small_text", "uncertain"):
         summary[key] = dict(collections.Counter(str(r[key]) for r in valid))
     (out/"summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+    (out/"status.json").write_text(json.dumps({
+        "completed": len(records), "total": len(rows),
+        "phase": "completed" if not summary["worker_failures"] else "failed",
+    }))
     print(json.dumps(summary, ensure_ascii=False), flush=True)
 
 
