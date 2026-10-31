@@ -117,6 +117,7 @@ class DeploymentConfig(BaseModel):
     quality_backend: Literal["resident", "independent"] = "resident"
     quality_model: str = "Qwen/Qwen3-VL-4B-Instruct"
     quality_revision: str = "main"
+    quality_quantization: Literal["none","int8","nf4"] = "none"
     dtype: Literal["bfloat16", "float16"] = "bfloat16"
     attention: Literal["sdpa", "flex"] = "sdpa"
     attention_backend: Literal["native", "native_flash", "native_cudnn", "native_efficient", "flash_hub", "sage_hub"] = "native"
@@ -150,6 +151,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.quality_quantization!="none" and (not self.quality_verifier or self.quality_backend!="independent"):
+            raise ValueError("检验量化需要启用独立检验模型")
         if len(set(self.gpus)) != len(self.gpus) or any(g < 0 for g in self.gpus):
             raise ValueError("GPU 编号必须非负且不能重复")
         if self.parallelism == "single" and self.worker_count != 1:

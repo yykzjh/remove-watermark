@@ -22,6 +22,7 @@ exec bash scripts/start-server.sh \
   --oom-split-batch \
   --replicas-per-gpu 1 \
   --load-parallelism 8 \
+  --quality-quantization none \
   --dtype bfloat16 \
   --attention sdpa \
   --attention-backend native \

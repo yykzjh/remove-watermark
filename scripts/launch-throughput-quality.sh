@@ -27,6 +27,7 @@ exec bash scripts/start-server.sh \
   --quality-backend independent \
   --quality-model "$HOME/.cache/watermark-models/models/Qwen--Qwen3-VL-4B-Instruct/snapshots/master" \
   --quality-revision master \
+  --quality-quantization none \
   --dtype bfloat16 \
   --attention sdpa \
   --attention-backend native \

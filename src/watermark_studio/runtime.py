@@ -447,6 +447,7 @@ class Runtime:
                 "quality_verifier": self.config.quality_verifier,
                 "quality_model": self.config.quality_model,
                 "quality_backend": self.config.quality_backend,
+                "quality_quantization":self.config.quality_quantization,
                 "optimization": {
                     "dtype": self.config.dtype, "quantization": self.config.quantization,
                     "compile": self.config.compile, "compile_scope": self.config.compile_scope,

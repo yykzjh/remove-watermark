@@ -1,4 +1,5 @@
 """Range-download official ModelScope model shards and verify published SHA-256."""
+import argparse
 import concurrent.futures as cf
 import hashlib
 import json
@@ -7,12 +8,21 @@ import time
 import urllib.request
 from pathlib import Path
 
-repo = "Qwen/Qwen3-VL-4B-Instruct"
-root = Path.home()/".cache/watermark-models/models/Qwen--Qwen3-VL-4B-Instruct/snapshots/master"
+parser=argparse.ArgumentParser()
+parser.add_argument("--model",default="Qwen/Qwen3-VL-4B-Instruct")
+parser.add_argument("--workers",type=int,choices=range(1,17),default=8)
+args=parser.parse_args()
+repo=args.model
+if len(repo.split("/"))!=2 or any(not part.replace("-","").replace("_","").replace(".","").isalnum() for part in repo.split("/")):
+    parser.error("Model must be owner/repository")
+root=Path.home()/".cache/watermark-models/models"/repo.replace("/","--")/"snapshots/master"
 root.mkdir(parents=True, exist_ok=True)
 url = f"https://modelscope.cn/api/v1/models/{repo}/repo/files?Revision=master&Recursive=true"
 with urllib.request.urlopen(url, timeout=30) as response:
-    files = [f for f in json.load(response)["Data"]["Files"] if f["Name"].endswith(".safetensors")]
+    files = [f for f in json.load(response)["Data"]["Files"]
+             if f["Name"].endswith((".safetensors",".json",".txt",".jinja",".model"))
+             and Path(f["Name"]).name==f["Name"]]
+    files.sort(key=lambda f:(f["Name"].endswith(".safetensors"),f["Name"]))
 chunk = 32 * 1024 * 1024
 for row in files:
     name, size = row["Name"], row["Size"]
@@ -21,6 +31,16 @@ for row in files:
         with dest.open("rb") as f:
             if hashlib.file_digest(f, "sha256").hexdigest() == row["Sha256"]:
                 continue
+    if size<=chunk:
+        address=f"https://modelscope.cn/models/{repo}/resolve/master/{name}"
+        with urllib.request.urlopen(address,timeout=60) as response:
+            data=response.read(size+1)
+        if len(data)!=size or hashlib.sha256(data).hexdigest()!=row["Sha256"]:
+            raise ValueError("Model asset size/SHA256 mismatch: "+name)
+        temporary=root/(name+".download")
+        temporary.write_bytes(data);temporary.replace(dest)
+        print(json.dumps({"file":name,"sha256_verified":True}),flush=True)
+        continue
     partial = root/(name+".ranged")
     bitmap = root/(name+".ranges.json")
     completed = set(json.loads(bitmap.read_text())) if bitmap.exists() and partial.exists() else set()
@@ -52,7 +72,7 @@ for row in files:
                     raise
                 time.sleep(min(2**retry, 16))
     try:
-        with cf.ThreadPoolExecutor(max_workers=8) as pool:
+        with cf.ThreadPoolExecutor(max_workers=args.workers) as pool:
             futures = [pool.submit(download, i) for i in range((size+chunk-1)//chunk) if i not in completed]
             last = 0
             for future in cf.as_completed(futures):
@@ -71,5 +91,5 @@ for row in files:
         raise ValueError("Published SHA256 does not match downloaded shard")
     partial.replace(dest)
     print(json.dumps({"file": name, "sha256_verified": True}), flush=True)
-(root/"verified-shards.json").write_text(json.dumps(files))
+(root/"verified-files.json").write_text(json.dumps(files))
 print("All model shards verified", flush=True)

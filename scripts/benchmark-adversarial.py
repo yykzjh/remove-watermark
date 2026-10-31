@@ -16,6 +16,7 @@ parser.add_argument("--url",default="http://127.0.0.1:8765")
 parser.add_argument("--tag",required=True)
 parser.add_argument("--prepare-only",action="store_true")
 parser.add_argument("--fixtures-from")
+parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
 args=parser.parse_args()
 if not args.tag.replace("-","").replace("_","").isalnum():
     parser.error("Simple tag required")
@@ -129,7 +130,7 @@ def hashes():
 original_hashes=hashes()
 started=time.monotonic()
 job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(outputs),"options":{
-    "concurrency":20,"quality_check":True,"quality_batch_size":2,"quality_detail_patches":4,
+    "concurrency":20,"quality_check":True,"quality_batch_size":args.quality_batch_size,"quality_detail_patches":4,
     "preserve_background":True,"quality_cross_review":True}})["id"]
 last=started
 while True:
@@ -147,7 +148,8 @@ for r in records:
     r["actual"]=rows[r["file"]].get("quality",{}).get("status","error")
     r["reason"]=rows[r["file"]].get("quality",{}).get("reason")
     r["guards"]=rows[r["file"]].get("quality",{}).get("guard_codes",[])
-summary={"images":len(records),"job":job,"code_revision":state["code_revision"],
+summary={"images":len(records),"job":job,"code_revision":state["code_revision"],"quality_model":state.get("quality_model"),
+    "quality_quantization":state.get("quality_quantization"),"quality_batch_size":args.quality_batch_size,
     "seconds":round(time.monotonic()-started,3),"output_unchanged":True,
     "clean_controls":sum(r["expected"]=="passed" for r in records),
     "clean_not_accepted":sum(r["expected"]=="passed" and r["actual"]!="passed" for r in records),

@@ -60,6 +60,21 @@ wheels = [
 ]
 
 [[package]]
+name = "bitsandbytes"
+version = "0.50.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://mirrors.aliyun.com/pypi/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'linux'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://mirrors.aliyun.com/pypi/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'linux'" },
+    { name = "packaging", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+]
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/88/d5/b2cb5b5a9daf7349a02b1af2c49b6a044fda2702c9cc5dc296f648358327/bitsandbytes-0.50.2-py3-none-manylinux_2_24_aarch64.whl", hash = "sha256:d5772560dd94c4d9c57f50c9b017450a1707f7687bfd4b3dc86f7342aafe721e" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/a5/6e/e4e8b75716dbe5e50964f070266e06f4e6806ce051bfb97f52ee162b9310/bitsandbytes-0.50.2-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:55348a9a4a21bfd99cf8c7b32fe67b4030ae5c2a05738e03c1747f65fa6ec283" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -1718,6 +1733,9 @@ desktop = [
 kernels = [
     { name = "kernels", marker = "sys_platform == 'linux'" },
 ]
+quality-quantization = [
+    { name = "bitsandbytes", marker = "sys_platform == 'linux'" },
+]
 quantization = [
     { name = "torchao", marker = "sys_platform == 'linux'" },
 ]
@@ -1746,6 +1764,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'server'", specifier = ">=1.2" },
+    { name = "bitsandbytes", marker = "extra == 'quality-quantization'", specifier = ">=0.48.2" },
     { name = "diffusers", marker = "extra == 'server'", url = "https://github.com/huggingface/diffusers/archive/916a5791ed5f29d966200d2eee53f06862ec4434.tar.gz" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'desktop'", specifier = ">=0.28" },
@@ -1763,7 +1782,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'server'", specifier = ">=5.17.0" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34" },
 ]
-provides-extras = ["server", "desktop", "quantization", "kernels"]
+provides-extras = ["server", "desktop", "quantization", "kernels", "quality-quantization"]
 
 [package.metadata.requires-dev]
 dev = [

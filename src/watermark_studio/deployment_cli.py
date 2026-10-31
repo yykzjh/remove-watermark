@@ -26,6 +26,7 @@ HELP = {
     "quality_verifier": "Enable post-removal review using the selected quality backend",
     "quality_model": "Independent quality VLM repository or local path; adds GPU memory",
     "quality_revision": "Independent quality VLM revision (master for ModelScope)",
+    "quality_quantization": "none/int8/nf4 for the independent quality VLM; keeps visual encoder/head unquantized",
     "dtype": "Model weight and inference dtype",
     "attention": "sdpa; flex is rejected on the pinned stack after measured compiler failures",
     "attention_backend": "Unmasked/image attention kernel; text causal masks keep native. Hub kernels require kernels extra",

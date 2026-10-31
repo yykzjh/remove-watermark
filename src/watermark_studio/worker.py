@@ -470,11 +470,11 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate, q
             pipe = None if config.backend == "mock" else load_pipeline(config, model_path)
             if pipe is not None and quality_path:
                 import torch
-                from transformers import Qwen3VLForConditionalGeneration, Qwen3VLProcessor
+                from transformers import Qwen3VLProcessor
+
+                from .quality_loading import load_quality_encoder
                 torch.cuda.empty_cache()
-                pipe._quality_encoder = Qwen3VLForConditionalGeneration.from_pretrained(
-                    quality_path, dtype=getattr(torch, config.dtype), local_files_only=True,
-                ).to(pipe._execution_device).eval()
+                pipe._quality_encoder = load_quality_encoder(quality_path,config,pipe._execution_device)
                 pipe._quality_processor = Qwen3VLProcessor.from_pretrained(
                     quality_path, local_files_only=True,
                 )
