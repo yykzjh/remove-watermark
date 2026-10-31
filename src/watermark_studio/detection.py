@@ -95,7 +95,7 @@ def merge_regions(regions):
     return regions
 
 
-def locate_watermarks_batch(images, encoder, processor, device, resolution=1280, batch_size=1):
+def locate_watermarks_batch(images, encoder, processor, device, resolution=1280, batch_size=1, scene_context=False):
     """Bounded independent requests; preserve ordering and isolate per-image errors."""
     import torch
 
@@ -110,7 +110,10 @@ def locate_watermarks_batch(images, encoder, processor, device, resolution=1280,
                 preview.thumbnail((resolution, resolution))
                 chats.append([{"role": "user", "content": [
                     {"type": "image", "image": preview},
-                    {"type": "text", "text": DETECTION_PROMPT},
+                    {"type":"text","text":DETECTION_PROMPT + (
+                        '\nAlso include top-level "scene": "outdoor", "document", "indoor" or "unknown". '
+                        'Classify the actual photograph, not pictures/icons printed inside a watermark. '
+                        'Paper receipts/certificates photographed on clothes are document scenes.' if scene_context else "")},
                 ]}])
             inputs = processor.apply_chat_template(
                 chats, tokenize=True, add_generation_prompt=True,
@@ -231,3 +234,14 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
             except ValueError as error:
                 output[index]=error
     return output,{i:sum(index==i for index,_ in jobs) for i in range(len(images))}
+
+
+def source_scene(text):
+    try:
+        text=text.strip()
+        if text.startswith("```"):
+            text=text.split("\n",1)[1].rsplit("```",1)[0].strip()
+        scene=json.loads(text).get("scene","unknown")
+        return scene if scene in {"outdoor","document","indoor","unknown"} else "unknown"
+    except (ValueError,TypeError,AttributeError):
+        return "unknown"

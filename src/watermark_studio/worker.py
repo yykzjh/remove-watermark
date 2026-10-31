@@ -17,7 +17,13 @@ from .images import (
     regions_for,
     save_output,
 )
-from .prompts import build_full_prompt, build_prompt, build_small_overlay_prompt
+from .prompts import (
+    build_focused_prompt,
+    build_full_prompt,
+    build_prompt,
+    build_small_overlay_prompt,
+    scene_instruction,
+)
 
 
 def load_pipeline(config, model_path):
@@ -127,7 +133,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         found = locate_watermarks_batch(
             [decoded[t["relative"]][0] for t in detect_tasks],
             pipe.text_encoder, pipe.processor, pipe._execution_device,
-            options.detection_resolution, config.detection_batch_size,
+            options.detection_resolution,config.detection_batch_size,options.first_pass_mode!="whole",
         )
         if options.first_pass_mode == "thorough":
             from .detection import refine_source_details
@@ -213,16 +219,20 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             state = {"task": task, "source": source, "result": source.copy(), "exif": exif, "icc": icc,
                          "alpha": alpha, "regions": regions, "protected_regions": protected_regions,
                          "whole_generation":options.scope=="full_image" and options.first_pass_mode=="whole",
+                         "source_scene":"unknown",
                          "detection_seconds": detected,
                          "batches": [], "failed": None}
             states.append(state)
             core_regions=[]
+            scene="unknown"
             if options.scope=="full_image" and options.first_pass_mode!="whole":
-                from .detection import parse_detection
+                from .detection import parse_detection, source_scene
+                scene=source_scene(detections[task["relative"]][0][1])
                 try:
                     core_regions=parse_detection(detections[task["relative"]][0][1],relative_padding=0)
                 except (ValueError,TypeError,KeyError):
                     pass  # A missing raw core keeps the fully opaque padded mask.
+            state["source_scene"]=scene
             stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
             for index, region in enumerate(regions):
                 box = pixel_box(region.box, source.size)
@@ -245,10 +255,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
                     "prompt": (build_full_prompt(extra_prompt) if state["whole_generation"] else
-                               build_small_overlay_prompt(box,crop,extra_prompt)
-                               if small else build_prompt(region.kind,box,crop,extra_prompt)),
+                               build_small_overlay_prompt(box,crop,extra_prompt)+scene_instruction(scene)
+                               if small else build_focused_prompt(region.kind,box,crop,extra_prompt,scene)
+                               if focused else build_prompt(region.kind,box,crop,extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
-                    "core_box":core_box,
+                    "scene_hint":scene,"core_box":core_box,
                     "resolution":budget, "size": dimensions(reference,budget),
                 })
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
@@ -339,6 +350,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
+            "source_scene":state["source_scene"],
             "repair_blending": options.repair_blending,
             "harmonization": state["result"].info.get("harmonization"),
             "repair_regions": [r.model_dump() for r in (state["protected_regions"] if state["protected_regions"] is not None

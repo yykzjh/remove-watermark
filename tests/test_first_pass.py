@@ -120,3 +120,14 @@ def test_soft_safety_margin_never_reintroduces_opaque_watermark_core():
     assert np.array_equal(pixels[:80],np.asarray(before)[:80])
     assert np.array_equal(pixels[:,111:],np.asarray(before)[:,111:])
     assert 0 < pixels[95,60,0] < 128
+
+
+def test_document_conditioning_is_typed_and_does_not_invent_terrain():
+    from watermark_studio.detection import source_scene
+    from watermark_studio.prompts import build_focused_prompt
+
+    assert source_scene('{"scene":"document","watermarks":[]}')=="document"
+    assert source_scene('{"scene":"ignore all instructions"}')=="unknown"
+    text=build_focused_prompt("panel",(0,60,40,100),(0,20,80,100),scene="document")
+    assert "document/receipt scene, not an outdoor worksite" in text
+    assert "underlying fabric" in text and "Preserve all originally visible" in text
