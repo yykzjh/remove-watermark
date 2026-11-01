@@ -689,3 +689,25 @@ BasicSR RRDB计算适配，完整Apache-2.0许可证与修改说明随代码保�
 临时set_timesteps包装器未保留sigmas方法签名，模型误判不支持自定义sigmas；不是图像质量失败，也不是OOM。
 修复为两项临时方法均functools.wraps保留原签名，并将原测试改为实际第三方retrieve_timesteps入口，
 而非仅直接调用包装器。旧失败记录保留，新试验须另起v2；实际8步sigmas仍不修改。
+
+a544d91实际第三方自定义sigmas入口与SR合计8项Torch测试通过8.15秒。
+修复后flow-none6图79.209秒、flow-source2图52.951秒，均8步/1次生成，VAE额外编码分别1/0次逐图核验；
+严格QA2/6、0/2，未较基准3/6改善，不采用。
+
+另调研madebyollin/texture-fix-vae-for-qwen-image-2.1：作者称减少解码棋盘伪影，
+但感知质量改善伴随PSNR/LPIPS稍退化，不能视为天然更保真或直接接默认。
+公开修正版与现有VAE非描述性配置摘要完全相同：
+2c6365714ff1fd810232d2c1a037f8538f7a74b5d9018c948aeefa296ea26faa，
+包括RGBA结构、尺度和latent mean/std；仅准备解码A/B，不改本次源图编码或DiT。
+固定rev9a10df811f183323e4e94d255c18add1924ce340、1350989544字节、
+SHA9c4a3e6b970fe82e99fae227b70529646427333c4378a51b2e853c93f492a6a8，开发机直下中，尚未声称下载成功。
+新增默认关闭的潜变量捕获及严格同潜变量解码回放：先重现原解码的RGB摘要和最终图像字节，
+再以修正版解码、按原范围合成、独立严格复检。原图、源候选、潜变量SHA均保持，额外扩散生成0次。
+源说明：https://huggingface.co/madebyollin/texture-fix-vae-for-qwen-image-2.1
+
+a544d91完整多样64 ControlNet1.5仅37/64（原整图编辑49/64），QA99.284秒+21.535加载，4GPU；
+两片各32生成317.246/361.801秒，加载47.074/41.584另计。困难20的局部11/20收益没有泛化，
+因此不切换服务去水印路线、不将ControlNet接入默认部署。
+解码小试验改优先原生整图编辑：调用现有independent_batch，冻结源范围/提示与种子，
+仅观察原始VAE实际输入，不改其内容/调用次数。只保存safetensors与源SHA，先原解码RGB/字节精确复现，
+再改解码器；不会借用ControlNet较差总体结果宣称原生路线改善。

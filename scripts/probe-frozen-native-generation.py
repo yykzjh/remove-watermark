@@ -1,0 +1,146 @@
+"""Frozen-source whole-photo native edit, one GEN per case, exact VAE-input capture."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import runpy
+import subprocess
+import time
+import urllib.request
+import uuid
+from functools import wraps
+from pathlib import Path
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def main():
+    p=argparse.ArgumentParser(__doc__)
+    p.add_argument("--source-job",required=True)
+    p.add_argument("--model",type=Path,required=True)
+    p.add_argument("--gpu",type=int,required=True)
+    p.add_argument("--tag",required=True)
+    p.add_argument("--files",nargs="+")
+    p.add_argument("--kv-cache",action="store_true")
+    p.add_argument("--source-flow-context",action="store_true")
+    p.add_argument("--compile-projections",action="store_true")
+    p.add_argument("--separate-vae-decode",action="store_true")
+    a=p.parse_args()
+    if a.gpu<0 or not re.fullmatch(r"[a-f0-9]{32}",a.source_job) or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
+        p.error("Explicit completed source job, GPU and simple new tag required")
+    h=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
+    with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
+        isolation=h["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
+    state=Path.home()/".local/state/watermark-studio"
+    summary=json.loads((state/a.source_job/"summary.json").read_text())
+    rows=list(map(json.loads,(state/a.source_job/"results.jsonl").read_text().splitlines()))
+    if a.files:
+        if len(set(a.files))!=len(a.files) or not set(a.files).issubset({r["file"] for r in rows}):
+            p.error("Existing unique source subset required")
+        rows=[r for r in rows if r["file"] in set(a.files)]
+    if summary["state"]!="completed" or not 1<=len(rows)<=64 or any(not r.get("ok") or not r.get("background_preserved") for r in rows):
+        p.error("1..64 valid protected frozen sources required")
+    source_root=Path(summary["input_dir"]).resolve();hashes={}
+    for row in rows:
+        source=(source_root/row["file"]).resolve()
+        if Path(row["file"]).is_absolute() or not source.is_relative_to(source_root):
+            p.error("Source must remain under immutable input root")
+        hashes[row["file"]]=digest(source)
+    os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu);os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
+    import torch
+    from PIL import Image
+    from safetensors.torch import save_file
+
+    from watermark_studio.batching import dimensions, independent_batch, override_methods
+    from watermark_studio.config import DeploymentConfig, ProcessingConfig, Region
+    from watermark_studio.images import (
+        composite_protected,
+        load_photo,
+        protect_edge_completion_context,
+        save_output,
+    )
+    from watermark_studio.prompts import build_full_prompt
+    from watermark_studio.source_panel_rims import effective_rim_scope, restore_proven_rims
+    from watermark_studio.worker import load_pipeline
+    torch.set_num_threads(1)
+    cfg=DeploymentConfig(model=str(a.model),gpus=[a.gpu],quantization="float8",prompt_encoder="lean",
+        compile=a.compile_projections,compile_scope="projections",compile_dynamic=a.compile_projections,
+        separate_vae_decode=a.separate_vae_decode)
+    began=time.monotonic();pipe=load_pipeline(cfg,str(a.model));load_seconds=time.monotonic()-began
+    options=ProcessingConfig.model_validate(summary["options"])
+    options.quality_auto_retry=False;options.quality_max_attempts=0;options.overwrite=False
+    work=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")/a.tag
+    work.mkdir(exist_ok=False);outputs=work/"output";outputs.mkdir()
+    (work/"sources.json").write_text(json.dumps([str(source_root/r["file"]) for r in rows],ensure_ascii=False))
+    job=uuid.uuid4().hex;folder=state/job;folder.mkdir(exist_ok=False);(folder/"latents").mkdir()
+    revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
+    print(json.dumps({"stage":"ready","job":job,"total":len(rows),"load_seconds":round(load_seconds,3)}),flush=True)
+    began=time.monotonic()
+    for index,row in enumerate(rows):
+        name=row["file"];source,exif,icc,alpha=load_photo(source_root/name)
+        regions=[Region.model_validate(r) for r in row["repair_regions"]]
+        if not regions:
+            raise ValueError("Select generated development sources, not source-copy cases")
+        rims=row.get("source_rim_protection",[])
+        scoped,cores,invalid=effective_rim_scope(source,regions,row.get("protected_core_boxes",[]),rims,header_core=True)
+        if invalid:raise ValueError("Frozen source rim proof invalid")
+        width,height=dimensions(source,options.resolution)
+        seed=(options.seed+int.from_bytes(hashlib.sha256(name.encode()).digest()[:4],"big"))%(2**32)
+        item={"image":source,"prompt":build_full_prompt(options.extra_prompt,options.whole_prompt_profile),"seed":seed}
+        if a.source_flow_context:
+            item["_denoising_context_regions"]=[r.model_dump() for r in scoped]
+        capture={};original_decode=pipe.vae.decode
+        @wraps(original_decode)
+        def decode(z,*args,capture=capture,name=name,width=width,height=height,seed=seed,original_decode=original_decode,**kwargs):
+            if capture or z.shape[0]!=1 or not torch.isfinite(z).all().item():
+                raise ValueError("Exactly one finite whole-photo VAE input required")
+            path=folder/"latents"/(hashlib.sha256(name.encode()).hexdigest()[:24]+".safetensors")
+            save_file({"vae_input":z.detach().cpu().contiguous()},path)
+            capture.update(path=str(path),file_sha256=digest(path),shape=list(z.shape),
+                model_input_size=[width,height],source_file_sha256=hashes[name],seed=seed,
+                layout="actual_vae_input_BCFHW",additional_generations=0)
+            return original_decode(z,*args,**kwargs)
+        started=time.monotonic()
+        with override_methods(pipe.vae,decode=decode):
+            generated=independent_batch(pipe,[item],options.resolution,a.kv_cache)[0].convert("RGB").resize(source.size,Image.Resampling.LANCZOS)
+        capture["native_generated_rgb_sha256"]=hashlib.sha256(generated.tobytes()).hexdigest()
+        generated=composite_protected(source,generated,scoped,options.feather,options.repair_blending,
+            core_boxes={tuple(c["mask"]):tuple(c["core"]) for c in cores})
+        generated,_=protect_edge_completion_context(source,generated,row.get("source_edge_completion",[]))
+        generated,count=restore_proven_rims(source,generated,rims)
+        if count!=sum(r.get("approved") is True for r in rims):raise ValueError("Incomplete frozen rim proof")
+        if alpha is not None:generated.putalpha(alpha)
+        destination=outputs/name;destination.parent.mkdir(parents=True,exist_ok=True)
+        size=save_output(generated,source_root/name,destination,exif,icc,options)
+        source_fields=("file","background_preserved","repair_regions","protected_core_boxes","source_scene",
+            "source_rim_protection","source_edge_completion","source_geometry_requery","source_physical_vetting",
+            "source_detail_views","source_detail_context_requeries")
+        result={k:row[k] for k in source_fields if k in row}
+        result.update(ok=True,quality={},quality_attempts=1,model_inferences=1,processing_path="whole_composite",
+            action="restored",output_size=size,latent_capture=capture,harmonization=generated.info.get("harmonization"),
+            denoising_context=[item["_denoising_context_log"]] if "_denoising_context_log" in item else [],
+            source_rim_composition={"regions":[r.model_dump() for r in scoped],"cores":cores},
+            native_generation_probe={"model_input_size":[width,height],"seed":seed,"whole_frame":True,
+                "seconds":round(time.monotonic()-started,4),"kv_cache":a.kv_cache,"steps":len(pipe.scheduler.timesteps)})
+        with (folder/"results.jsonl").open("a") as f:f.write(json.dumps(result,ensure_ascii=False)+"\n")
+        print(json.dumps({"completed":index+1,"total":len(rows),"job":job}),flush=True)
+    if any(digest(source_root/name)!=value for name,value in hashes.items()):
+        raise ValueError("Original source changed")
+    if revision!=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip():
+        raise ValueError("Code changed during probe")
+    report={"state":"completed","job":job,"source_job":a.source_job,"input_dir":str(source_root),"output_dir":str(outputs),
+        "total":len(rows),"options":options.model_dump(),"code_revision":revision,"sources_sha256":hashes,
+        "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
+        "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
+    (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+    (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+    print(json.dumps({k:report[k] for k in ("job","total","seconds","load_seconds")}),flush=True)
+
+
+if __name__=="__main__":
+    main()

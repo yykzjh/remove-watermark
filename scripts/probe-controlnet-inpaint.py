@@ -31,6 +31,7 @@ def main():
     p.add_argument("--resolution",type=int,choices=[1024,1536],default=1024)
     p.add_argument("--reference-image",choices=["none","masked","source"],default="none",help="Experimental whole-frame masked visual reference; no diffusion ROI crop")
     p.add_argument("--decode-encoder-offload",action="store_true",help="Park unquantized editor only during full-frame VAE decoding; restore even on decode failure")
+    p.add_argument("--capture-latents",action="store_true",help="Save bounded target latents on the dev machine for same-generation decoder comparisons")
     p.add_argument("--capture-raw",action="store_true",help="Retain raw full-frame diagnostic PNGs on the development machine")
     p.add_argument("--files",nargs="+")
     p.add_argument("--shards",type=int,choices=range(1,9),default=1)
@@ -137,6 +138,7 @@ def main():
         caption_audit={}
         phases={}
         flow_audit={}
+        latent_capture=None
         def stamp():
             torch.cuda.synchronize()
             return time.monotonic()
@@ -198,6 +200,18 @@ def main():
                             "distorted anatomy, altered clothing colors, invented objects." if a.cfg_scale>1 else None),use_kv_cache=False,generator=torch.Generator("cpu").manual_seed(seed),
                         output_type="latent",**callbacks).images
                 phases["sampling_and_text_encoding_seconds"]=round(stamp()-phase_start,4)
+                if a.capture_latents:
+                    from safetensors.torch import save_file
+                    capture_start=stamp()
+                    latent_root=folder/"latents";latent_root.mkdir(exist_ok=True)
+                    latent_path=latent_root/(hashlib.sha256(name.encode()).hexdigest()[:24]+".safetensors")
+                    if latent_path.exists() or not torch.isfinite(latent).all().item():
+                        raise ValueError("Repeated or nonfinite target latent capture")
+                    save_file({"latents":latent.detach().cpu().contiguous()},latent_path)
+                    latent_capture={"path":str(latent_path),"file_sha256":hashlib.sha256(latent_path.read_bytes()).hexdigest(),
+                        "shape":list(latent.shape),"model_input_size":[width,height],"source_file_sha256":hashes[name],
+                        "seed":seed,"additional_generations":0}
+                    phases["latent_capture_seconds"]=round(stamp()-capture_start,4)
                 phase_start=stamp()
                 if len(pipe.scheduler.timesteps)!=8:
                     raise ValueError("Turbo step count changed")
@@ -210,6 +224,8 @@ def main():
                     if a.decode_encoder_offload:
                         torch.cuda.empty_cache()
                         restore_quality_encoder(pipe.text_encoder,"cuda:0")
+                if latent_capture is not None:
+                    latent_capture["native_generated_rgb_sha256"]=hashlib.sha256(generated.tobytes()).hexdigest()
                 del latent,context
                 phases["decode_seconds"]=round(stamp()-phase_start,4)
                 phase_start=time.monotonic()
@@ -234,6 +250,8 @@ def main():
             "source_detail_views","source_detail_context_requeries")
         result={k:row[k] for k in source_fields if k in row}
         result["repair_regions"]=[r.model_dump() for r in regions]
+        if latent_capture is not None:
+            result["latent_capture"]=latent_capture
         result["harmonization"]=generated.info.get("harmonization")
         result["denoising_context"]=[flow_audit] if flow_audit else []
         result["source_rim_composition"]={"regions":[r.model_dump() for r in scoped],"cores":mapped}
@@ -260,7 +278,7 @@ def main():
         "total":len(rows),"probe_shard":{"count":a.shards,"index":a.shard_index,"all_files":all_files},
         "options":options.model_dump(),"seconds":round(time.monotonic()-began,3),
         "load_seconds":round(load_seconds,3),"sources_sha256":hashes,"quality_evaluated":False,
-        "controlnet":identity,"controlnet_settings":{"scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"decode_encoder_offload":a.decode_encoder_offload,"capture_raw":a.capture_raw,"kv_cache":False,
+        "controlnet":identity,"controlnet_settings":{"scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"decode_encoder_offload":a.decode_encoder_offload,"capture_raw":a.capture_raw,"capture_latents":a.capture_latents,"kv_cache":False,
             "caption_words":a.caption_words,"caption_style":a.caption_style,"texture_prompt":a.texture_prompt,"source_flow_context":a.source_flow_context,"caption_max_tokens":128,"quantization_device":"cuda"},
         "server_isolation":server}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
