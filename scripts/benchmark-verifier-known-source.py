@@ -150,6 +150,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                     if len(values)!=len(group):
                         raise RuntimeError("Verifier response count differs from frozen pairs")
                     torch.cuda.synchronize()
+                    initial_statuses=[("review" if c.get("frozen_vetoes") and v["status"]!="error" else v["status"]) for c,v in zip(group,values)]
                     for case,value in zip(group,values):
                         if text_free_consensus and not case.get("frozen_vetoes"):
                             from watermark_studio.text_free_review import reconsider_text_free
@@ -166,8 +167,8 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                                 value["cross_review"]["status"]="blocked_frozen_veto"
                     torch.cuda.synchronize()
                     elapsed=time.monotonic()-began
-                    ready.put({"type":"rows","rows":[c|{"quality":v,"context_variant":"full" if context else "local",
-                        "variant_group_seconds":round(elapsed/len(group),4)} for c,v in zip(group,values)]})
+                    ready.put({"type":"rows","rows":[c|{"quality":v,"initial_verdict_status":initial_status,"context_variant":"full" if context else "local",
+                        "variant_group_seconds":round(elapsed/len(group),4)} for c,v,initial_status in zip(group,values,initial_statuses)]})
                     continue
                 except Exception as error:  # noqa: BLE001 - retry only this variant and release traceback first
                     failure=f"{type(error).__name__}: {error}"[:300]
@@ -307,11 +308,15 @@ def main():
                 label=f"{cohort}/{variant}" if args.paired_context else cohort
                 cohorts[label]={"images":len(selected),
                     "counts":dict(collections.Counter(r["quality"]["status"] for r in selected)),
+                    "initial_counts":dict(collections.Counter(r.get("initial_verdict_status",r["quality"]["status"]) for r in selected)),
+                    "text_free_corrected":sum(r["quality"].get("text_free_review",{}).get("status")=="corrected" for r in selected),
                     "model_seconds_sum":round(sum(r.get("variant_group_seconds",0) for r in selected),4),
                     "cross_corrected":sum(r["quality"].get("cross_review",{}).get("status")=="corrected" for r in selected)}
                 if cohort=="controls":
                     cohorts[label].update(
                         clean_refused=sum(r["expected"]=="passed" and r["quality"]["status"]!="passed" for r in selected),
+                        new_false_accept_files=[r["file"] for r in selected if r["expected"]=="review" and r.get("initial_verdict_status")!="passed" and r["quality"]["status"]=="passed"],
+                        new_clean_refusal_files=[r["file"] for r in selected if r["expected"]=="passed" and r.get("initial_verdict_status")=="passed" and r["quality"]["status"]!="passed"],
                         defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected),
                         false_accept_files=[r["file"] for r in selected if r["expected"]=="review" and r["quality"]["status"]=="passed"],
                         false_refuse_files=[r["file"] for r in selected if r["expected"]=="passed" and r["quality"]["status"]!="passed"])
