@@ -89,6 +89,9 @@ for row in rows:
 histories=[h for r in rows for h in r.get("attempt_history",[]) or [r]]
 first=[(r.get("attempt_history") or [r])[0] for r in rows]
 assert state.get("first_pass_total",0)==len(hashes),"Incomplete first-pass accounting"
+def generation_attempts(row):
+    return sum(h.get("model_inferences",0)>0 for h in (row.get("attempt_history") or [row]))
+
 summary={"scope":"automatic independent checks, not human-labelled accuracy","job":job,
     "code_revision":health["code_revision"],"benchmark_revision":subprocess.check_output(
         ["git","rev-parse","--short","HEAD"],text=True).strip(),"options":options,
@@ -110,6 +113,11 @@ summary={"scope":"automatic independent checks, not human-labelled accuracy","jo
     "first_model_input_budgets":dict(collections.Counter(str(b) for h in first for b in h.get("model_input_budgets",[]))),
     "total_model_input_budgets":dict(collections.Counter(str(b) for h in histories for b in h.get("model_input_budgets",[]))),
     "successful_diffusion_forwards":round(sum(1/b for h in histories for b in h.get("batch_sizes",[]) if b),6),
+    "generation_attempt_counts":dict(collections.Counter(str(generation_attempts(r)) for r in rows)),
+    "final_passed_by_generation_attempts":dict(collections.Counter(str(generation_attempts(r))
+        for r in rows if (r.get("quality") or {}).get("status")=="passed")),
+    "first_rejected_later_accepted_unchanged":sum((r.get("quality") or {}).get("status")=="passed" and
+        hashlib.sha256((target/r["file"]).read_bytes()).hexdigest()==r["first_rejected_sha256"] for r in retained),
     "best_attempt_counts":dict(collections.Counter(str(r.get("best_attempt",1)) for r in rows)),
     "attempt_counts":dict(collections.Counter(str(r.get("quality_attempts",1)) for r in rows)),
     "generation_attempt_errors":sum(not h["ok"] for h in histories),
