@@ -20,6 +20,7 @@ p.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,204
 p.add_argument("--extra-prompt",default="",help="Explicit paired prompt suffix; recorded with frozen processing options")
 p.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral"],default="fidelity")
 p.add_argument("--run-tag",default="protected-e2e",help="Fresh output name inside the immutable selection; lets paired runs retain identical paths/seeds")
+p.add_argument("--development",action="store_true",help="Explicit reused-source development cohort; never qualifies as an unseen holdout")
 p.add_argument("--auto-retry",action="store_true")
 p.add_argument("--cross-review",action="store_true")
 p.add_argument("--attempts",type=int,default=3)
@@ -33,8 +34,12 @@ if target.exists() or output.exists() or not (work/"source-selection.json").is_f
     p.error("Prepared immutable selection and fresh output required")
 selection=json.loads((work/"source-selection.json").read_text())
 hashes=selection["source_sha256"]
-if selection["unique_sha256"]!=len(hashes) or selection["prior_sha256_overlap"]:
-    p.error("Nonunique or overlapping test inputs")
+if selection["unique_sha256"]!=len(hashes):
+    p.error("Nonunique test inputs")
+if selection["prior_sha256_overlap"] and not (a.development and selection.get("development_reuse")):
+    p.error("Overlapping inputs require an explicitly marked development cohort")
+if selection.get("development_reuse") and not a.development:
+    p.error("Reused development sources cannot be relabelled as a fresh holdout")
 def audit_sources():
     return all(hashlib.sha256((inputs/name).read_bytes()).hexdigest()==digest for name,digest in hashes.items())
 assert audit_sources(),"Source differs from prepared selection"
@@ -95,7 +100,9 @@ assert state.get("first_pass_total",0)==len(hashes),"Incomplete first-pass accou
 def generation_attempts(row):
     return sum(h.get("model_inferences",0)>0 for h in (row.get("attempt_history") or [row]))
 
-summary={"scope":"automatic independent checks, not human-labelled accuracy","job":job,
+summary={"scope":("reused-source development; not holdout qualification" if a.development else
+                   "automatic independent checks, not human-labelled accuracy"),
+    "development_reuse":a.development,"job":job,
     "code_revision":health["code_revision"],"benchmark_revision":subprocess.check_output(
         ["git","rev-parse","--short","HEAD"],text=True).strip(),"options":options,
     "selection":{k:v for k,v in selection.items() if k not in {"source_sha256","sources"}},

@@ -72,6 +72,17 @@ def vet_sources(images,detections,editor,editor_processor,verifier,verifier_proc
     """Batch only independent editor-side source claims; keep per-image carrier proofs."""
     if len(images)!=len(detections):
         raise ValueError("Source vet image/detection counts differ")
+    from .source_geometry import refine_broad_source
+    broad_audits={}
+    prepared=[]
+    for index,(image,detection) in enumerate(zip(images,detections)):
+        if isinstance(detection,Exception):
+            prepared.append(detection)
+            continue
+        updated,audit=refine_broad_source(image,detection,editor,editor_processor,verifier,
+            verifier_processor,device,weights_relation)
+        prepared.append(updated);broad_audits[index]=audit
+    detections=prepared
     cache=[{} for _ in images]
     jobs=[]
     if batch_size>1 and weights_relation=="different_weights":
@@ -115,5 +126,5 @@ def vet_sources(images,detections,editor,editor_processor,verifier,verifier_proc
         result,audit=vet_small_panels(image,detection,editor,editor_processor,verifier,
             verifier_processor,device,weights_relation,cache[index] if batch_size>1 and
             weights_relation=="different_weights" else None)
-        output.append(result);audits[index]=audit
+        output.append(result);audits[index]=broad_audits.get(index,[])+audit
     return output,audits

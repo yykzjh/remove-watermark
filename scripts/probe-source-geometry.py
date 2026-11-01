@@ -22,11 +22,12 @@ os.environ["TOKENIZERS_PARALLELISM"]="false"
 import torch
 
 from watermark_studio.config import DeploymentConfig
-from watermark_studio.detection import DETECTION_PROMPT, locate_watermarks_batch
+from watermark_studio.detection import locate_watermarks_batch
 from watermark_studio.frozen_candidates import digest, record_digest
 from watermark_studio.images import load_photo
 from watermark_studio.model_identity import weight_fingerprint
 from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
+from watermark_studio.source_geometry import SOURCE_RELOCALIZATION_PROMPT
 
 torch.set_num_threads(1)
 assert torch.cuda.mem_get_info()[0]>25*2**30
@@ -50,13 +51,7 @@ area=lambda r:max([(g["box"][2]-g["box"][0])*(g["box"][3]-g["box"][1])
                    for g in r.get("repair_regions",[]) if g["kind"]=="panel"] or [0])
 cases=[r for r in rows if r.get("source_scene")=="outdoor" and area(r)>=a.area]
 cases.sort(key=area,reverse=True)
-prompt=DETECTION_PROMPT+(
-    "\n这是原始照片的独立几何复核，不预设水印是否存在。"
-    "只定位实际后期数字覆盖层的完整外接框，不把邻近场景一并圈入。"
-    "设备操作规程、安全告示、企业标牌、证书、包装和衣物上的真实文字及背板、木框、"
-    "设备边缘、物体表面均须保留，即使它们有蓝白标题、绿黄色装饰、密集黑字或矩形外形。"
-    "相机悬浮信息卡及防伪码仍是数字覆盖层，不能把真实水印也豁免。"
-    "不要为了缩小框而漏掉任何水印，也不按旧检测或固定角落猜坐标。")
+prompt=SOURCE_RELOCALIZATION_PROMPT
 records=[]
 for row in cases[:a.limit]:
     name=row["file"];source=Path(summary["input_dir"])/name

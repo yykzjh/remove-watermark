@@ -8,7 +8,7 @@
 # --adaptive-dispatch: Shrink worker windows near job tail to balance remaining work
 # --quality-verifier: Enable post-removal review using the selected quality backend
 # --retain-rejected-first: Keep an immutable first rejected candidate for audit; adds disk use only for rejected first attempts
-# --protection-physical-vet: Before protected whole editing, retain small panel-like physical text only when both distinct models establish carrier/surface evidence
+# --protection-physical-vet: Vet small physical text and reconcile broad outdoor masks with distinct source detectors and digital/carrier proofs
 # --protection-detail-scan: Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs
 # --protection-core-feather: Fade only the source detector safety margin; keep the complete watermark core opaque
 # --separate-vae-decode: Decode pipeline latents after per-call prefix KV caches are released; exact pinned decode path, offload none
