@@ -21,6 +21,7 @@ from .images import (
 from .prompts import (
     build_focused_prompt,
     build_full_prompt,
+    build_prefilled_full_prompt,
     build_prefilled_prompt,
     build_prompt,
     build_small_overlay_prompt,
@@ -324,7 +325,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 crop = (0,0,*source.size) if state["whole_generation"] else context_box(box, source.size, options.context)
                 reference = source if state["whole_generation"] else source.crop(crop)
                 prefilled=False
-                if config.prefill_overlays and focused_auto:
+                if config.prefill_overlays and state["whole_generation"] and state["protected_regions"] is not None:
+                    from .images import prefill_whole_reference
+                    reference,prefilled=prefill_whole_reference(
+                        source,state["protected_regions"],state["protection_cores"])
+                elif config.prefill_overlays and focused_auto:
                     reference,prefilled=prefill_overlay_reference(source,box,crop,regions)
                 extra_prompt = options.extra_prompt
                 if state["whole_generation"] and options.whole_prompt_profile=="located":
@@ -356,7 +361,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     core_box=None
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
-                    "prompt": (build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
+                    "prompt": (build_prefilled_full_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] else
+                               build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
                                build_full_prompt(extra_prompt, options.whole_prompt_profile) if state["whole_generation"] else
                                build_small_overlay_prompt(box,crop,extra_prompt)+scene_instruction(scene)
                                if small else build_focused_prompt(region.kind,box,crop,extra_prompt,scene)
@@ -488,6 +494,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "window_prefill_stats":prefill_stats,
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
+            "whole_conditioning_source":("source_harmonic_initialization" if state["whole_generation"]
+                and any(e["prefilled"] for e in edits if e["state"] is state) else "unmodified_original"),
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
             "source_scene":state["source_scene"],
             "repair_blending": options.repair_blending,

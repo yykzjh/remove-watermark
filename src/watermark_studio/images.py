@@ -175,7 +175,7 @@ def context_box(box, size, factor):
     return (max(0, x0 - dx), max(0, y0 - dy), min(size[0], x1 + dx), min(size[1], y1 + dy))
 
 
-def harmonize_repair(original, generated, regions, reference_resolution=512):
+def harmonize_repair(original, generated, regions, reference_resolution=512, *, conditioning_initialization=False):
     """Fit a smooth RGB offset from unoccluded pixels, never from watermark pixels.
 
     Coarse-to-fine harmonic extension uses Neumann boundaries at image edges.
@@ -259,11 +259,12 @@ def harmonize_repair(original, generated, regions, reference_resolution=512):
     quantiles=np.quantile(raw_delta[valid],[.1,.9],axis=0)
     shift_spread=float(np.median(quantiles[1]-quantiles[0]))
     excessive_drift=float((np.abs(raw_delta[valid])>64).mean())>=.5 and shift_spread>=32
-    if excessive_drift:
+    if excessive_drift and not conditioning_initialization:
         output=generated.convert("RGB").copy()
     output.info["harmonization"]={
         "method":"masked_harmonic_rgb_v3","reference_grid":list(size),
-        "correction_withheld":excessive_drift,"reference_shift_spread":round(shift_spread,3),
+        "correction_withheld":excessive_drift and not conditioning_initialization,
+        "conditioning_only":conditioning_initialization,"reference_shift_spread":round(shift_spread,3),
         "reference_max_abs_delta":round(float(np.abs(raw_delta[valid]).max()),3),
         "reference_over_64_fraction":round(float((np.abs(raw_delta[valid])>64).mean()),5),
         "offset_min":round(float(previous.min()),3),"offset_max":round(float(previous.max()),3),
@@ -526,3 +527,42 @@ def protect_edge_completion_context(original, edited, evidence):
         restored+=int(np.count_nonzero(np.asarray(restore)))
         result.paste(original.crop(outer).convert(result.mode),outer,restore)
     return result,restored
+
+def prefill_whole_reference(original, regions, core_mapping):
+    """Optional full-frame conditioning; erase only validated digital source cores.
+
+    The unmodified original remains the QA/compositing reference. One field is
+    computed for all cores; no model ROI crops or extra generated candidates.
+    """
+    from .config import Region
+    from .surface_reference import _box
+    cores=[]
+    for region in regions:
+        if region.kind!="panel":
+            continue
+        raw=core_mapping.get(tuple(region.box))
+        core=_box(raw)
+        if (core is None or not (region.box[0]<=core[0]<core[2]<=region.box[2]
+                               and region.box[1]<=core[1]<core[3]<=region.box[3])):
+            return original,False
+        cores.append(Region(kind=region.kind,box=core))
+    if not cores:
+        return original,False
+    scale=min(1,256/max(original.size))
+    size=(max(4,round(original.width*scale)),max(4,round(original.height*scale)))
+    known=np.ones((size[1],size[0]),dtype=bool)
+    # Exclude the full safety margins from the field's SOURCE references.
+    for region in regions:
+        l,t,r,b=pixel_box(region.box,size)
+        known[t:b,l:r]=False
+    if known.sum()<4:
+        return original,False
+    small=original.convert("RGB").resize(size,Image.Resampling.BOX)
+    field=harmonize_repair(small,Image.new("RGB",size,(128,128,128)),regions,256,
+                           conditioning_initialization=True)
+    field=field.resize(original.size,Image.Resampling.BILINEAR)
+    result=original.convert("RGB").copy()
+    for core in cores:
+        box=pixel_box(core.box,original.size)
+        result.paste(field.crop(box),box)
+    return result,True

@@ -83,3 +83,90 @@ def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_p
     with Image.open(target) as output:
         assert output.size==(800,600) and output.getpixel((700,50))==(80,100,60)
         assert output.getpixel((329,500))==(80,100,60)
+
+def test_whole_prefill_initializes_all_trusted_panels_once_and_retains_other_pixels():
+    from watermark_studio.images import prefill_whole_reference
+    source=Image.new("RGB",(600,400),(90,100,70))
+    draw=ImageDraw.Draw(source)
+    draw.rectangle((60,240,239,359),fill="blue")
+    draw.rectangle((360,40,539,159),fill="white")
+    draw.rectangle((540,360,599,399),fill="magenta")
+    regions=[Region(kind="panel",box=(.08,.58,.42,.92)),
+             Region(kind="panel",box=(.58,.08,.92,.42)),
+             Region(kind="logo",box=(.9,.9,1,1))]
+    cores={regions[0].box:(.1,.6,.4,.9),regions[1].box:(.6,.1,.9,.4)}
+    before=source.tobytes()
+    result,used=prefill_whole_reference(source,regions,cores)
+    assert used and result.size==source.size and source.tobytes()==before
+    expected=np.ones((400,600),dtype=bool)
+    expected[240:360,60:240]=False;expected[40:160,360:540]=False
+    assert np.array_equal(np.asarray(source)[expected],np.asarray(result)[expected])
+    assert np.max(np.abs(np.asarray(result)[260:340,80:220].mean(axis=(0,1))-[90,100,70]))<3
+    assert result.getpixel((570,380))==(255,0,255)
+
+
+def test_whole_prefill_missing_or_mismatched_provenance_cannot_erase_a_photo():
+    from watermark_studio.images import prefill_whole_reference
+    source=Image.new("RGB",(300,200),"blue")
+    region=Region(kind="panel",box=(.1,.5,.5,.9))
+    for mapping in [{},{region.box:(0,0,1,1)}]:
+        result,used=prefill_whole_reference(source,[region],mapping)
+        assert not used and result.tobytes()==source.tobytes()
+
+
+def test_whole_prefill_keeps_a_single_full_frame_generation_and_original_for_qa(tmp_path,monkeypatch):
+    import json
+    import sys
+    from types import SimpleNamespace
+
+    from watermark_studio.config import DeploymentConfig, ProcessingConfig
+    from watermark_studio.detection import parse_detection
+    from watermark_studio.worker import process_batch
+    source,target=tmp_path/"source.png",tmp_path/"result.png"
+    photo=Image.new("RGB",(800,600),(80,100,60))
+    ImageDraw.Draw(photo).rectangle((80,360,319,539),fill="blue")
+    photo.save(source);original=source.read_bytes()
+    raw=json.dumps({"scene":"outdoor","watermarks":[{"kind":"panel","box":[100,600,400,900]}]})
+    regions=parse_detection(raw)
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *args:[(regions,raw)])
+    monkeypatch.setattr("watermark_studio.batching.dimensions",lambda image,*a:image.size)
+    calls=[]
+    def generate(pipe,items,*args):
+        calls.append(len(items))
+        assert len(items)==1 and items[0]["image"].size==photo.size
+        assert items[0]["image"].getpixel((150,420))!=(0,0,255)
+        assert items[0]["image"].getpixel((10,10))==photo.getpixel((10,10))
+        assert "完整照片" in items[0]["prompt"] and "crop" not in items[0]["prompt"]
+        return [Image.new("RGB",photo.size,(80,100,60))]
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
+    def verify(pairs,*args,**kwargs):
+        assert pairs[0][0].getpixel((150,420))==(0,0,255)
+        return [{"status":"passed"}]
+    monkeypatch.setattr("watermark_studio.quality.verify_batch",verify)
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,
+        max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
+    pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu",
+                         _quality_encoder=None,_quality_processor=None)
+    row=process_batch([{"source":str(source),"destination":str(target),"relative":"source.png"}],
+        ProcessingConfig(scope="full_image",preserve_background=True,quality_check=True),
+        DeploymentConfig(prefill_overlays=True,protection_core_feather=True),pipe)[0]
+    assert row["ok"] and row["model_inferences"]==1 and calls==[1]
+    assert row["conditioning_prefill"]==[True] and row["whole_conditioning_source"]=="source_harmonic_initialization"
+    assert row["quality"]["status"]=="passed" and source.read_bytes()==original
+    assert Image.open(target).size==photo.size
+
+def test_conditioning_colour_field_is_distinct_from_final_raw_drift_veto():
+    from watermark_studio.images import harmonize_repair, prefill_whole_reference
+    values=np.linspace(200,255,400).astype(np.uint8)
+    clean=Image.fromarray(np.broadcast_to(values[None,:,None],(300,400,3)).copy())
+    original=clean.copy()
+    ImageDraw.Draw(original).rectangle((40,180,159,269),fill="blue")
+    region=Region(kind="panel",box=(.08,.58,.42,.92))
+    conditioned,used=prefill_whole_reference(original,[region],{region.box:(.1,.6,.4,.9)})
+    assert used and conditioned.getpixel((80,220))[0]>190
+    # An actual generated candidate is never afforded that initialization mode.
+    bad=Image.new("RGB",clean.size,(30,30,30))
+    result=harmonize_repair(clean,bad,[region])
+    assert result.info["harmonization"]["correction_withheld"] is True
+    assert result.info["harmonization"]["conditioning_only"] is False

@@ -16,7 +16,7 @@ HELP = {
     "parallelism": "single: exactly one worker; data: independent image workers on selected GPUs",
     "gpus": "Comma-separated physical GPU indices, e.g. 1,2,3",
     "batch_size": "Maximum independent edits per GPU forward, 1..16",
-    "prefill_overlays": "Experimental source-only harmonic initialization before focused inpainting; no additional diffusion attempts",
+    "prefill_overlays": "Experimental source-only harmonic conditioning for focused or protected whole editing; requires trusted cores for whole mode; no additional generations",
     "large_batch_size": "Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks",
     "small_batch_size": "Optional separate batch cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it",
     "batch_window": "Images gathered per worker = batch size times window, 1..8",
