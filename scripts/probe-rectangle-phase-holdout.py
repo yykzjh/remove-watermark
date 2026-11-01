@@ -11,12 +11,13 @@ from PIL import Image, ImageDraw
 
 from watermark_studio.detection import parse_detection
 from watermark_studio.images import load_photo
-from watermark_studio.rectangle_phase import rectangle_phase
+from watermark_studio.rectangle_phase import rectangle_phase, rectangle_phase_core
 
 p=argparse.ArgumentParser()
 p.add_argument("--source-job",required=True)
 p.add_argument("--images",type=int,default=64)
 p.add_argument("--seed",type=int,default=202611022)
+p.add_argument("--core-boundaries",action="store_true")
 p.add_argument("--output",type=Path,required=True)
 a=p.parse_args()
 if a.output.exists() or not 8<=a.images<=128:
@@ -72,7 +73,10 @@ for row in rows:
             layer=Image.new("RGBA",base.size,(0,0,0,0))
             ImageDraw.Draw(layer).rectangle(native,fill=(0,0,0,int(kind.split("_")[1])))
             target=Image.alpha_composite(base.convert("RGBA"),layer).convert("RGB")
-        result=rectangle_phase(source,target,regions)
+        core=[native[0]/base.width,native[1]/base.height,
+              min(1,(native[2]+1)/base.width),min(1,(native[3]+1)/base.height)]
+        result=(rectangle_phase_core(source,target,regions,[{"mask":regions[0].box,"core":core}])
+                if a.core_boundaries else rectangle_phase(source,target,regions))
         records.append({"file":row["file"],"source_sha256":digest,"kind":kind,
                         "artifact_added":kind.startswith("shadow_"),"cue":result})
 assert len(used)==a.images
@@ -81,6 +85,7 @@ by_kind={kind:{"total":sum(r["kind"]==kind for r in records),
                "warned":sum(r["kind"]==kind and bool(r["cue"]["count"]) for r in records)}
          for kind in sorted({r["kind"] for r in records})}
 report={"scope":"randomized new artifact-only controls, not complete watermark-removal truth",
+        "core_boundaries":a.core_boundaries,
         "seed":a.seed,"backgrounds":len(used),"cases":len(records),
         "seconds":round(time.monotonic()-started,3),"source_inputs_unchanged":True,
         "by_kind":by_kind,"clean_warned":[r["file"]+":"+r["kind"] for r in records if not r["artifact_added"] and r["cue"]["count"]],
