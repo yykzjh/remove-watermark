@@ -1,0 +1,458 @@
+{
+  "date": "2026-11-01",
+  "round": 2,
+  "goal_achieved": false,
+  "full_user_dataset_submitted": false,
+  "hardware": {
+    "physical_gpus": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "foreign_gpus_untouched": [
+      0,
+      6,
+      7
+    ]
+  },
+  "development_context": {
+    "images": 89,
+    "runtime": "e5d6fcb",
+    "source_masks_same": 89,
+    "source_inputs_unchanged": true,
+    "baseline": {
+      "context": 0.6,
+      "passed": 40,
+      "review": 48,
+      "error": 1,
+      "seconds": 291.66,
+      "job": "606ca9d0336e4e52a056658cc9be7502"
+    },
+    "candidate": {
+      "context": 0.35,
+      "passed": 49,
+      "review": 38,
+      "error": 2,
+      "seconds": 285.717,
+      "job": "45dc0485310f427c99194839159426f1"
+    },
+    "gained": 13,
+    "lost": 4,
+    "same_output_verdict_changes": 0,
+    "old_pass_controls": {
+      "baseline": 32,
+      "candidate_pass": 31,
+      "candidate_review": 1
+    },
+    "gained_files": [
+      "0022.jpg",
+      "0153.jpg",
+      "0224.jpg",
+      "0227.jpg",
+      "0274.jpg",
+      "0381.jpg",
+      "0445.jpg",
+      "0461.jpg",
+      "0493.jpg",
+      "0661.jpg",
+      "0748.jpg",
+      "0757.jpg",
+      "0980.jpg"
+    ],
+    "lost_files": [
+      "0055.jpg",
+      "0222.jpg",
+      "0538.jpg",
+      "0681.jpg"
+    ],
+    "not_ground_truth": true,
+    "auto_retry": false,
+    "cross_review": false
+  },
+  "context45": {
+    "images": 89,
+    "pass": 48,
+    "review": 41,
+    "error": 0,
+    "seconds": 283.21,
+    "job": "d589fb635168417280fbd71bfa1a703b",
+    "old_pass_controls": {
+      "passed": 31,
+      "total": 32
+    },
+    "revision": "c7ccfd1",
+    "source_inputs_unchanged": true,
+    "dimension_mismatches": 0,
+    "processing_errors": 0
+  },
+  "context35fine": {
+    "images": 89,
+    "pass": 50,
+    "review": 39,
+    "error": 0,
+    "seconds": 292.851,
+    "job": "d8c4ad05f5f74da6af3e935e09e20ec7",
+    "old_pass_controls": {
+      "passed": 31,
+      "total": 32
+    },
+    "revision": "c7ccfd1",
+    "source_inputs_unchanged": true,
+    "dimension_mismatches": 0,
+    "processing_errors": 0
+  },
+  "verifier_stage1": {
+    "runtime": "ec52b1b",
+    "source_files": [
+      "0022.jpg",
+      "0112.jpg",
+      "0408.jpg",
+      "0584.jpg",
+      "0917.jpg",
+      "0358.jpg"
+    ],
+    "baseline": {
+      "seconds": 76.82,
+      "load_seconds": 15.211,
+      "clean_refused": 3,
+      "defect_passed": 18,
+      "errors": 0,
+      "source6": {
+        "review": 6
+      }
+    },
+    "ribbons": {
+      "seconds": 79.629,
+      "load_seconds": 13.857,
+      "clean_refused": 3,
+      "defect_passed": 18,
+      "errors": 0,
+      "source6": {
+        "review": 6
+      },
+      "selected": false
+    },
+    "native_v1": {
+      "seconds": 100.534,
+      "load_seconds": 14.73,
+      "clean_refused": 25,
+      "defect_passed": 3,
+      "errors": 96,
+      "source6": {
+        "error": 6
+      },
+      "selected": false
+    },
+    "source_and_outputs_unchanged": true,
+    "control_images": 108,
+    "total_pairs": 114,
+    "qualitative": "Native failure is protocol, not quality improvement"
+  },
+  "verifier_stage2": {
+    "revision": "6be1a25",
+    "carrier_rules_in_all_prompts": true,
+    "total_pairs": 114,
+    "control_images": 108,
+    "carrier_only": {
+      "clean_refused": 24,
+      "defect_passed": 3,
+      "errors": 0,
+      "seconds": 75.202,
+      "load_seconds": 12.665,
+      "source6": {
+        "review": 6
+      }
+    },
+    "carrier_native_schema_reminder": {
+      "clean_refused": 6,
+      "defect_passed": 15,
+      "errors": 0,
+      "seconds": 76.864,
+      "load_seconds": 12.456,
+      "source6": {
+        "review": 6
+      }
+    },
+    "carrier_artifact_forced": {
+      "clean_refused": 24,
+      "defect_passed": 3,
+      "errors": 0,
+      "seconds": 75.118,
+      "load_seconds": 11.903,
+      "source6": {
+        "review": 6
+      }
+    },
+    "selected": false,
+    "sources_and_outputs_unchanged": true
+  },
+  "verifier_stage3": {
+    "revision": "2aebbff",
+    "carrier_rules_in_all_prompts": false,
+    "control_images": 108,
+    "total_pairs": 114,
+    "native_no_carrier": {
+      "clean_refused": 3,
+      "defect_passed": 20,
+      "errors": 0,
+      "seconds": 84.136,
+      "load_seconds": 14.448
+    },
+    "native_artifact_no_carrier": {
+      "clean_refused": 3,
+      "defect_passed": 20,
+      "errors": 0,
+      "seconds": 94.726,
+      "load_seconds": 12.782
+    },
+    "source6_review": 6,
+    "sources_and_outputs_unchanged": true,
+    "selected": false
+  },
+  "rectangle_prototype": {
+    "images": 108,
+    "seconds": 26.393,
+    "clean_warned": [],
+    "newly_caught_defects": [
+      "01-shadow_32.png",
+      "06-shadow_32.png"
+    ],
+    "all_defects_warned": 4,
+    "source_and_outputs_unchanged": true,
+    "scope": "offline cue, not full QA acceptance"
+  },
+  "rectangle_randomized_controls": {
+    "seed": 202611022,
+    "backgrounds": 64,
+    "cases": 320,
+    "seconds": 56.125,
+    "source_inputs_unchanged": true,
+    "clean_cases": 128,
+    "clean_warned": 0,
+    "shadow18_warned": 3,
+    "shadow32_warned": 7,
+    "shadow48_warned": 14,
+    "each_shadow_total": 64
+  },
+  "rectangle_final197": {
+    "revision": "826bbcd",
+    "images": 197,
+    "controls": {
+      "images": 108,
+      "passed": 40,
+      "review": 68,
+      "clean_refused": 3,
+      "defect_passed": 16,
+      "errors": 0
+    },
+    "source": {
+      "job": "d8c4ad05f5f74da6af3e935e09e20ec7",
+      "images": 89,
+      "passed": 50,
+      "review": 39
+    },
+    "rectangle_guard": true,
+    "native": false,
+    "seconds": 132.919,
+    "load_seconds": 13.723,
+    "source_and_outputs_unchanged": true,
+    "cross_review": false
+  },
+  "rectangle_baseline197": {
+    "revision": "241076b",
+    "images": 197,
+    "rectangle_guard": false,
+    "seconds": 125.412,
+    "load_seconds": 13.601,
+    "controls": {
+      "images": 108,
+      "clean_refused": 3,
+      "defect_passed": 18,
+      "errors": 0
+    },
+    "source89": {
+      "passed": 50,
+      "review": 39
+    },
+    "sources_and_outputs_unchanged": true
+  },
+  "selected_recipe": {
+    "context": 0.45,
+    "blending": "harmonic",
+    "rectangle_guard": true,
+    "quality_model": "Qwen3-VL-4B-Instruct BF16",
+    "input_resolution": 1024,
+    "small_input_resolution": 512,
+    "quality_batch_size": 2,
+    "auto_retry": false,
+    "cross_review": false
+  },
+  "frozen_1024": {
+    "status": "completed",
+    "tag": "tune2-heldout-1024-v2",
+    "sampling_seed": 202611021,
+    "runtime_revision": "e257f20",
+    "profile": "complete@0.45-1024",
+    "blending": "harmonic",
+    "auto_retry": false,
+    "cross_review": false,
+    "exclude_benchmarks": [
+      "first-pass-holdout-neutral-v1",
+      "first-pass-duel-scale-1024-v1",
+      "first-pass-duel-release-heldout-1024-v2",
+      "first-pass-tune2-heldout-1024-v1"
+    ],
+    "benchmark_revision": "e257f20",
+    "job": "51ad587234e24b32b28e32d3238730b3",
+    "images": 1024,
+    "unique_sha256": 1024,
+    "prior_sha256_overlap": 0,
+    "automatic_exclusions": [
+      "quality-benchmark-cross-review-v7-64",
+      "first-pass-holdout-neutral-v1"
+    ],
+    "result": {
+      "benchmark_revision": "e257f20",
+      "profile": "complete@0.45-1024",
+      "tag": "tune2-heldout-1024-v2",
+      "subset": "holdout",
+      "images": 1024,
+      "job": "51ad587234e24b32b28e32d3238730b3",
+      "blending": "harmonic",
+      "context": 0.45,
+      "seed": 202611021,
+      "cross_review": false,
+      "code_revision": "e257f20",
+      "quality_weight_identity": {
+        "relation": "different_weights",
+        "method": "canonical_tensor_sha256_v1",
+        "editor_sha256": "29048a3475264273945b3c44c3a61410f596a95909882fec3a81adf3456ea650",
+        "verifier_sha256": "7a3df8dda193313991aae478bda674cebce809936bae286b8c0f047976b3561f",
+        "editor_tensors": 750,
+        "verifier_tensors": 713
+      },
+      "quality_model": "Qwen/Qwen3-VL-4B-Instruct",
+      "quality_backend": "independent",
+      "seconds": 3033.527,
+      "source_inputs_unchanged": true,
+      "source_hash_audit_seconds": 2.949,
+      "source_selection_sha256": "efbee1c5734ba5bb3970a48daf888562589017a3237967d1541cc628fc023d57",
+      "sampling_seed": 202611021,
+      "model_seed": 42,
+      "first_counts": {
+        "passed": 947,
+        "review": 77
+      },
+      "first_pass_rate": 0.9248,
+      "generation_only": false,
+      "quality_batch_size": 2,
+      "processing_failed": 0,
+      "model_inferences": 1869,
+      "prefilled_model_inputs": 0,
+      "prefill_overlays": false,
+      "edit_batch_participation": {
+        "1": 1503,
+        "2": 366
+      },
+      "successful_diffusion_forwards": 1686,
+      "small_batch_size": 2,
+      "quality_rectangle_guard": true,
+      "rectangle_guard_reviews": 5,
+      "rectangle_guard_cpu_seconds_sum": 233.882252,
+      "residual_geometry_requeries": 0,
+      "generation_retries": 0,
+      "input_budgets": {
+        "512": 896,
+        "1024": 973
+      },
+      "source_detail_views": 1675,
+      "bad_sizes": 0,
+      "quality_errors": 0,
+      "peak_allocated_mib": 41958
+    }
+  },
+  "tests": {
+    "passed": 272,
+    "ruff": "clean",
+    "environment": "WSL2 Ubuntu Linux uv"
+  },
+  "transfer": {
+    "small_diagnostic_jpegs": 5,
+    "bytes": 382974,
+    "no_source_archives_or_bulk_images_over_ssh": true
+  },
+  "limitations": [
+    "Automatic acceptance is not ground-truth correctness.",
+    "Three known clean controls remain unaccepted.",
+    "Sixteen known defective controls still pass the selected checker.",
+    "The added numerical cue has incomplete low-contrast recall; zero errors on finite clean controls is not a universal guarantee."
+  ],
+  "rectangle_net_stage_overhead": {
+    "seconds": 7.507,
+    "fraction": 0.059858705705993165,
+    "scope": "single sequential paired 197-case QA stage wall time; not full-job overhead"
+  },
+  "invalidated_sampling_round": {
+    "tag": "tune2-heldout-1024-v1",
+    "job": "1fa8eb894c7e4bcc8c1440df66b5e621",
+    "state": "cancelled",
+    "total": 1024,
+    "completed": 40,
+    "old128_path_overlap": 5,
+    "old128_sha_overlap": 5,
+    "source_inputs_unchanged": true,
+    "entire_selection_excluded_from_v2": true,
+    "not_counted_as_heldout_validation": true
+  },
+  "rectangle_paired_verdict_audit": {
+    "pairs": 197,
+    "model_checks_equal": 197,
+    "only_changed_controls": [
+      "01-shadow_32.png",
+      "06-shadow_32.png"
+    ],
+    "before": "passed",
+    "after": "review",
+    "guard_code": "repair_rectangle_phase"
+  },
+  "final_audit": {
+    "rows": 1024,
+    "unique_files": 1024,
+    "processing_success": 1024,
+    "actions": {
+      "no_watermark_detected": 47,
+      "restored": 977
+    },
+    "nonpass_guards": {
+      "repair_texture_collapse": 40,
+      "identical": 2,
+      "repair_boundary_step": 9,
+      "repair_rectangle_phase": 5,
+      "new_flat_fill": 1
+    },
+    "nonpass_explanations": {
+      "no_clear_defect": 76,
+      "defect_visible": 1
+    },
+    "rectangle_guard_files": [
+      "0461.jpg",
+      "0153.jpg",
+      "0214.jpg",
+      "0728.jpg",
+      "0776.jpg"
+    ],
+    "scene_labels": {
+      "unknown": 47,
+      "outdoor": 961,
+      "document": 7,
+      "indoor": 9
+    },
+    "source_context_requeries": 0,
+    "declared_dimension_mismatches": 0,
+    "excluded_source_paths": 3259,
+    "missing_excluded_sources": 0,
+    "selected_path_overlap": 0
+  }
+}

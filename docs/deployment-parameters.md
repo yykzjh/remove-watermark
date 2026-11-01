@@ -14,7 +14,7 @@
 |--parallelism|data|single: exactly one worker; data: independent image workers on selected GPUs|
 |--batch-size|2|Maximum independent edits per GPU forward, 1..16|
 |--prefill-overlays|False|Experimental source-only harmonic conditioning initialization for focused/complete generation; requires real context, preserves original input files, no extra diffusion candidate. Not enabled by default.|
-|--small-batch-size|0|Separate cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it. Does not raise the raw-image concurrency/window. Exact shapes and OOM learned caps still apply.|
+|--small-batch-size|0|Separate cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it. Does not raise the raw-image concurrency/window. Exact shapes and OOM learned caps still apply. Quality recipe explicitly selects 2.|
 |--batch-window|4|Images gathered per worker = batch size times window, 1..8|
 |--batch-bucketing|False|Group edits by identical inference dimensions within the window|
 |--adaptive-dispatch|False|Shrink worker windows near job tail to balance remaining work|
@@ -22,6 +22,7 @@
 |--oom-split-batch|False|Recursively split a batch on CUDA OOM; singleton failure is reported|
 |--replicas-per-gpu|1|Full model copies per GPU, 1..4; multiplies VRAM use|
 |--quality-verifier|False|Enable post-removal review using the selected quality backend|
+|--quality-rectangle-guard|False|With quality verification, add CPU-only review of coherent multi-side panel tone steps; records boundary evidence, cannot approve images or override existing vetoes. No extra model call. Quality recipe explicitly enables it; see [round 2 validation](first-pass-round2-2026-11-01.md).|
 |--quality-backend|resident|resident: reuse image encoder; independent: separate instruction VLM; launch-throughput-quality.sh explicitly selects independent|
 |--quality-model|Qwen/Qwen3-VL-4B-Instruct|Independent quality VLM repository or local path; adds GPU memory|
 |--quality-revision|main|Independent quality VLM revision (master for ModelScope)|

@@ -1,4 +1,4 @@
-> 最新检验、自动返工及完整部署参数见 [质量流程](quality-review.md)、[完整参数表](deployment-parameters.md) 和 [最新修补验收实测](review-repair-2026-11-01.md)（此前[大样本测试](quality-performance-2026-10-31.md)）。
+> 最新千张首轮与CPU暗框检查见[第二轮验证](first-pass-round2-2026-11-01.md)。检验、自动返工及完整部署参数见 [质量流程](quality-review.md)、[完整参数表](deployment-parameters.md) 和 [最新修补验收实测](review-repair-2026-11-01.md)（此前[大样本测试](quality-performance-2026-10-31.md)）。
 
 > 当前界面见 [工作流说明](workflows.md)，新一轮整图吞吐实验见 [深度调优报告](deep-tuning.md)。
 
@@ -139,7 +139,7 @@ API 请求还需 input_dir、output_dir，均为开发机目录，不能相同�
 | detection_resolution / remove_logo | 旧区域检测 API 参数；当前整图提示词总包含左右两类水印，批量不依赖这两个字段 |
 | resolution | 默认 1024；UI 为 512/768/1024/1280/1536/2048 面积预算档位，API 允许 256–2048 的 32 倍数 |
 | output_width / output_height | 同为 0 保留每张原图尺寸；否则两者都填，调整完整输出画布；最多 6400 万像素 |
-| context | 0.6，0.1–2；仅自定义区域周围上下文扩展 |
+| context | 默认0.6，0.1–2；精细首轮或单张重建的上下文系数。Linux桌面/批处理CLI可显式传`--context`；不在批量页面提供统一水印区域。第二轮采用0.45，见最新实测与限制。 |
 | feather | 12，0–64；仅自定义区域合成过渡宽度 |
 | seed | 42；结合相对路径与区域序号；不同精度、编译或批大小仍可能有数值差异 |
 | overwrite | false；不开启时跳过已存在输出 |
