@@ -187,10 +187,11 @@ def inspect_photo_rims(photo, proposals, editor, editor_processor, verifier,
     return audited
 
 
-def effective_rim_scope(source, regions, cores, records):
+def effective_rim_scope(source, regions, cores, records, *, header_core=False):
     """Additional, tighter inspection scope; never discards the original checks."""
     mapping = {tuple(r.box): r for r in regions}
     replacements = {}
+    header_tops = {}
     invalid = []
     for record in records or []:
         if not isinstance(record, dict) or record.get("approved") is not True:
@@ -206,10 +207,15 @@ def effective_rim_scope(source, regions, cores, records):
                 or target.kind != mapping[mask].kind
                 or target.box[0] != mask[0] or target.box[2:] != mask[2:]
                 or not mask[1] <= target.box[1] < mask[3]
-                or abs(target.box[1]-record["restore_pixels"][3]/source.height) > 1e-9):
+                or abs(target.box[1]-record["restore_pixels"][3]/source.height) > 1e-9
+                or type(record.get("header_top_pixel")) is not int
+                or record.get("uncertainty_gap_pixels") != 8
+                or record["header_top_pixel"] != record["restore_pixels"][3]+8
+                or not target.box[1] < record["header_top_pixel"]/source.height < target.box[3]):
             invalid.append(record.get("mask"))
             continue
         replacements[mask] = target
+        header_tops[mask] = record["header_top_pixel"]/source.height
     effective = [replacements.get(tuple(r.box), r) for r in regions]
     effective_cores = []
     for item in cores:
@@ -217,7 +223,7 @@ def effective_rim_scope(source, regions, cores, records):
         if mask is None or core is None or mask not in mapping:
             continue
         target = replacements.get(mask, mapping[mask])
-        updated = (core[0], max(core[1], target.box[1]), core[2], core[3])
+        updated = (core[0], max(core[1], target.box[1], header_tops.get(mask, target.box[1]) if header_core else target.box[1]), core[2], core[3])
         if (target.box[0] <= updated[0] < updated[2] <= target.box[2]
                 and target.box[1] <= updated[1] < updated[3] <= target.box[3]):
             effective_cores.append({"mask": list(target.box), "core": list(updated)})

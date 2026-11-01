@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -187,11 +188,16 @@ def harmonize_repair(original, generated, regions, reference_resolution=512, *, 
         return generated
     capture=os.environ.get("WATERMARK_REPAIR_CAPTURE")
     if capture:
-        folder=Path(capture)/f"{os.getpid()}-{original.width}x{original.height}"
+        folder=Path(capture)/f"{os.getpid()}-{original.width}x{original.height}-{uuid.uuid4().hex[:12]}"
         folder.mkdir(parents=True,exist_ok=True)
         original.save(folder/"original.png",compress_level=1)
         generated.save(folder/"generated.png",compress_level=1)
         (folder/"regions.json").write_text(json.dumps([r.model_dump() for r in regions]))
+        (folder/"capture.json").write_text(json.dumps({
+            "scope":"diagnostic raw full-frame generation before colour alignment/composition",
+            "original_rgb_sha256":hashlib.sha256(original.convert("RGB").tobytes()).hexdigest(),
+            "generated_rgb_sha256":hashlib.sha256(generated.convert("RGB").tobytes()).hexdigest(),
+            "native_size":list(original.size)}))
     highest_scale=min(1,reference_resolution/max(original.size))
     highest_size=(max(4,round(original.width*highest_scale)),max(4,round(original.height*highest_scale)))
     source_pyramid=original.convert("RGB").resize(highest_size,Image.Resampling.BOX)

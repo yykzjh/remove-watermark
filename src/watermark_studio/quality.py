@@ -679,7 +679,7 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
         tokenizer.padding_side = previous
 
 
-def reference_inspection(before, after, regions, resolution, detail_patches, scene):
+def reference_inspection(before, after, regions, resolution, detail_patches, scene, *, untrusted_regions=False):
     """Source context for naturalness, without asking it to grade residual text."""
     from .images import context_box, pixel_box
     content=[{"type":"text","text":"图1原图，仅作原可见内容与修补边界参照；图2完整结果，只有结果接受验收。"},
@@ -716,6 +716,28 @@ def reference_inspection(before, after, regions, resolution, detail_patches, sce
                 {"type":"image","image":after.crop(tile).convert("RGB")},
             ])
     content.append({"type":"text","text":CONTENT_PROMPT+scene_review_context(scene)})
+    if untrusted_regions:
+        # Upstream coordinates select comparisons; they do NOT establish
+        # which pixels/text were digitally occluded in the original.
+        for item in content:
+            if item["type"]!="text":
+                continue
+            item["text"]=item["text"].replace("覆盖层在局部0..1范围","上游候选框在局部0..1范围")
+            item["text"]=item["text"].replace(
+                "原图局部：水印存在是输入事实，不可把它当作结果残留；仅参考水印外可见材质、构件和真实阴影。",
+                "原图局部：框只是上游提出的待核实范围，不是已经证明的不透明水印。"
+                "先独立辨认真正的数字覆盖层与真实物体；候选框内外原本可见的印字、人物、材质和阴影都必须比较。"
+                "不能因为真实内容位于候选框内就允许删除、改字或重绘。")
+            item["text"]=item["text"].replace(
+                "只以原图未被覆盖部分作材质参照，覆盖文字本身不算结果缺陷。",
+                "候选框内外所有原本可见的内容都须对照；只有独立确认被不透明数字覆盖层完全挡住的部分才不可核实。")
+        content[-1]["text"]=(
+            "候选范围不具有裁决效力。先从原始像素独立判断哪些内容确实是后期数字叠加；"
+            "真实标牌、机械铭牌、安全告示上的可见文字与数字即使位于候选框内也必须完整保留。"
+            "不透明数字水印真正挡住的部分才允许合理重建；半透明层下仍可辨认的人体轮廓、结构、实物印字"
+            "和原本已经可见的背景不能改换。如果原图该处本来没有数字遮挡，结果新增的涂抹、暗框、"
+            "亮框、纹理改变或文字改写都不能以去水印为理由接受。禁止把上游定位当作删改许可。\n"
+            +content[-1]["text"])
     return [{"role":"user","content":content}]
 
 
@@ -760,7 +782,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                  weights_relation="unknown", rectangle_guard=False, cross_context=False,
                  inspection_profile="legacy"):
     from .detection import locate_watermarks_batch, source_scene
-    if inspection_profile not in {"legacy","defects"}:
+    if inspection_profile not in {"legacy","defects","untrusted"}:
         raise ValueError("Unknown inspection protocol")
     contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
     if len(contexts)!=len(pairs):
@@ -797,9 +819,16 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             "这是一张去水印结果的检验画布：上方为整图，下方（如有）为同一结果图的放大细节。",
             "图1是完整结果照片，后续图是标明原照片坐标的放大局部。结合整图透视和物体关系区分真实印刷文字。")
             +scene_review_context(contexts[pair_index].get("source_scene"))})
+        if inspection_profile=="untrusted":
+            content[-1]["text"]+=(
+                "\n真实测距轮的机械翻字计数窗、仪表读数、器具型号和刻度，在能看清实体外壳、"
+                "连接关系及表面/透视证据时属于现场实物，不能仅因黑底白字或数字就当作相机水印。"
+                "数字相机覆盖也可能靠近器具；必须逐项看载体证据，看不清就uncertain，"
+                "不能因类别名称而豁免真实数字覆盖层。")
         output_chats.append([{"role": "user", "content": content}])
         content_chats.append(reference_inspection(before,aligned,regions,resolution,
-            detail_patches,contexts[pair_index].get("source_scene")))
+            detail_patches,contexts[pair_index].get("source_scene"),
+            **({"untrusted_regions":True} if inspection_profile=="untrusted" else {})))
         boxes_list.append(boxes)
     if inspection_profile == "defects":
         from .defect_protocol import inspect_defects
@@ -855,7 +884,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             output_inspection_seconds=round(output_seconds/len(pairs), 3),
             content_comparison_seconds=round(content_seconds/len(pairs), 3),
             resolution=resolution, detail_boxes=boxes, pixel_mae=pixel_change(before, after),
-            method=reviewer+"_"+getattr(getattr(encoder,"config",None),"model_type","unknown"), review_version="2026-10-31.decomposed-v1",
+            method=reviewer+"_"+getattr(getattr(encoder,"config",None),"model_type","unknown"), review_version=("2026-11-02.untrusted-candidates-v1" if inspection_profile=="untrusted" else "2026-10-31.decomposed-v1"),
         )
         regions = known[index]
         verdict["reference_detail_box"]=(list(max(regions,key=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1])).box)

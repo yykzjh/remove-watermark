@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import os
 import queue
 import subprocess
 import threading
@@ -470,6 +471,7 @@ class Runtime:
                     and self.config.quality_backend=="independent"
                     and self.quality_identity.get("relation")=="different_weights"),
                 "optimization": {
+                    "diagnostic_raw_capture": bool(os.environ.get("WATERMARK_REPAIR_CAPTURE")),
                     "dtype": self.config.dtype, "quantization": self.config.quantization,
                     "compile": self.config.compile, "compile_scope": self.config.compile_scope,
                     "compile_dynamic": self.config.compile_dynamic,

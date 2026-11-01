@@ -210,3 +210,54 @@ def test_quality_checks_the_real_inner_edge_after_source_rim_restoration(monkeyp
     assert result["model_status"] == "passed" and result["status"] == "review"
     assert not result["natural"] and "repair_texture_collapse" in result["guard_codes"]
     assert result["source_rim_guard"]["texture"]["count"] == 1
+
+
+def test_source_proven_rim_is_used_by_colour_alignment_before_composition():
+    from watermark_studio.images import composite_protected, pixel_box
+    from watermark_studio.source_panel_rims import effective_rim_scope
+
+    source, region, core = fixture()
+    clean = Image.new("RGB", source.size, (80, 75, 50))
+    generated = clean.copy()
+    ImageDraw.Draw(generated).rectangle((0, 354, 391, 599), fill=(45, 40, 25))
+    proof = approved_record(source, propose_blue_card_rims(source, [region], [core])[0])
+    old = composite_protected(source, generated, [region], 12, "harmonic",
+                              core_boxes={tuple(core["mask"]): tuple(core["core"])})
+    old, _ = restore_proven_rims(source, old, [proof])
+    scoped, cores, invalid = effective_rim_scope(source, [region], [core], [proof], header_core=True)
+    assert not invalid and cores[0]["core"][1] == 400/600
+    _, inspection_cores, _ = effective_rim_scope(source, [region], [core], [proof])
+    assert inspection_cores[0]["core"][1] == 392/600  # The old inspection is not weakened.
+    refined = composite_protected(source, generated, scoped, 12, "harmonic",
+                                  core_boxes={tuple(v["mask"]): tuple(v["core"]) for v in cores})
+    refined, count = restore_proven_rims(source, refined, [proof])
+    assert count == 1
+    target = (64, 400, 300, 430)
+    def error(photo):
+        return np.abs(np.asarray(photo.crop(target), dtype=float)
+                      - np.asarray(clean.crop(target), dtype=float)).mean()
+    assert error(refined) < error(old)*.75
+    l, t, r, b = proof["restore_pixels"]
+    assert refined.crop((l,t,r,b)).tobytes() == source.crop((l,t,r,b)).tobytes()
+    # The blue header starts at400; blending must already be opaque there.
+    assert refined.getpixel((100,400)) != source.getpixel((100,400))
+    mask = pixel_box(scoped[0].box, source.size)
+    assert mask[1] == 392
+
+
+def test_raw_capture_never_overwrites_same_sized_photos_or_changes_the_source(tmp_path, monkeypatch):
+    import json
+
+    from watermark_studio.images import harmonize_repair
+
+    monkeypatch.setenv("WATERMARK_REPAIR_CAPTURE", str(tmp_path))
+    source = Image.new("RGB", (100, 80), (100, 90, 80))
+    original = source.tobytes()
+    regions = [Region(box=(.1,.5,.5,.9))]
+    for colour in [(80,70,60), (70,60,50)]:
+        harmonize_repair(source, Image.new("RGB", source.size, colour), regions)
+    captures = list(tmp_path.glob("*/capture.json"))
+    assert len(captures) == 2 and source.tobytes() == original
+    assert len({json.loads(p.read_text())["generated_rgb_sha256"] for p in captures}) == 2
+    assert all(json.loads(p.read_text())["original_rgb_sha256"] ==
+               hashlib.sha256(original).hexdigest() for p in captures)

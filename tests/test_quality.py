@@ -240,8 +240,9 @@ def test_low_amplitude_inset_rectangles_are_only_soft_candidates_and_real_existi
     assert repair_boundary_warnings(after,regions,before=after,inset_search=True,minimum_step=4)["count"]==0
 
 
+@pytest.mark.parametrize("profile",["legacy","untrusted"])
 @pytest.mark.parametrize("output_natural,reference_natural",[(True,False),(False,True)])
-def test_neither_naturalness_view_can_override_a_rejection_from_the_other(monkeypatch,output_natural,reference_natural):
+def test_neither_naturalness_view_can_override_a_rejection_from_the_other(monkeypatch,output_natural,reference_natural,profile):
     from watermark_studio.quality import verify_batch
     def structured(chats,fields,*args):
         natural=reference_natural if "content_preserved" in fields else output_natural
@@ -252,7 +253,8 @@ def test_neither_naturalness_view_can_override_a_rejection_from_the_other(monkey
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda chats,*a:[
         {"status":"ok","assessment":"no_clear_defect","summary":"No clear defect","findings":[]} for _ in chats])
     photo=Image.new("RGB",(400,300),"gray")
-    q=verify_batch([(photo,photo.copy())],None,None,"cpu",detail_patches=0,source_regions=[[]])[0]
+    q=verify_batch([(photo,photo.copy())],None,None,"cpu",detail_patches=0,source_regions=[[]],
+                   inspection_profile=profile)[0]
     assert q["status"]=="review" and not q["natural"]
     assert q["output_checks"]["natural"]==output_natural
     assert q["reference_checks"]["natural"]==reference_natural
@@ -490,3 +492,20 @@ def test_neutral_full_prompt_keeps_precise_targets_without_default_landscape():
         assert text in prompt
     assert "草地" not in prompt and "树木" not in prompt
     assert "同类材质" in prompt and "不替换背景类型" in prompt
+
+
+def test_untrusted_reference_locations_never_assert_that_the_entire_box_is_watermarked():
+    from watermark_studio.config import Region
+    from watermark_studio.quality import reference_inspection
+
+    photo = Image.new("RGB", (400, 300), "gray")
+    regions = [Region(kind="panel", box=(0, .06, .74, 1))]
+    def text(chat):
+        return "\n".join(item["text"] for item in chat[0]["content"] if item["type"] == "text")
+    legacy = text(reference_inspection(photo, photo.copy(), regions, 768, 4, "outdoor"))
+    untrusted = text(reference_inspection(photo, photo.copy(), regions, 768, 4, "outdoor",
+                                          untrusted_regions=True))
+    assert "水印存在是输入事实" in legacy
+    assert "水印存在是输入事实" not in untrusted
+    assert "禁止把上游定位当作删改许可" in untrusted
+    assert "真实内容位于候选框内" in untrusted

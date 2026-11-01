@@ -307,6 +307,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         "harmonization":task["_repair_provenance"].get("harmonization"),
                         "protected_core_boxes":task["_repair_provenance"].get("protected_core_boxes",[]),
                         "source_rim_protection":task["_repair_provenance"].get("source_rim_protection",[]),
+                        "source_rim_composition":task["_repair_provenance"].get("source_rim_composition",{}),
                         "denoising_context":task["_repair_provenance"].get("denoising_context",[])}
                        if task.get("_repair_provenance") else {}),
                 }
@@ -386,14 +387,19 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 except (ValueError,TypeError,KeyError):
                     pass  # Invalid/missing source-core provenance keeps the whole padded mask opaque.
             state["denoising_regions"]=state["protected_regions"]
-            if config.protect_denoising_context and source_rim_audits.get(task["relative"]):
+            state["composition_regions"]=state["protected_regions"]
+            state["composition_cores"]=state["protection_cores"]
+            if state["protected_regions"] is not None and source_rim_audits.get(task["relative"]):
                 from .source_panel_rims import effective_rim_scope
-                scoped,_,invalid=effective_rim_scope(source,state["protected_regions"],
+                scoped,scoped_cores,invalid=effective_rim_scope(source,state["protected_regions"],
                     [{"mask":list(mask),"core":list(core)} for mask,core in state["protection_cores"].items()],
-                    source_rim_audits[task["relative"]])
+                    source_rim_audits[task["relative"]],header_core=True)
                 if invalid:
-                    raise RuntimeError("Source-rim evidence does not match the denoising reference")
-                state["denoising_regions"]=scoped
+                    raise RuntimeError("Source-rim evidence does not match the original composition reference")
+                state["composition_regions"]=scoped
+                state["composition_cores"]={tuple(item["mask"]):tuple(item["core"]) for item in scoped_cores}
+                if config.protect_denoising_context:
+                    state["denoising_regions"]=scoped
             stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
             for index, region in enumerate(regions):
                 box = pixel_box(region.box, source.size)
@@ -539,8 +545,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 )
                 if state["protected_regions"] is not None:
                     state["result"] = composite_protected(
-                        state["source"], state["result"], state["protected_regions"], options.feather, options.repair_blending,
-                        core_boxes=state["protection_cores"],
+                        state["source"], state["result"], state["composition_regions"], options.feather, options.repair_blending,
+                        core_boxes=state["composition_cores"],
                     )
             else:
                 state["result"] = blend_patch(
@@ -568,6 +574,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "whole_prompt_profile":options.whole_prompt_profile,
             "protection_detail_scan":config.protection_detail_scan,
             "protection_core_feather":config.protection_core_feather,
+            "source_rim_composition":{"regions":[r.model_dump() for r in state["composition_regions"] or []],
+                                      "cores":[{"mask":list(mask),"core":list(core)}
+                                               for mask,core in state["composition_cores"].items()]},
             "protected_core_boxes":[{"mask":list(r.box),"core":list(state["protection_cores"][r.box])}
                 for r in state["protected_regions"] or [] if r.box in state["protection_cores"]],
             "source_geometry_requery":source_geometry_requeries.get(task["relative"]),
