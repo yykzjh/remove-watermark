@@ -92,7 +92,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, boundary_views, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -127,7 +127,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                     source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
                     editor_context=[{"source_scene":c["scene"]} for c in group],
                     cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
-                    reviewer="paired_"+mode,weights_relation=relation)
+                    reviewer="paired_"+mode,weights_relation=relation,boundary_views=boundary_views)
                 if len(values)!=len(group):
                     raise RuntimeError("Verifier response count differs from frozen pairs")
                 ready.put({"type":"rows","rows":[c|{"quality":v} for c,v in zip(group,values)]})
@@ -163,6 +163,7 @@ def main():
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--cross-review",action="store_true")
+    parser.add_argument("--boundary-views",action="store_true")
     parser.add_argument("--controls",type=Path)
     parser.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
     parser.add_argument("--models-root",type=Path,default=Path.home()/".cache/watermark-models/models")
@@ -206,7 +207,7 @@ def main():
         for rank,gpu in enumerate(gpus):
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
-                args.cross_review,args.quality_batch_size,events,start))
+                args.cross_review,args.quality_batch_size,args.boundary_views,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -250,7 +251,7 @@ def main():
                     clean_refused=sum(r["expected"]=="passed" and r["quality"]["status"]!="passed" for r in selected),
                     defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected))
         result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
-                 "code_revision":code_revision,"images":len(cases),
+                 "code_revision":code_revision,"images":len(cases),"boundary_views":args.boundary_views,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,
                 "cross_review_effective":args.cross_review and identity["relation"]=="different_weights",
