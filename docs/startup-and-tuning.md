@@ -137,7 +137,7 @@ API 请求还需 input_dir、output_dir，均为开发机目录，不能相同�
 | preset | auto / custom 为当前 UI 两种模式；gray/blue 仅旧 API 兼容，不用于批量 |
 | regions | custom 必填，最多 8 个；kind=panel/logo/custom，box 为 0..1 坐标；批量不用 |
 | detection_resolution / remove_logo | 旧区域检测 API 参数；当前整图提示词总包含左右两类水印，批量不依赖这两个字段 |
-| whole_prompt_profile | 默认fidelity中文保真；scene增加受限原图事实并只对纸张/无植被土石场景补充约束；baseline为历史对照。检验不变，见[提示词实测](whole-prompt-tuning-2026-11-01.md)。 |
+| whole_prompt_profile | 默认neutral中性材质保真；scene增加受限原图事实并只对纸张/无植被土石场景补充约束；baseline为历史对照。检验不变，见[提示词实测](whole-prompt-tuning-2026-11-01.md)。 |
 | quality_retry_resolution | 默认1024；整图默认返工不降至768。可显式选择其它预算。 |
 | resolution | 默认 1024；UI 为 512/768/1024/1280/1536/2048 面积预算档位，API 允许 256–2048 的 32 倍数 |
 | output_width / output_height | 同为 0 保留每张原图尺寸；否则两者都填，调整完整输出画布；最多 6400 万像素 |
@@ -177,3 +177,29 @@ SSH 隧道以目录/状态/参数为主；单张打开预览时可按需返回�
 不通过 SSH 传源码包或模型；用户允许偶尔少量测试图片，批量图像由用户在开发机准备。
 
 参考：[官方 QwenImage21Pipeline](https://huggingface.co/docs/diffusers/main/api/pipelines/qwenimage21)。
+
+
+## 整图输入与逐图保护的新配方
+
+当前推荐采用完整原图输入，并显式启用原图保护；定位放大图不进入扩散生成。完整对照、独立千张、失败候选留存和限制见[整图保护报告](whole-protected-scale-2026-11-01.md)。
+
+~~~bash
+# 默认8卡；仅使用空闲卡时显式覆盖列表和加载并行度。
+bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
+# 客户端在WSL/Linux，路径指向开发机；只预选设置，不自动提交任务。
+uv run --no-sync watermark-studio --ssh-host cdu_dev --poll-seconds 15 \
+  --preserve-background --first-pass-mode whole --whole-prompt-profile neutral \
+  --input-resolution 1024 --quality-check --quality-cross-review \
+  --quality-auto-retry --quality-batch-size 2 --quality-retry-resolution 1536
+~~~
+
+- 1024扩散batch2，大于1024的帧用large-batch-size=1；source编码凑批与扩散凑批分开，encoder-batch-size=4。
+- separate-vae-decode在扩散调用结束后按相同算式解码，释放局部prefix KV；它不是额外生成或降分辨率。
+- quality-phase-offload-above=1024仅对更大预算使用主机镜像切换。每worker约8.27GiB额外主机内存，非量化独立检验器；普通1024避免每窗口搬运。
+- protected-document-resolution=1536只对较大文档且基础预算>=1024升档；0关闭。512/768的明确快速选择不被覆盖，输出尺寸仍单独设置。
+- protection-detail-scan补足小码，protection-core-feather只柔化定位安全边距，protection-physical-vet核对小panel的原图实物载体。原图内容分歧不盲目重绘。
+- retain-rejected-first保留首份未通过候选及SHA，避免返工掩盖首轮问题；会增加未通过项的磁盘占用。
+- source-vet-batch-size默认1；2..4为独立的编辑侧载体判断凑批，独立验证器的载体证明仍逐项。必须检查相同冻结候选的标志和保护决定不变，且端到端更快，才应选择更大值。
+- 所有布尔参数仍省略=false、指定=true。已在配方中启用的开关，不能用末尾省略来关闭；使用start-server.sh或复制配方删除该行。
+
+完整保守示例scripts/launch-server.sh覆盖当前全部部署字段，关闭的布尔开关以注释列出；--print-config只输出有效配置、不加载模型。不要从前向次数减少或单个kernel更快推断整个批任务耗时降低。千张验收需同时记录首次及最终自动通过、异常、独特源文件SHA、原始输出宽高、实际模型预算、全部返工及总墙钟时间。

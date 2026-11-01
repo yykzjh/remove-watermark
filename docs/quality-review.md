@@ -14,7 +14,7 @@ bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
 
 完整部署参数与含义见 [参数表](deployment-parameters.md)、[启动与调优](startup-and-tuning.md)。
 脚本使用 FP8 transformer/BF16、动态 projection compile、lean 编码、KV cache、
-每卡独立实例、形状分组、VAE slicing、每卡窗口4张；本机1024输入预算仍采用生成batch1。
+每卡独立实例、形状分组、VAE slicing、窗口由普通batch-size乘batch-window确定，并受全局concurrency上限约束。新增1024生成B2、编码B4及分离VAE解码方案的实测见[整图保护验证](whole-protected-scale-2026-11-01.md)。
 所有布尔参数均不指定=false，指定=true；脚本中显式列出的布尔开关是该配方的选择。
 不要通过删除脚本末尾参数来关闭脚本前面已经指定的布尔开关，应复制配方并删除相应开关。
 
@@ -22,25 +22,26 @@ bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
 
 ~~~bash
 uv run --no-sync watermark-studio --ssh-host cdu_dev \
-  --first-pass-mode whole --whole-prompt-profile fidelity --input-resolution 1024 \
+  --first-pass-mode whole --whole-prompt-profile neutral --input-resolution 1024 \
+  --preserve-background --quality-retry-resolution 1536 --poll-seconds 15 \
   --quality-check --quality-auto-retry --quality-cross-review --quality-batch-size 2
 ~~~
 
-客户端可手工勾选检验、自动返工；自动模式固定整图直接处理，不展示历史原图局部合成或裁切策略。以上命令预选整图保真提示词，不会自动提交。首轮策略的成对测试与代价见[首轮质量报告](first-pass-quality-2026-11-01.md)。
+客户端可手工勾选检验、自动返工；自动模式保持完整原图输入；可显式勾选逐图自动原图保护，不展示历史裁切策略。以上命令预选整图中性材质保真提示词，不会自动提交。首轮策略的成对测试与代价见[首轮质量报告](first-pass-quality-2026-11-01.md)。
 不传这些开关时默认均关闭，遵守布尔开关约定。
 本次交付只部署服务，由用户在客户端提交全量任务。
 
 ~~~bash
 uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
   --concurrency 20 --input-resolution 1024 \
-  --first-pass-mode whole --whole-prompt-profile fidelity --quality-check --quality-resolution 768 \
-  --quality-batch-size 2 --quality-detail-patches 4 \
-  --quality-auto-retry --quality-max-attempts 3 --quality-retry-resolution 1024
+  --first-pass-mode whole --whole-prompt-profile neutral --preserve-background --quality-check --quality-resolution 768 \
+  --quality-batch-size 2 --quality-detail-patches 4 --quality-cross-review \
+  --quality-auto-retry --quality-max-attempts 3 --quality-retry-resolution 1536
 ~~~
 
 ## 检验流程
 
-整图模式由独立检验器定位原图数字覆盖层，仅供检验对照，不用于编辑裁切或按框回贴。scene提示词另用编辑侧识别原图受限材质事实，该信息不能代替独立检验或豁免疑点。历史原图保护阶段已有的定位可以复用。
+整图保护模式复用编辑时原图定位结果用于检验对照，定位细码视图不进入扩散模型。关闭保护的直接整图模式由独立检验器定位，仅供检验对照。scene提示词另用编辑侧识别原图受限材质事实，该信息不能代替独立检验或豁免疑点。历史原图保护阶段已有的定位可以复用。
 再对水印以外位置进行局部差异检查，容忍高质量JPEG编码噪声和所选输出缩放，
 把细微模糊、错位、替换或新增淡字等疑点保守标成待复核，而不是让VLM的通过判断覆盖它。
 无法完成原图定位时记检验错误；误定位、重新编码和极小细节仍可能造成误报或漏报。
@@ -59,7 +60,7 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
 - quality_batch_size：每卡一次检验的图片对上限，默认1，支持1..4；可从2试起，OOM拆分。
 - quality_detail_patches：0..8，默认4。按变化及结构自动选局部放大；不能穷尽每个像素。
 - quality_max_tokens：64..256，默认128。截断、解析错误、调用失败均记error。
-- --detection-batch-size：部署时设置源图/残留扫描凑批上限1..4，默认1；配方设2。
+- --detection-batch-size：部署时设置源图/残留扫描凑批上限1..4，默认1；配方设4。
 - 推荐配方默认 independent 后端，另加载 Qwen3-VL-4B-Instruct；resident 可显式选择，复用主模型的视觉语言编码器，不新增权重。本轮 resident 曾将真实机械标识误报为水印。
 - 局部差异检查最多在2048长边分析，屏蔽原水印位置及少量羽化/编码边界。
   它是保守疑点检查，不是语义准确率或质量分数；未启用原图保护的整图重绘可能触发大量待复核。
@@ -175,3 +176,8 @@ prompts.py、detection.py、quality.py分别保存去除、定位、检验提示
 
 判断依据与返工链路实测见[本次报告](review-evidence-2026-11-01.md)。
 最新两张待复核图分析、严格对照与耗时见 [修补与验收报告](review-repair-2026-11-01.md)。此前大样本抽样见 [10月31日报告](quality-performance-2026-10-31.md)。
+
+
+新增生成偏移保护：融合前非水印参照区发生巨大非均匀偏移时，不用平滑色场把错误材质伪装成合格修补；保留`correction_withheld`、分位跨度及通道偏移比例，强制`generation_reference_drift`待复核。该证据在只读候选复检中与有效原图身份一起保留；返工使用`material_mismatch`受限建议，并在完整原图模式下改用中性concise指令。首次与后续生成次数分别统计，不把额外生成回填为一次生成。
+
+矩形相位检查升级为明暗同向假设联合搜索，阈值和全边一致性条件保留。最新已知目标对照仍有13/81缺陷漏检、3/27正常图误拒；此限制与原生细节抽查失败一并见[整图保护验证](whole-protected-scale-2026-11-01.md)，自动通过不等于人工真值。

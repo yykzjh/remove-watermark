@@ -183,8 +183,8 @@ WHOLE_PROMPTS = {
 
 
 # Preserve detailed removal/identity instructions, without enumerating desired
-# landscape materials. Long negative vegetation examples caused green material
-# substitution in source-only mineral/concrete cases in the frozen risk audit.
+# landscape materials. This candidate tests the vegetation vocabulary hypothesis
+# after green material substitution in the frozen mineral/concrete risk audit.
 WHOLE_PROMPTS["neutral"]=WHOLE_PROMPTS["fidelity"].replace(
     "泥土继续泥土，草地继续草地；已有的水沟、车辙、积水、石块、混凝土接缝、树干枝叶保持连贯。",
     "只延续覆盖边缘实际可见的同类材质；保留已有的表面起伏、痕迹、接缝、轮廓和空间结构，不替换背景类型。"

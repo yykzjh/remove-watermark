@@ -895,8 +895,8 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
         verdict["scene_context"]=contexts[index].get("source_scene","unknown")
         verdict["rectangle_guard"]=rectangle_guard
-        verdict["review_version"] = ("2026-11-01.native-reference-v11-panel-phase" if rectangle_guard
-                                      else "2026-11-01.native-reference-v11")
+        verdict["review_version"] = ("2026-11-01.source-surface-v12-panel-phase" if rectangle_guard
+                                      else "2026-11-01.source-surface-v12")
         candidate = verdict["status"] != "error" and (
             verdict["status"] == "passed" or verdict.get("watermark_removed") is False or (
                 verdict.get("model_status") == "passed" and verdict.get("guard_codes") == ["identical"]))
@@ -941,5 +941,5 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,
                            device,resolution,max_tokens,feather,context,weights_relation=weights_relation,full_context=cross_context)
             verdict["review_version"]=("2026-11-01.native-reference-full-context-v12" if cross_context
-                                       else "2026-11-01.native-reference-v11")
+                                       else "2026-11-01.source-surface-v12")
     return verdicts

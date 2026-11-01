@@ -87,7 +87,7 @@ def matching_smooth_run(sides,colour):
                 run=[];continue
             run.append(tile|{"colour_delta":round(delta,3)})
             if len(run)>=3:
-                return {"side":side["side"],"reference_boxes":[r["box"] for r in run],
+                return {"reference_side":side["side"],"reference_boxes":[r["box"] for r in run],
                         "reference_detail_max":round(max(r["detail"] for r in run),4),
                         "colour_delta_max":round(max(r["colour_delta"] for r in run),3),
                         "visible_source_pixels":96}

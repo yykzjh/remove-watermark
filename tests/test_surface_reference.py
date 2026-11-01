@@ -30,6 +30,7 @@ def test_original_smooth_surface_is_not_compared_only_to_adjacent_rough_material
     assert corrected["count"]==0
     proof=corrected["source_reference_support"]
     assert proof and all(p["visible_source_pixels"]>=96 for p in proof)
+    assert all("reference_side" in p and "side" in p for p in proof)
     assert hashes==(before.tobytes(),after.tobytes())
 
 

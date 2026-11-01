@@ -14,6 +14,7 @@
 |--parallelism|data|single: exactly one worker; data: independent image workers on selected GPUs|
 |--batch-size|2|Maximum independent edits per GPU forward, 1..16|
 |--prefill-overlays|False|Experimental source-only harmonic conditioning initialization for focused/complete generation; requires real context, preserves original input files, no extra diffusion candidate. Not enabled by default.|
+|--large-batch-size|0|Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks|
 |--small-batch-size|0|Separate cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it. Does not raise the raw-image concurrency/window. Exact shapes and OOM learned caps still apply. Quality recipe explicitly selects 2.|
 |--batch-window|4|Images gathered per worker = batch size times window, 1..8|
 |--batch-bucketing|False|Group edits by identical inference dimensions within the window|
@@ -22,6 +23,16 @@
 |--oom-split-batch|False|Recursively split a batch on CUDA OOM; singleton failure is reported|
 |--replicas-per-gpu|1|Full model copies per GPU, 1..4; multiplies VRAM use|
 |--quality-verifier|False|Enable post-removal review using the selected quality backend|
+|--protected-document-resolution|0|Optional full-frame document budget, 0 disables; protected whole requests >=1024 only, never downsizes chosen budget|
+|--retain-rejected-first|False|Keep an immutable first rejected candidate for audit; adds disk use only for rejected first attempts|
+|--source-vet-batch-size|1|Independent editor-side source claims per forward, 1..4; verifier proofs remain per candidate. Experimental until GPU speed and frozen-reference invariance are measured.|
+|--protection-physical-vet|False|Before protected whole editing, retain small panel-like physical text only when both distinct models establish carrier/surface evidence|
+|--protection-detail-scan|False|Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs|
+|--protection-core-feather|False|Fade only the source detector safety margin; keep the complete watermark core opaque|
+|--separate-vae-decode|False|Decode pipeline latents after per-call prefix KV caches are released; exact pinned decode path, offload none|
+|--quality-phase-offload|False|Park independent unquantized verifier weights in host RAM during editing; restore before QA; no SSH transfer|
+|--quality-phase-offload-above|0|Swap verifier weights only above this model-input budget; 0 disables adaptive swapping|
+|--quality-cross-full-context|False|Experimental full-result context in physical-text dispute localization and proofs. No guard, source overlap, pixel, dual-model or residual-scan condition is waived.|
 |--quality-rectangle-guard|False|With quality verification, add CPU-only review of coherent multi-side panel tone steps; records boundary evidence, cannot approve images or override existing vetoes. No extra model call. Quality recipe explicitly enables it; see [round 2 validation](first-pass-round2-2026-11-01.md).|
 |--quality-backend|resident|resident: reuse image encoder; independent: separate instruction VLM; launch-throughput-quality.sh explicitly selects independent|
 |--quality-model|Qwen/Qwen3-VL-4B-Instruct|Independent quality VLM repository or local path; adds GPU memory|
@@ -35,7 +46,7 @@
 |--compile-scope|full|full transformer, repeated blocks, or only attention projections and MLP|
 |--compile-dynamic|False|Compile dynamic shapes; requires --compile to take effect|
 |--prompt-encoder|stock|stock or lean (omit unused LM logits, hidden-state history and VLM KV cache)|
-|--encoder-batch-size|1|Independent VLM images per lean encoder forward; 1..16|
+|--encoder-batch-size|1|Independent lean VLM prefill across worker window; decoupled from diffusion batch, 1..16, OOM splits|
 |--fuse-qkv|False|Fuse transformer Q/K/V linear projections; exact arithmetic structure, rounding may differ|
 |--quantization|none|none, transformer FP8 dynamic activation/weight, or INT8 weight-only; requires quantization extra|
 |--float8-granularity|tensor|FP8 scaling per tensor or per row; only active with --quantization float8|
