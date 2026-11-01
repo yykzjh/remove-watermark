@@ -95,14 +95,48 @@ def first_snapshot(state_root, job, target_root, tag):
             raise RuntimeError("Candidate or source changed while preparing snapshot")
         records.append(record)
         manifest.append({"file": record["file"], "source_sha256": source_sha,
-                         "candidate_sha256": candidate_sha})
+                         "candidate_sha256": candidate_sha, "record_sha256": record_digest(record)})
     (target / "results.jsonl").write_text(
         "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records))
     (target / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False))
     frozen = {"id": tag, "state": "completed", "total": len(records),
               "input_dir": str(source_root), "output_dir": str(outputs.resolve()),
               "origin_job": job, "origin_revision": summary.get("code_revision"),
+              "snapshot_schema":2,"quality_weight_identity":summary.get("quality_weight_identity"),
               "scope": "immutable first-generation candidates; original vetoes retained",
               "first_counts": summary.get("first_pass_counts")}
     (target / "summary.json").write_text(json.dumps(frozen, ensure_ascii=False, indent=2))
     return frozen
+
+
+def record_digest(record):
+    content = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def validate_first_snapshot(root, identity):
+    """Reject changed pixels, metadata or a different cached primary checkpoint."""
+    root = Path(root)
+    summary = json.loads((root / "summary.json").read_text())
+    previous = summary.get("quality_weight_identity") or {}
+    keys = ("editor_sha256", "verifier_sha256")
+    if (summary.get("snapshot_schema") != 2 or previous.get("relation") != "different_weights"
+            or identity.get("relation") != "different_weights"
+            or not all(previous.get(k) and previous.get(k) == identity.get(k) for k in keys)):
+        raise ValueError("Immutable first snapshot and identical canonical primary weights required")
+    records = [json.loads(line) for line in (root / "results.jsonl").read_text().splitlines()]
+    manifest = json.loads((root / "manifest.json").read_text())
+    expected = {r["file"]: r for r in manifest}
+    if (len(expected) != len(manifest) or len(records) != summary["total"]
+            or len({r["file"] for r in records}) != len(records)
+            or {r["file"] for r in records} != set(expected)):
+        raise ValueError("Snapshot manifest coverage differs")
+    for row in records:
+        item = expected[row["file"]]
+        if record_digest(row) != item.get("record_sha256"):
+            raise ValueError("Frozen first verdict or geometry metadata changed")
+        for key, directory in (("source_sha256", summary["input_dir"]),
+                               ("candidate_sha256", summary["output_dir"])):
+            if digest(bounded(Path(directory), row["file"])) != item[key]:
+                raise ValueError("Frozen source or first-candidate pixels changed")
+    return summary

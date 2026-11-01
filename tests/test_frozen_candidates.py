@@ -99,3 +99,39 @@ def test_verifier_factory_retains_first_vetoes_and_handles_unknown_source_scene(
     assert cases[0]["scene"]=="unknown"
     assert cases[1]["frozen_vetoes"]==["repair_boundary_step"]
     assert cases[1]["source_cores"] and cases[1]["preserved"]
+
+
+def identity():
+    return {"relation": "different_weights", "editor_sha256": "a"*64, "verifier_sha256": "b"*64}
+
+
+def validated_fixture(tmp_path):
+    state, source, output, retained, rows = fixture(tmp_path)
+    path=state/"job/summary.json";s=json.loads(path.read_text())
+    s["quality_weight_identity"]=identity();path.write_text(json.dumps(s))
+    first_snapshot(state,"job",tmp_path/"snapshots","first")
+    return tmp_path/"snapshots/first",source,output,retained,rows
+
+
+def test_cached_verdict_requires_unchanged_weights_pixels_and_metadata(tmp_path):
+    from watermark_studio.frozen_candidates import validate_first_snapshot
+    root,*_=validated_fixture(tmp_path)
+    assert validate_first_snapshot(root,identity())["snapshot_schema"]==2
+    other=identity()|{"verifier_sha256":"c"*64}
+    with pytest.raises(ValueError,match="canonical primary"):
+        validate_first_snapshot(root,other)
+
+
+@pytest.mark.parametrize("changed",["source","output","verdict"])
+def test_cached_adjudication_cannot_silently_accept_modified_inputs(tmp_path,changed):
+    from watermark_studio.frozen_candidates import validate_first_snapshot
+    root,source,*_=validated_fixture(tmp_path)
+    if changed in {"source","output"}:
+        base=source if changed=="source" else root/"outputs"
+        (base/"town/village/a.jpg").write_bytes(b"changed pixels")
+    else:
+        p=root/"results.jsonl";rows=[json.loads(l) for l in p.read_text().splitlines()]
+        rows[1]["quality"]={"status":"passed"}
+        p.write_text("".join(json.dumps(r)+"\n" for r in rows))
+    with pytest.raises(ValueError,match="changed"):
+        validate_first_snapshot(root,identity())
