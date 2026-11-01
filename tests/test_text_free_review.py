@@ -166,7 +166,8 @@ def test_additional_independent_proof_cannot_replace_primary_fresh_scan(monkeypa
     monkeypatch.setattr(detection,"locate_watermarks_batch",scan)
     reconsider_text_free(source,output,q,editor,None,validator,None,"cpu",context,
         "different_weights",proof_validator=proof,proof_processor=object(),
-        proof_identity={"relation":"different_weights","verifier_sha256":"independent"})
+        proof_identity={"relation":"different_weights","verifier_sha256":"independent"},
+        text_detector=type("Detector",(),{"inspect":lambda *args:{"status":"clear"}})())
     assert q["status"]=="passed"
     assert [c[2] for c in calls]==[editor,proof,editor]
     assert scans==[validator]
@@ -185,3 +186,12 @@ def test_third_model_cannot_appeal_without_canonical_distinctness_or_over_flat_v
         "different_weights",uniform_guard=True)
     assert f[2]["status"]=="review" and not f[6]
     assert f[2]["text_free_review"]["reason"]=="new_uniform_core_fill"
+
+def test_independent_ocr_detected_text_or_error_cannot_be_promoted(monkeypatch):
+    for status in ["text_present","error"]:
+        f=fixture(monkeypatch)
+        detector=type("Detector",(),{"inspect":lambda *args,status=status:{"status":status}})()
+        reconsider_text_free(f[0],f[1],f[2],f[4],None,f[5],None,"cpu",f[3],
+            "different_weights",text_detector=detector)
+        assert f[2]["status"]=="review" and not f[6]
+        assert f[2]["text_free_review"]["reason"]=="ocr_text_presence_or_error"

@@ -53,7 +53,7 @@ def reconsider_text_free(before, after, verdict, editor, editor_processor, valid
                          validator_processor, device, context, weights_relation,
                          resolution=768, max_tokens=128, proof_scope="global",
                          proof_validator=None, proof_processor=None, proof_identity=None,
-                         uniform_guard=False):
+                         uniform_guard=False, text_detector=None):
     from .quality import output_detail_views, preview, reference_inspection
 
     log = {"attempted": False, "status": "skipped", "experimental": True,
@@ -77,6 +77,9 @@ def reconsider_text_free(before, after, verdict, editor, editor_processor, valid
             log["reason"]="different_canonical_proof_weights_required"
             return
         log["additional_independent_proof"]=proof_identity
+        if text_detector is None:
+            log["reason"]="additional_proof_requires_independent_text_absence_veto"
+            return
     started = time.monotonic()
     log["attempted"] = True
     log["requested_scope"] = proof_scope
@@ -114,6 +117,12 @@ def reconsider_text_free(before, after, verdict, editor, editor_processor, valid
                                 {"type": "image", "image": detail}])
             prompt = TEXT_FREE_PROMPT
         content.append({"type": "text", "text": prompt})
+        if text_detector is not None:
+            inspected=text_detector.inspect(aligned,log.get("target_boxes",[[0,0,1,1]]))
+            log["cpu_text_presence"]=inspected
+            if inspected.get("status")!="clear":
+                log.update(status="unresolved",reason="ocr_text_presence_or_error")
+                return
         chats = [[{"role": "user", "content": content}]]
         fields = ("watermark_removed", "natural", "text_free", "uncertain")
         editor_report = inspect_consistently(chats, fields, editor, editor_processor, device,

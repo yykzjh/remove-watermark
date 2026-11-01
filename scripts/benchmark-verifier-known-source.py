@@ -103,7 +103,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, proof_profile, proof_identity, uniform_guard, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, proof_profile, proof_identity, uniform_guard, ocr_guard, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -133,6 +133,10 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
             proof_path=Path(model).parents[2]/"Qwen--Qwen3.5-4B/snapshots/master"
             proof_validator=load_quality_encoder(proof_path,cfg,"cuda:0")
             proof_processor=load_quality_processor(proof_path)
+        text_detector=None
+        if ocr_guard:
+            from watermark_studio.text_presence import TargetTextPresence
+            text_detector=TargetTextPresence()
         ready.put({"type":"ready","gpu":gpu})
         start.wait()
         def grade(group,contexts=None):
@@ -165,7 +169,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                                 "source_scene":case["scene"],"protected_core_boxes":case.get("source_cores",[])},
                                 relation,resolution,proof_scope=text_free_scope,
                                 proof_validator=proof_validator,proof_processor=proof_processor,
-                                proof_identity=proof_identity,uniform_guard=uniform_guard)
+                                proof_identity=proof_identity,uniform_guard=uniform_guard,text_detector=text_detector)
                         if case.get("frozen_vetoes"):
                             if value["status"]!="error":
                                 value["status"]="review"
@@ -214,6 +218,7 @@ def main():
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--quality-resolution",type=int,choices=[512,768,1024,1280],default=768)
     parser.add_argument("--text-free-proof-profile",choices=["primary","35-4b-bf16"],default="primary")
+    parser.add_argument("--text-free-ocr-guard",action="store_true")
     parser.add_argument("--text-free-uniform-guard",action="store_true")
     parser.add_argument("--inspection-profile",choices=["legacy","defects"],default="legacy")
     parser.add_argument("--first-snapshot",action="store_true",help="Validate an immutable first snapshot, then freshly grade the same pixels")
@@ -231,6 +236,10 @@ def main():
     args=parser.parse_args()
     if args.text_free_proof_profile!="primary" and (not args.text_free_consensus or args.profile!="4b-bf16"):
         parser.error("Additional proof weights require canonical4b text-free consensus")
+    if args.text_free_proof_profile!="primary" and not args.text_free_ocr_guard:
+        parser.error("The native audit disproved third-model text absence alone; --text-free-ocr-guard is required")
+    if args.text_free_ocr_guard and not args.text_free_consensus:
+        parser.error("OCR absence veto requires text-free consensus")
     if args.text_free_uniform_guard and not args.text_free_consensus:
         parser.error("The optional uniform-core veto requires text-free consensus")
     if args.frozen_disputes and args.inspection_profile!="legacy":
@@ -293,7 +302,7 @@ def main():
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
                 args.cross_review,args.quality_batch_size,args.rectangle_guard,
-                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,args.text_free_proof_profile,proof_identity,args.text_free_uniform_guard,events,start))
+                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,args.text_free_proof_profile,proof_identity,args.text_free_uniform_guard,args.text_free_ocr_guard,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -352,7 +361,7 @@ def main():
                 "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
                 "inspection_profile":args.inspection_profile,"first_snapshot":args.first_snapshot,
                 "text_free_proof_profile":args.text_free_proof_profile,"proof_identity":proof_identity,
-                "text_free_uniform_guard":args.text_free_uniform_guard,
+                "text_free_uniform_guard":args.text_free_uniform_guard,"text_free_ocr_guard":args.text_free_ocr_guard,
                 "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,"text_free_scope":args.text_free_scope,
                 "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
