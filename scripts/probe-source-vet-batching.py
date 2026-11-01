@@ -17,8 +17,10 @@ p.add_argument("--output",type=Path,required=True)
 p.add_argument("--deployment",type=Path,default=Path(".run/deployment.json"))
 p.add_argument("--batch-size",type=int,choices=[2,3,4],default=4)
 p.add_argument("--calibration",type=int,default=64)
+p.add_argument("--shards",type=int,choices=range(1,9),default=1)
+p.add_argument("--shard-index",type=int,default=0)
 a=p.parse_args()
-if a.output.exists() or not 8<=a.calibration<=128:
+if a.output.exists() or not 8<=a.calibration<=128 or not 0<=a.shard_index<a.shards:
     p.error("Fresh report and 8..128 paired calibration required")
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
 os.environ["TOKENIZERS_PARALLELISM"]="false"
@@ -53,6 +55,9 @@ for row in rows:
         assert path.is_relative_to(inputs)
         items.append({"file":row["file"],"path":path,"box":evidence["box"],"flags":{f:baseline[f] for f in fields},
                       "status":evidence["status"],"requires_review":bool(evidence.get("requires_review"))})
+full_candidates=len(items)
+selected_candidate_ids=[i for i in range(full_candidates) if i%a.shards==a.shard_index]
+items=[items[i] for i in selected_candidate_ids]
 assert len(items)>=8
 digests={i["file"]:selection["source_sha256"][i["file"]] for i in items}
 def audit():
@@ -119,7 +124,8 @@ assert same_sources
 speed=serial_stats["seconds"]/batch_stats["seconds"]
 report={"job":a.job,"code_revision":job.get("code_revision"),"probe_revision":subprocess.check_output(
     ["git","rev-parse","--short","HEAD"],text=True).strip(),"gpu":a.gpu,"items":len(items),
-    "source_images":len(digests),"baseline_missing_primary_reports":missing,"precision":cfg.dtype,
+    "source_images":len(digests),"full_candidates":full_candidates,
+    "shards":a.shards,"shard_index":a.shard_index,"selected_candidate_ids":selected_candidate_ids,"baseline_missing_primary_reports":missing,"precision":cfg.dtype,
     "full_deployment_weights_resident":True,"batch_size":a.batch_size,"serial_calibration":serial_stats,
     "batched_calibration":batch_stats,"batched_remaining":extra_stats,"calibration_speedup":round(speed,4),
     "serial_reference_differences":serial_diff,"batched_reference_differences":batch_diff,
