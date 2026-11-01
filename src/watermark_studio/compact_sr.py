@@ -7,15 +7,20 @@ from pathlib import Path
 # Real-ESRGAN v0.2.5.0 general-x4v3, also mirrored verbatim on Hugging Face.
 # Verify transport contents before torch deserialization; never execute pickle code.
 GENERAL_SHA256 = "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292"
+WEAK_SHA256 = "1641f8c4464b9f097c9fdda5589273713f67cf59f3d909e0bd688f0cee269dca"
+# Weak-denoise digest independently computed from the official GitHub release.
+CHECKPOINTS = {"general": GENERAL_SHA256, "weak": WEAK_SHA256}
 
 
-def checked_weights(path):
+def checked_weights(path, variant="general"):
+    if variant not in CHECKPOINTS:
+        raise ValueError("Unknown pinned compact SR variant")
     path = Path(path).expanduser()
     if not path.is_file() or not 1_000_000 <= path.stat().st_size <= 8_000_000:
         raise ValueError("Expected the pinned compact SR checkpoint, not an arbitrary file")
     with path.open("rb") as stream:
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
-    if actual != GENERAL_SHA256:
+    if actual != CHECKPOINTS[variant]:
         raise ValueError("Compact SR checkpoint SHA256 mismatch")
     return path
 
@@ -63,8 +68,8 @@ def compact_model():
 
 
 class CompactSR:
-    def __init__(self, weights, device="cuda:0"):
-        path = checked_weights(weights)
+    def __init__(self, weights, device="cuda:0", *, variant="general"):
+        path = checked_weights(weights, variant)
         import torch
 
         self.torch = torch

@@ -11,6 +11,8 @@ p.add_argument("--snapshot",type=Path,required=True)
 p.add_argument("--weights",type=Path,required=True)
 p.add_argument("--output",type=Path,required=True)
 p.add_argument("--limit",type=int,default=8)
+p.add_argument("--variant",choices=["general","weak"],default="general")
+p.add_argument("--self-check",action="store_true")
 p.add_argument("--resolution",type=int,choices=[768,1024,1280,1536],default=1024)
 a=p.parse_args()
 if a.output.exists() or not 1<=a.limit<=64 or a.gpu<0:
@@ -18,7 +20,7 @@ if a.output.exists() or not 1<=a.limit<=64 or a.gpu<0:
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
 import torch
 
-from watermark_studio.compact_sr import GENERAL_SHA256, CompactSR
+from watermark_studio.compact_sr import CHECKPOINTS, CompactSR
 from watermark_studio.config import Region
 from watermark_studio.frozen_candidates import digest, record_digest
 from watermark_studio.images import composite_protected, load_photo
@@ -34,8 +36,18 @@ chosen=[r for r in rows if "repair_texture_collapse" in r["quality"].get("guard_
 chosen.sort(key=lambda r:r["quality"].get("repair_texture",{}).get("count",0),reverse=True)
 a.output.mkdir(parents=True)
 at=time.monotonic()
-engine=CompactSR(a.weights)
+engine=CompactSR(a.weights,variant=a.variant)
 load_seconds=time.monotonic()-at
+tile_check=None
+if a.self_check:
+    import numpy as np
+    from PIL import Image
+    photo=Image.fromarray(np.random.default_rng(202611021).integers(0,256,(123,139,3),dtype=np.uint8))
+    small_tiles=np.asarray(engine.enhance(photo,tile_edge=64)).astype(float)
+    full_frame=np.asarray(engine.enhance(photo,tile_edge=256)).astype(float)
+    error=np.abs(small_tiles-full_frame)
+    tile_check={"max_uint8_error":float(error.max()),"mean_uint8_error":float(error.mean())}
+    assert tile_check["max_uint8_error"]<=2 and tile_check["mean_uint8_error"]<.1,tile_check
 records=[]
 for index,row in enumerate(chosen[:a.limit]):
     name=row["file"];expected=manifest[name]
@@ -53,7 +65,8 @@ for index,row in enumerate(chosen[:a.limit]):
     # recorded raw-generation drift diagnostics. Preserve those in the record.
     enhanced=composite_protected(before,enhanced,regions,12,"feather",core_boxes=cores)
     enhanced.info["harmonization"]=row.get("harmonization")
-    finding=repair_texture_warnings(enhanced,regions,before=before,inset_search=True,core_boxes=row.get("protected_core_boxes",[]))
+    finding=repair_texture_warnings(enhanced,regions,before=before,core_boxes=row.get("protected_core_boxes",[]))
+    original_finding=repair_texture_warnings(result,regions,before=before,core_boxes=row.get("protected_core_boxes",[]))
     dest=a.output/f"{index:03d}.png";enhanced.save(dest,compress_level=1)
     assert enhanced.size==before.size
     assert digest(source)==expected["source_sha256"]
@@ -61,12 +74,12 @@ for index,row in enumerate(chosen[:a.limit]):
     records.append({"file":name,"output":str(dest),"source_sha256":expected["source_sha256"],
         "first_candidate_sha256":expected["candidate_sha256"],"enhanced_sha256":digest(dest),
         "native_size":list(before.size),"sr_seconds":round(sr_seconds,4),
-        "previous_texture":row["quality"].get("repair_texture"),"new_texture":finding,
+        "previous_texture":row["quality"].get("repair_texture"),"baseline_texture_recheck":original_finding,"new_texture":finding,
         "original_harmonization":row.get("harmonization"),"regions":row["repair_regions"],
         "protected_core_boxes":row.get("protected_core_boxes",[]),"source":str(source),
         "first_candidate":str(candidate),"source_scene":row.get("source_scene")})
 report={"scope":"experimental postprocessing, not quality-approved; no new Qwen generation",
-        "weights_sha256":GENERAL_SHA256,"code_revision":__import__("subprocess").check_output(
+        "weights_sha256":CHECKPOINTS[a.variant],"variant":a.variant,"tile_check":tile_check,"code_revision":__import__("subprocess").check_output(
             ["git","rev-parse","--short","HEAD"],text=True).strip(),
         "reference_resolution":a.resolution,"load_seconds":round(load_seconds,4),
         "cases":len(records),"source_and_first_candidates_unchanged":True,"rows":records}

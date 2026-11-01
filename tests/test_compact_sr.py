@@ -5,6 +5,8 @@ from watermark_studio.compact_sr import checked_weights, tile_plan
 
 
 def test_compact_sr_rejects_unpinned_content_before_importing_torch(tmp_path):
+    with pytest.raises(ValueError, match="variant"):
+        checked_weights(tmp_path/"x", "unknown")
     path = tmp_path/"untrusted.pth"
     path.write_bytes(b"not a checkpoint")
     with pytest.raises(ValueError, match="pinned"):
