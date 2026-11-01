@@ -261,3 +261,18 @@ def test_raw_capture_never_overwrites_same_sized_photos_or_changes_the_source(tm
     assert len({json.loads(p.read_text())["generated_rgb_sha256"] for p in captures}) == 2
     assert all(json.loads(p.read_text())["original_rgb_sha256"] ==
                hashlib.sha256(original).hexdigest() for p in captures)
+
+
+def test_whole_source_binding_is_distinct_from_exact_band_restoration():
+    from watermark_studio.source_panel_rims import full_source_binding
+    source,region,core=fixture()
+    record=approved_record(source,propose_blue_card_rims(source,[region],[core])[0])
+    assert not full_source_binding(source,record)
+    bound=record|{"source_rgb_sha256":hashlib.sha256(source.convert("RGB").tobytes()).hexdigest()}
+    assert full_source_binding(source,bound)
+    changed=source.copy();changed.putpixel((700,100),(1,2,3))
+    assert not full_source_binding(changed,bound)
+    # Legacy proof can still copy exactly the already-certified strip. It
+    # cannot authorize changing or initializing any other original pixels.
+    _result,count=restore_proven_rims(changed,changed,[record])
+    assert count==1

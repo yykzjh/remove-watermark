@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import runpy
@@ -12,7 +13,7 @@ from pathlib import Path
 
 from watermark_studio.config import ProcessingConfig
 from watermark_studio.images import load_photo, save_output
-from watermark_studio.source_panel_rims import restore_proven_rims
+from watermark_studio.source_panel_rims import full_source_binding, restore_proven_rims
 from watermark_studio.translucent_recovery import recover_translucent_body
 
 
@@ -41,8 +42,12 @@ def main():
         before,exif,icc,alpha=load_photo(case["source"])
         candidate=load_photo(case["output"])[0]
         result=candidate;logs=[]
+        fingerprint=hashlib.sha256(before.convert("RGB").tobytes()).hexdigest()
         for record in case.get("source_rim_protection",[]):
             if not isinstance(record,dict) or record.get("approved") is not True:
+                continue
+            if not full_source_binding(before,record,fingerprint=fingerprint):
+                logs.append({"applied":False,"reason":"missing_or_stale_full_source_binding"})
                 continue
             _restored,count=restore_proven_rims(before,before,[record])
             if count!=1:

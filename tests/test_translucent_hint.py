@@ -24,6 +24,7 @@ def fixture():
     row.update(approved=True, editor=yes, independent=yes, weights_relation="different_weights",
                ocr={"status":"clear"}, source_rim_sha256=hashlib.sha256(
                    source.crop(tuple(row["restore_pixels"])).tobytes()).hexdigest())
+    row["source_rgb_sha256"]=hashlib.sha256(source.tobytes()).hexdigest()
     return source, clean, row
 
 
@@ -52,6 +53,7 @@ def test_missing_or_stale_proof_cannot_initialize_a_body():
 def test_opaque_uniform_body_does_not_supply_recoverable_photo_structure():
     source, _, row = fixture()
     ImageDraw.Draw(source).rectangle((20,460,350,589), fill=(225,225,225))
+    row["source_rgb_sha256"]=hashlib.sha256(source.tobytes()).hexdigest()
     _, audit = translucent_body_hint(source, [row])
     assert not audit[0]["applied"]
 
@@ -88,6 +90,7 @@ def test_hint_worker_uses_one_whole_generation_and_original_semantics_and_qa(tmp
     proof.update(approved=True, editor=yes, independent=yes, weights_relation="different_weights",
                  ocr={"status":"clear"}, source_rim_sha256=hashlib.sha256(
                      source.crop(tuple(proof["restore_pixels"])).tobytes()).hexdigest())
+    proof["source_rgb_sha256"]=hashlib.sha256(source.tobytes()).hexdigest()
     monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch", lambda *a:[(regions,raw)])
     monkeypatch.setattr("watermark_studio.source_panel_rims.inspect_photo_rims", lambda *a:[proof])
     monkeypatch.setattr("watermark_studio.batching.dimensions", lambda image,*a:image.size)
@@ -135,3 +138,17 @@ def test_invalid_hint_configuration_is_rejected(kwargs):
     from watermark_studio.config import DeploymentConfig
     with pytest.raises(ValidationError):
         DeploymentConfig(**kwargs)
+
+
+def test_band_identity_never_authorizes_a_different_body_or_frame():
+    source,_clean,record=fixture()
+    legacy=dict(record);legacy.pop("source_rgb_sha256")
+    result,logs=translucent_body_hint(source,[legacy])
+    assert result is source and not logs[0]["applied"]
+    assert "full original RGB proof" in logs[0]["skip_reason"]
+    changed=source.copy()
+    changed.putpixel((700,100),(1,2,3))  # Far outside the exact certified band.
+    assert source.crop(tuple(record["restore_pixels"])).tobytes()==changed.crop(tuple(record["restore_pixels"])).tobytes()
+    result,logs=translucent_body_hint(changed,[record])
+    assert result is changed and not logs[0]["applied"]
+    assert "full original RGB proof" in logs[0]["skip_reason"]

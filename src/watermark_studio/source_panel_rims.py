@@ -83,6 +83,20 @@ def proven_photo_rim(editor, verifier, weights_relation, ocr):
                and report.get("area") == "none" for report in (editor, verifier))
 
 
+def full_source_binding(source,record,*,fingerprint=None):
+    """Bind a derived operation to the entire original, not merely one clear band.
+
+    Identity alone grants no digital-overlay or clean-photo permission. Legacy
+    band-only proofs remain sufficient only to copy their exact proven pixels.
+    """
+    if (not isinstance(record,dict) or record.get("source_size")!=list(source.size)
+            or not isinstance(record.get("source_rgb_sha256"),str)):
+        return False
+    actual=(fingerprint if fingerprint is not None else
+            hashlib.sha256(source.convert("RGB").tobytes()).hexdigest())
+    return record["source_rgb_sha256"]==actual
+
+
 def restore_proven_rims(source, candidate, records):
     """Preserve the candidate except for strictly proven original photo rectangles."""
     if source.size != candidate.size:

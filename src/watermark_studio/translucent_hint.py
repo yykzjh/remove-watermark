@@ -1,6 +1,7 @@
 """Experimental full-frame VAE hints, never a certified recovery or QA exemption."""
 from __future__ import annotations
 
+import hashlib
 import math
 
 import numpy as np
@@ -8,7 +9,7 @@ from PIL import Image, ImageFilter
 
 from .config import Region
 from .images import pixel_box
-from .source_panel_rims import effective_rim_scope
+from .source_panel_rims import effective_rim_scope, full_source_binding
 
 
 def translucent_body_hint(source, records, transmission=.55):
@@ -22,6 +23,7 @@ def translucent_body_hint(source, records, transmission=.55):
         raise ValueError("Experimental transmission must be finite in0.35..0.85")
     if not any(isinstance(r,dict) and r.get("approved") is True for r in records or []):
         return source, []
+    fingerprint=hashlib.sha256(source.convert("RGB").tobytes()).hexdigest()
     original = np.asarray(source.convert("RGB"), dtype=np.float32)
     result = original.copy()
     occupied = np.zeros(original.shape[:2], dtype=bool)
@@ -33,6 +35,8 @@ def translucent_body_hint(source, records, transmission=.55):
                  "transmission_assumption": transmission, "foreground_assumption": [255,255,255],
                  "quality_permission": False}
         try:
+            if not full_source_binding(source,record,fingerprint=fingerprint):
+                raise ValueError("Body conditioning requires the full original RGB proof")
             region = Region(kind="panel", box=record["mask"])
             cores = [{"mask": record["mask"], "core": record["core"]}]
             _, _, invalid = effective_rim_scope(source, [region], cores, [record])
