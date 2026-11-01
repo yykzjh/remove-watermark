@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from PIL import Image, ImageDraw
 
 from watermark_studio.config import Region
@@ -114,7 +115,8 @@ def test_whole_prefill_missing_or_mismatched_provenance_cannot_erase_a_photo():
         assert not used and result.tobytes()==source.tobytes()
 
 
-def test_whole_prefill_keeps_a_single_full_frame_generation_and_original_for_qa(tmp_path,monkeypatch):
+@pytest.mark.parametrize("original_semantics",[False,True])
+def test_whole_prefill_keeps_a_single_full_frame_generation_and_original_for_qa(tmp_path,monkeypatch,original_semantics):
     import json
     import sys
     from types import SimpleNamespace
@@ -136,7 +138,13 @@ def test_whole_prefill_keeps_a_single_full_frame_generation_and_original_for_qa(
         assert len(items)==1 and items[0]["image"].size==photo.size
         assert items[0]["image"].getpixel((150,420))!=(0,0,255)
         assert items[0]["image"].getpixel((10,10))==photo.getpixel((10,10))
-        assert "完整照片" in items[0]["prompt"] and "crop" not in items[0]["prompt"]
+        if original_semantics:
+            assert items[0]["_semantic_reference"].getpixel((150,420))==(0,0,255)
+            assert "后期数字水印" in items[0]["prompt"]
+        else:
+            assert items[0]["_semantic_reference"] is None
+            assert "完整照片" in items[0]["prompt"]
+        assert "crop" not in items[0]["prompt"]
         return [Image.new("RGB",photo.size,(80,100,60))]
     monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
     def verify(pairs,*args,**kwargs):
@@ -150,8 +158,10 @@ def test_whole_prefill_keeps_a_single_full_frame_generation_and_original_for_qa(
                          _quality_encoder=None,_quality_processor=None)
     row=process_batch([{"source":str(source),"destination":str(target),"relative":"source.png"}],
         ProcessingConfig(scope="full_image",preserve_background=True,quality_check=True),
-        DeploymentConfig(prefill_overlays=True,protection_core_feather=True),pipe)[0]
+        DeploymentConfig(prefill_overlays=True,protection_core_feather=True,
+                         prefill_original_semantics=original_semantics),pipe)[0]
     assert row["ok"] and row["model_inferences"]==1 and calls==[1]
+    assert row["original_semantic_reference"] is original_semantics
     assert row["conditioning_prefill"]==[True] and row["whole_conditioning_source"]=="source_harmonic_initialization"
     assert row["quality"]["status"]=="passed" and source.read_bytes()==original
     assert Image.open(target).size==photo.size

@@ -189,3 +189,27 @@ def test_window_prefill_oom_splits_and_single_failure_falls_back_without_cross_i
     assert stats=={"cached_images":1,"oom_splits":1,"fallback_images":1}
     assert items[0]["_encoded_prompt"][0]=="own-vector"
     assert "_encoded_prompt" not in items[1]
+
+
+def test_original_semantics_preserve_independent_full_photos_without_changing_vae_images(monkeypatch):
+    from contextlib import nullcontext
+
+    from watermark_studio.batching import preencode_window, semantic_reference
+
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(inference_mode=nullcontext,
+        cuda=SimpleNamespace(empty_cache=lambda:None)))
+    pipe=SimpleNamespace(image_processor=SimpleNamespace(
+        resize=lambda image,width,height:image.resize((width,height))))
+    items=[{"image":Image.new("RGB",(320,240),"gray"),
+            "_semantic_reference":Image.new("RGB",(320,240),color),
+            "size":(160,120),"prompt":str(i)} for i,color in enumerate(["red","blue"])]
+    def encode(pipe,prepared):
+        return [(p["image"].getpixel((0,0)),p["prompt"],p["image"].size) for p in prepared]
+    stats=preencode_window(pipe,items,2,encode)
+    assert stats["cached_images"]==2
+    assert items[0]["_encoded_prompt"][0][:3]==(255,0,0)
+    assert items[1]["_encoded_prompt"][0][:3]==(0,0,255)
+    assert all(item["image"].getpixel((0,0))==(128,128,128) for item in items)
+    with pytest.raises(ValueError,match="complete conditioning frame"):
+        semantic_reference({"image":Image.new("RGB",(320,240)),
+                            "_semantic_reference":Image.new("RGB",(160,120))})

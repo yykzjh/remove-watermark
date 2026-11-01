@@ -39,3 +39,7 @@ expandable_segments = false
 shape_sort = false
 scan_workers = 1
 report_interval = 1
+
+# Experimental full-frame conditioning: flags must be explicitly supplied on CLI.
+prefill_overlays = false
+prefill_original_semantics = false

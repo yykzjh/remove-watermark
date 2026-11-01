@@ -361,7 +361,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     core_box=None
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
-                    "prompt": (build_prefilled_full_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] else
+                    "_semantic_reference": (source if prefilled and state["whole_generation"]
+                                            and config.prefill_original_semantics else None),
+                    "prompt": (build_full_prompt(extra_prompt,options.whole_prompt_profile)
+                               if prefilled and state["whole_generation"] and config.prefill_original_semantics else
+                               build_prefilled_full_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] else
                                build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
                                build_full_prompt(extra_prompt, options.whole_prompt_profile) if state["whole_generation"] else
                                build_small_overlay_prompt(box,crop,extra_prompt)+scene_instruction(scene)
@@ -494,6 +498,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "window_prefill_stats":prefill_stats,
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
+            "original_semantic_reference": bool(config.prefill_original_semantics and state["whole_generation"]
+                and any(e["prefilled"] for e in edits if e["state"] is state)),
             "whole_conditioning_source":("source_harmonic_initialization" if state["whole_generation"]
                 and any(e["prefilled"] for e in edits if e["state"] is state) else "unmodified_original"),
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],

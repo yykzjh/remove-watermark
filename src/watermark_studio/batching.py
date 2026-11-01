@@ -8,6 +8,16 @@ def dimensions(image, resolution):
     return width, height
 
 
+def semantic_reference(item):
+    """Optional original full frame for VLM; VAE still uses item's initialized image."""
+    original = item.get("_semantic_reference")
+    if original is None:
+        return item["image"]
+    if original.size != item["image"].size:
+        raise ValueError("Original semantic reference must match the complete conditioning frame")
+    return original
+
+
 @contextmanager
 def override_methods(pipe, **methods):
     previous = {name: pipe.__dict__.get(name) for name in methods}
@@ -37,7 +47,7 @@ def preencode_window(pipe, items, limit, encode=None):
         failure=None
         try:
             prepared=[{"prompt":item["prompt"],"image":pipe.image_processor.resize(
-                item["image"].convert("RGBA"),width=item["size"][0],height=item["size"][1])} for item in group]
+                semantic_reference(item).convert("RGBA"),width=item["size"][0],height=item["size"][1])} for item in group]
             with torch.inference_mode():
                 rows=encode(pipe,prepared)
             if len(rows)!=len(group) or any(not isinstance(row,tuple) or len(row)!=3 for row in rows):
@@ -75,7 +85,7 @@ def independent_batch(pipe, items, resolution, kv_cache):
     with torch.inference_mode():
         for index,item in enumerate(items):
             image = item["image"].convert("RGBA")
-            resized = (pipe.image_processor.resize(image,width=width,height=height)
+            resized = (pipe.image_processor.resize(semantic_reference(item).convert("RGBA"),width=width,height=height)
                        if encoded[index] is None else None)
             prepared.append({"prompt":item["prompt"],"image":resized})
             if encoded[index] is None and getattr(pipe,"_watermark_prompt_encoder","stock")=="stock":

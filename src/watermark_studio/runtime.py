@@ -475,6 +475,7 @@ class Runtime:
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
                     "prefill_overlays": self.config.prefill_overlays,
+                    "prefill_original_semantics": self.config.prefill_original_semantics,
                     "encoder_batch_size":self.config.encoder_batch_size,
                     "detection_batch_size":self.config.detection_batch_size,
                     "protected_document_resolution":self.config.protected_document_resolution,
