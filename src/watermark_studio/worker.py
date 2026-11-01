@@ -155,6 +155,15 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 detect_tasks.append(task)
             except (OSError, ValueError):
                 pass  # Normal per-file handling below records the decoding failure.
+        # The independent verifier is unused by the initial editor-only scan.
+        # Leaving it resident here caused SOURCE OOM before the existing
+        # generation-phase offload could run (notably unquantized deployments).
+        if phase_offload and detect_tasks:
+            from .quality_loading import park_quality_encoder
+            transfer_started=time.monotonic()
+            pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
+            torch.cuda.empty_cache()
+            quality_transfer_seconds+=time.monotonic()-transfer_started
         started_detection = time.monotonic()
         found = locate_watermarks_batch(
             [decoded[t["relative"]][0] for t in detect_tasks],

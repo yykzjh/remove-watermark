@@ -173,3 +173,58 @@ def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_
     assert row["quality"]["judgment_basis"]["local_guard_codes"]==["source_physical_ambiguity"]
     assert row["quality"]["retry_feedback"]==advice
     assert ("检测范围过大" in row["quality"]["reason"]) is broad
+
+
+@pytest.mark.parametrize("offload", [False, True])
+def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proofs(
+        tmp_path, monkeypatch, offload):
+    from watermark_studio.worker import process_batch
+
+    source, target = tmp_path/"source.png", tmp_path/"out.png"
+    Image.new("RGB", (80, 60), "gray").save(source)
+    raw = json.dumps({"watermarks": [{"kind": "panel", "box": [10, 600, 400, 980]}]})
+    encoder = SimpleNamespace(device="cuda:0")
+    pipe = SimpleNamespace(text_encoder=None, processor=None, _execution_device="cuda:0",
+                           _quality_encoder=encoder, _quality_processor=None)
+    events = []
+    def park(model):
+        assert model is encoder
+        events.append("park"); model.device = "cpu"
+        return model
+    def restore(model, device):
+        assert model is encoder
+        events.append("restore"); model.device = device
+        return model
+    def locate(*args):
+        events.append("detect")
+        assert encoder.device == ("cpu" if offload else "cuda:0")
+        return [(parse_detection(raw), raw)]
+    def vet(images, found, *args):
+        events.append("vet")
+        assert encoder.device == "cuda:0"
+        return found, {}
+    def generate(pipe, items, *args):
+        events.append("generate")
+        assert encoder.device == ("cpu" if offload else "cuda:0")
+        return [Image.new("RGB", (80, 60), "silver") for _ in items]
+    def verify(pairs, *args, **kwargs):
+        events.append("verify")
+        assert encoder.device == "cuda:0"
+        return [{"status": "passed", "reason": ""} for _ in pairs]
+    monkeypatch.setattr("watermark_studio.quality_loading.park_quality_encoder", park)
+    monkeypatch.setattr("watermark_studio.quality_loading.restore_quality_encoder", restore)
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch", locate)
+    monkeypatch.setattr("watermark_studio.source_vetting.vet_sources", vet)
+    monkeypatch.setattr("watermark_studio.batching.dimensions", lambda image, *a: image.size)
+    monkeypatch.setattr("watermark_studio.batching.independent_batch", generate)
+    monkeypatch.setattr("watermark_studio.quality.verify_batch", verify)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda: None, empty_cache=lambda: None,
+        synchronize=lambda: None, max_memory_allocated=lambda: 0, max_memory_reserved=lambda: 0)))
+    row = process_batch([{"source": str(source), "destination": str(target), "relative": "source.png"}],
+        ProcessingConfig(scope="full_image", preserve_background=True, quality_check=True),
+        DeploymentConfig(quality_verifier=True, quality_backend="independent",
+            protection_physical_vet=True, quality_phase_offload=offload), pipe)[0]
+    assert row["ok"] and row["quality"]["status"] == "passed" and row["model_inferences"] == 1
+    assert events == (["park", "detect", "restore", "vet", "park", "generate", "restore", "verify"]
+                      if offload else ["detect", "vet", "generate", "verify"])

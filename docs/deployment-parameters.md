@@ -33,7 +33,7 @@
 |--protection-detail-scan|False|Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs|
 |--protection-core-feather|False|Fade only the source detector safety margin; keep the complete watermark core opaque|
 |--separate-vae-decode|False|Decode pipeline latents after per-call prefix KV caches are released; exact pinned decode path, offload none|
-|--quality-phase-offload|False|Park independent unquantized verifier weights in host RAM during editing; restore before QA; no SSH transfer|
+|--quality-phase-offload|False|Park independent unquantized verifier during editor-only source scan and generation; restore for dual source proofs and QA; no SSH transfer|
 |--quality-phase-offload-above|0|Swap verifier weights only above this model-input budget; 0 disables adaptive swapping|
 |--quality-cross-full-context|False|Experimental full-result context in physical-text dispute localization and proofs. No guard, source overlap, pixel, dual-model or residual-scan condition is waived.|
 |--quality-rectangle-guard|False|With quality verification, add CPU-only review of coherent multi-side panel tone steps; records boundary evidence, cannot approve images or override existing vetoes. No extra model call. Quality recipe explicitly enables it; see [round 2 validation](first-pass-round2-2026-11-01.md).|
