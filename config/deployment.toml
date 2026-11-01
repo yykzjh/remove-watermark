@@ -47,3 +47,4 @@ prefill_original_semantics = false
 protect_denoising_context = false
 
 protect_source_rims = false
+transformer_source_offload = false

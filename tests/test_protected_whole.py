@@ -176,17 +176,30 @@ def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_
 
 
 @pytest.mark.parametrize("offload", [False, True])
+@pytest.mark.parametrize("dit_offload", [False, True])
 def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proofs(
-        tmp_path, monkeypatch, offload):
+        tmp_path, monkeypatch, offload, dit_offload):
     from watermark_studio.worker import process_batch
 
     source, target = tmp_path/"source.png", tmp_path/"out.png"
     Image.new("RGB", (80, 60), "gray").save(source)
     raw = json.dumps({"watermarks": [{"kind": "panel", "box": [10, 600, 400, 980]}]})
     encoder = SimpleNamespace(device="cuda:0")
-    pipe = SimpleNamespace(text_encoder=None, processor=None, _execution_device="cuda:0",
-                           _quality_encoder=encoder, _quality_processor=None)
+    class Pipeline(SimpleNamespace):
+        @property
+        def _execution_device(self):
+            return self.transformer.device
+    pipe = Pipeline(text_encoder=None, processor=None,
+                    _quality_encoder=encoder, _quality_processor=None)
     events = []
+    dit_moves = []
+    class Transformer:
+        device = "cuda:0"
+        def to(self, device):
+            self.device = device
+            dit_moves.append(device)
+            return self
+    pipe.transformer = Transformer()
     def park(model):
         assert model is encoder
         events.append("park"); model.device = "cpu"
@@ -197,6 +210,9 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
         return model
     def locate(*args):
         events.append("detect")
+        assert args[3] == "cuda:0"
+        assert pipe._execution_device == ("cpu" if dit_offload else "cuda:0")
+        assert pipe.transformer.device == ("cpu" if dit_offload else "cuda:0")
         assert encoder.device == ("cpu" if offload else "cuda:0")
         return [(parse_detection(raw), raw)]
     def vet(images, found, *args):
@@ -205,6 +221,7 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
         return found, {}
     def generate(pipe, items, *args):
         events.append("generate")
+        assert pipe.transformer.device == "cuda:0"
         assert encoder.device == ("cpu" if offload else "cuda:0")
         return [Image.new("RGB", (80, 60), "silver") for _ in items]
     def verify(pairs, *args, **kwargs):
@@ -224,7 +241,10 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
     row = process_batch([{"source": str(source), "destination": str(target), "relative": "source.png"}],
         ProcessingConfig(scope="full_image", preserve_background=True, quality_check=True),
         DeploymentConfig(quality_verifier=True, quality_backend="independent",
-            protection_physical_vet=True, quality_phase_offload=offload), pipe)[0]
+            protection_physical_vet=True, quality_phase_offload=offload,
+            transformer_source_offload=dit_offload), pipe)[0]
     assert row["ok"] and row["quality"]["status"] == "passed" and row["model_inferences"] == 1
     assert events == (["park", "detect", "restore", "vet", "park", "generate", "restore", "verify"]
                       if offload else ["detect", "vet", "generate", "verify"])
+    assert dit_moves == (["cpu", "cuda:0"] if dit_offload else [])
+    assert row["source_transformer_transfer"]["enabled"] is dit_offload

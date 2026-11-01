@@ -4,6 +4,7 @@
 # To disable an enabled boolean, remove its line or call start-server.sh directly.
 # Available disabled boolean switches (uncomment only after validating the combination):
 # --quality-cross-full-context: Experimental full-result physical-carrier context; all vetoes remain.
+# --transformer-source-offload
 # --protect-source-rims: Experimental source photo preservation, two distinct proofs and OCR; independent quality backend and quality-ocr extra required.
 # --protect-denoising-context: Experimental full-frame flow context preservation; no extra VAE/diffusion forwards; incompatible with prefill-overlays.
 # --prefill-original-semantics: With prefill-overlays, retain the original full-frame VLM reference; initialize VAE only. Experimental, disabled by default.

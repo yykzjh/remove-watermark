@@ -120,6 +120,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     states, results, edits = [], {}, []
     source_images, existing_images = {}, {}
     cuda = config.backend != "mock"
+    execution_device = pipe._execution_device if cuda else "cpu"
     focused_auto = options.first_pass_mode != "whole" and (
         options.scope == "full_image" or options.preset == "auto"
     )
@@ -145,127 +146,132 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         (options.scope == "full_image" and options.preserve_background)
         or (options.scope == "regions" and options.preset == "auto")
     )
-    if needs_detection:
-        detect_tasks = []
-        for task in tasks:
-            if task.get("reuse_existing"):
-                continue
-            try:
-                decoded[task["relative"]] = load_photo(task["source"])
-                detect_tasks.append(task)
-            except (OSError, ValueError):
-                pass  # Normal per-file handling below records the decoding failure.
-        # The independent verifier is unused by the initial editor-only scan.
-        # Leaving it resident here caused SOURCE OOM before the existing
-        # generation-phase offload could run (notably unquantized deployments).
-        if phase_offload and detect_tasks:
-            from .quality_loading import park_quality_encoder
-            transfer_started=time.monotonic()
-            pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
-            torch.cuda.empty_cache()
-            quality_transfer_seconds+=time.monotonic()-transfer_started
-        started_detection = time.monotonic()
-        found = locate_watermarks_batch(
-            [decoded[t["relative"]][0] for t in detect_tasks],
-            pipe.text_encoder, pipe.processor, pipe._execution_device,
-            options.detection_resolution,config.detection_batch_size,True,
-        )
-        protected_details=(config.protection_detail_scan and options.scope=="full_image"
-                           and options.preserve_background and options.first_pass_mode=="whole")
-        if protected_details:
-            from .detection import DETECTION_PROMPT, DetectionAreaError
-            for i,result in enumerate(found):
-                if isinstance(result,DetectionAreaError):
-                    retried=locate_watermarks_batch([decoded[detect_tasks[i]["relative"]][0]],
-                        pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,1,True,
-                        DETECTION_PROMPT+"\nInspect this ORIGINAL photograph afresh. Discard the previous oversized box. "
-                        "Physical documents/inspection boards are not digital overlays. Locate only the real "
-                        "digitally superimposed groups; keep disconnected groups separate. Never clamp boxes, "
-                        "invent empty results or weaken area limits to avoid an error.")[0]
-                    found[i]=retried
-                    source_geometry_requeries[detect_tasks[i]["relative"]]={
-                        "attempts":1,"initial_error":str(result)[:160],
-                        "status":"error" if isinstance(retried,Exception) else "valid","same_area_limit":True}
-        if options.first_pass_mode in {"thorough","complete"} or protected_details:
-            from .detection import refine_source_details
-            edge_audit={}
-            context_audit={}
-            found, counts = refine_source_details([decoded[t["relative"]][0] for t in detect_tasks],found,
-                pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,config.detection_batch_size,
-                complete=options.first_pass_mode=="complete" or protected_details,edge_audit=edge_audit,context_audit=context_audit)
-            detail_counts={t["relative"]:counts[i] for i,t in enumerate(detect_tasks)}
-            edge_evidence={t["relative"]:edge_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
-            context_evidence={t["relative"]:context_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
-        for index, task in enumerate(detect_tasks):
-            if task.get("_extra_regions") and not isinstance(found[index], Exception):
-                try:
-                    regions, text = found[index]
-                    found[index] = (confirm_source_hints(
-                        decoded[task["relative"]][0], regions, task["_extra_regions"],
-                        pipe.text_encoder, pipe.processor, pipe._execution_device,
-                        max(1024, options.quality_resolution), config.detection_batch_size,
-                    ), text)
-                except (ValueError, TypeError, RuntimeError) as error:
-                    found[index] = error
-        if (config.protection_physical_vet and options.scope=="full_image" and options.preserve_background
-                and options.first_pass_mode=="whole" and config.quality_backend=="independent"
-                and hasattr(pipe,"_quality_encoder")):
-            from .quality_loading import restore_quality_encoder
-            from .source_vetting import vet_sources
-            if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):
-                pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,pipe._execution_device)
-            found,vet_audits=vet_sources(
-                [decoded[t["relative"]][0] for t in detect_tasks],found,pipe.text_encoder,pipe.processor,
-                pipe._quality_encoder,pipe._quality_processor,pipe._execution_device,
-                getattr(pipe,"_quality_weights_relation","unknown"),config.source_vet_batch_size)
-            physical_audits={t["relative"]:vet_audits.get(index,[]) for index,t in enumerate(detect_tasks)}
-        if config.protect_source_rims and options.scope=="full_image" and options.preserve_background and options.first_pass_mode=="whole":
-            from .detection import source_core_boxes
-            from .quality_loading import restore_quality_encoder
-            from .source_panel_rims import inspect_photo_rims, propose_blue_card_rims
-            if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):
-                pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,pipe._execution_device)
-            for index,task in enumerate(detect_tasks):
-                detection=found[index]
-                if isinstance(detection,Exception):
+    from .source_residency import transformer_source_phase
+    source_transformer_transfer={}
+    with transformer_source_phase(pipe, cuda and config.transformer_source_offload
+                                  and (needs_detection or options.whole_prompt_profile=="scene"),
+                                  execution_device, source_transformer_transfer):
+        if needs_detection:
+            detect_tasks = []
+            for task in tasks:
+                if task.get("reuse_existing"):
                     continue
-                photo=decoded[task["relative"]][0]
-                cores=source_core_boxes(detection[1])
-                core_rows=[{"mask":list(mask),"core":list(core)} for mask,core in cores.items()]
-                proposals=propose_blue_card_rims(photo,detection[0],core_rows,options.feather)
-                audit=inspect_photo_rims(photo,proposals,pipe.text_encoder,pipe.processor,
-                    pipe._quality_encoder,pipe._quality_processor,pipe._execution_device,
-                    pipe._quality_weights_relation,pipe._source_rim_text_detector)
-                source_rim_audits[task["relative"]]=audit
-                blocked=[]
-                for row in audit:
-                    if any(report.get("digital_card") is False and report.get("uncertain") is False
-                           for report in [row.get("editor",{}),row.get("independent",{})]):
-                        blocked.append(tuple(row["mask"]))
-                        physical_audits.setdefault(task["relative"],[]).append({
-                            "box":row["mask"],"status":"uncertain_physical_carrier",
-                            "version":"source-rim-identity-v1","requires_review":True,
-                            "reason":"Source digital identity was not established; preserve original pixels"})
-                if blocked:
-                    found[index]=([r for r in detection[0] if tuple(r.box) not in blocked],detection[1])
-        elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
-        detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
-    source_briefs={}
-    if cuda and options.scope=="full_image" and options.first_pass_mode=="whole" and options.whole_prompt_profile=="scene":
-        from .source_brief import inspect_sources
-        brief_tasks=[]
-        for task in tasks:
-            if task.get("reuse_existing"):
-                continue
-            try:
-                if task["relative"] not in decoded:
-                    decoded[task["relative"]]=load_photo(task["source"])
-                brief_tasks.append(task)
-            except (OSError,ValueError):
-                pass
-        briefs=inspect_sources([decoded[t["relative"]][0] for t in brief_tasks],
-            pipe.text_encoder,pipe.processor,pipe._execution_device,config.detection_batch_size)
-        source_briefs={t["relative"]:brief for t,brief in zip(brief_tasks,briefs)}
+                try:
+                    decoded[task["relative"]] = load_photo(task["source"])
+                    detect_tasks.append(task)
+                except (OSError, ValueError):
+                    pass  # Normal per-file handling below records the decoding failure.
+            # The independent verifier is unused by the initial editor-only scan.
+            # Leaving it resident here caused SOURCE OOM before the existing
+            # generation-phase offload could run (notably unquantized deployments).
+            if phase_offload and detect_tasks:
+                from .quality_loading import park_quality_encoder
+                transfer_started=time.monotonic()
+                pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
+                torch.cuda.empty_cache()
+                quality_transfer_seconds+=time.monotonic()-transfer_started
+            started_detection = time.monotonic()
+            found = locate_watermarks_batch(
+                [decoded[t["relative"]][0] for t in detect_tasks],
+                pipe.text_encoder, pipe.processor, execution_device,
+                options.detection_resolution,config.detection_batch_size,True,
+            )
+            protected_details=(config.protection_detail_scan and options.scope=="full_image"
+                               and options.preserve_background and options.first_pass_mode=="whole")
+            if protected_details:
+                from .detection import DETECTION_PROMPT, DetectionAreaError
+                for i,result in enumerate(found):
+                    if isinstance(result,DetectionAreaError):
+                        retried=locate_watermarks_batch([decoded[detect_tasks[i]["relative"]][0]],
+                            pipe.text_encoder,pipe.processor,execution_device,options.detection_resolution,1,True,
+                            DETECTION_PROMPT+"\nInspect this ORIGINAL photograph afresh. Discard the previous oversized box. "
+                            "Physical documents/inspection boards are not digital overlays. Locate only the real "
+                            "digitally superimposed groups; keep disconnected groups separate. Never clamp boxes, "
+                            "invent empty results or weaken area limits to avoid an error.")[0]
+                        found[i]=retried
+                        source_geometry_requeries[detect_tasks[i]["relative"]]={
+                            "attempts":1,"initial_error":str(result)[:160],
+                            "status":"error" if isinstance(retried,Exception) else "valid","same_area_limit":True}
+            if options.first_pass_mode in {"thorough","complete"} or protected_details:
+                from .detection import refine_source_details
+                edge_audit={}
+                context_audit={}
+                found, counts = refine_source_details([decoded[t["relative"]][0] for t in detect_tasks],found,
+                    pipe.text_encoder,pipe.processor,execution_device,options.detection_resolution,config.detection_batch_size,
+                    complete=options.first_pass_mode=="complete" or protected_details,edge_audit=edge_audit,context_audit=context_audit)
+                detail_counts={t["relative"]:counts[i] for i,t in enumerate(detect_tasks)}
+                edge_evidence={t["relative"]:edge_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
+                context_evidence={t["relative"]:context_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
+            for index, task in enumerate(detect_tasks):
+                if task.get("_extra_regions") and not isinstance(found[index], Exception):
+                    try:
+                        regions, text = found[index]
+                        found[index] = (confirm_source_hints(
+                            decoded[task["relative"]][0], regions, task["_extra_regions"],
+                            pipe.text_encoder, pipe.processor, execution_device,
+                            max(1024, options.quality_resolution), config.detection_batch_size,
+                        ), text)
+                    except (ValueError, TypeError, RuntimeError) as error:
+                        found[index] = error
+            if (config.protection_physical_vet and options.scope=="full_image" and options.preserve_background
+                    and options.first_pass_mode=="whole" and config.quality_backend=="independent"
+                    and hasattr(pipe,"_quality_encoder")):
+                from .quality_loading import restore_quality_encoder
+                from .source_vetting import vet_sources
+                if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):
+                    pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,execution_device)
+                found,vet_audits=vet_sources(
+                    [decoded[t["relative"]][0] for t in detect_tasks],found,pipe.text_encoder,pipe.processor,
+                    pipe._quality_encoder,pipe._quality_processor,execution_device,
+                    getattr(pipe,"_quality_weights_relation","unknown"),config.source_vet_batch_size)
+                physical_audits={t["relative"]:vet_audits.get(index,[]) for index,t in enumerate(detect_tasks)}
+            if config.protect_source_rims and options.scope=="full_image" and options.preserve_background and options.first_pass_mode=="whole":
+                from .detection import source_core_boxes
+                from .quality_loading import restore_quality_encoder
+                from .source_panel_rims import inspect_photo_rims, propose_blue_card_rims
+                if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):
+                    pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,execution_device)
+                for index,task in enumerate(detect_tasks):
+                    detection=found[index]
+                    if isinstance(detection,Exception):
+                        continue
+                    photo=decoded[task["relative"]][0]
+                    cores=source_core_boxes(detection[1])
+                    core_rows=[{"mask":list(mask),"core":list(core)} for mask,core in cores.items()]
+                    proposals=propose_blue_card_rims(photo,detection[0],core_rows,options.feather)
+                    audit=inspect_photo_rims(photo,proposals,pipe.text_encoder,pipe.processor,
+                        pipe._quality_encoder,pipe._quality_processor,execution_device,
+                        pipe._quality_weights_relation,pipe._source_rim_text_detector)
+                    source_rim_audits[task["relative"]]=audit
+                    blocked=[]
+                    for row in audit:
+                        if any(report.get("digital_card") is False and report.get("uncertain") is False
+                               for report in [row.get("editor",{}),row.get("independent",{})]):
+                            blocked.append(tuple(row["mask"]))
+                            physical_audits.setdefault(task["relative"],[]).append({
+                                "box":row["mask"],"status":"uncertain_physical_carrier",
+                                "version":"source-rim-identity-v1","requires_review":True,
+                                "reason":"Source digital identity was not established; preserve original pixels"})
+                    if blocked:
+                        found[index]=([r for r in detection[0] if tuple(r.box) not in blocked],detection[1])
+            elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
+            detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
+        source_briefs={}
+        if cuda and options.scope=="full_image" and options.first_pass_mode=="whole" and options.whole_prompt_profile=="scene":
+            from .source_brief import inspect_sources
+            brief_tasks=[]
+            for task in tasks:
+                if task.get("reuse_existing"):
+                    continue
+                try:
+                    if task["relative"] not in decoded:
+                        decoded[task["relative"]]=load_photo(task["source"])
+                    brief_tasks.append(task)
+                except (OSError,ValueError):
+                    pass
+            briefs=inspect_sources([decoded[t["relative"]][0] for t in brief_tasks],
+                pipe.text_encoder,pipe.processor,execution_device,config.detection_batch_size)
+            source_briefs={t["relative"]:brief for t,brief in zip(brief_tasks,briefs)}
     for task in tasks:
         state = None
         try:
@@ -604,7 +610,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             transfer_started=time.monotonic()
             torch.cuda.empty_cache()
             from .quality_loading import restore_quality_encoder
-            pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,pipe._execution_device)
+            pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,execution_device)
             quality_transfer_seconds+=time.monotonic()-transfer_started
         from .quality import verify_batch
         pending = []
@@ -627,7 +633,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     for t in group
                 ]
                 reviews = verify_batch(
-                    pairs, pipe._quality_encoder, pipe._quality_processor, pipe._execution_device,
+                    pairs, pipe._quality_encoder, pipe._quality_processor, execution_device,
                     options.quality_resolution, options.quality_max_tokens,
                     cross_review_allowed=[options.quality_cross_review and not t.get("_cross_review_used") for t in group],
                     editor_encoder=getattr(pipe,"text_encoder",None), editor_processor=getattr(pipe,"processor",None),
@@ -708,6 +714,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     metrics = {
         "quality_phase_offload":phase_offload,
         "quality_host_pinned_bytes":getattr(getattr(pipe,"_quality_encoder",None),"_quality_host_pinned_bytes",0),
+        "source_transformer_transfer":dict(source_transformer_transfer),
         "quality_weight_transfer_seconds":round(quality_transfer_seconds/max(1,len(tasks)),4),
         "window_seconds": round(time.monotonic() - start, 3), "window_images": len(tasks),
         "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,

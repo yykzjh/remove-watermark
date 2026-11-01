@@ -114,6 +114,7 @@ class DeploymentConfig(BaseModel):
     prefill_original_semantics: bool = False
     protect_denoising_context: bool = False
     protect_source_rims: bool = False
+    transformer_source_offload: bool = False
     batch_window: int = Field(default=4, ge=1, le=8)
     batch_bucketing: bool = False
     adaptive_dispatch: bool = False
@@ -169,6 +170,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.transformer_source_offload and (self.quantization!="none" or self.offload!="none"):
+            raise ValueError("源图阶段停放扩散模型目前仅支持quantization=none、offload=none")
         if self.protect_source_rims and (not self.quality_verifier or self.quality_backend!="independent"):
             raise ValueError("原图边沿保护需要quality-verifier和独立检验模型")
         if self.protect_denoising_context and self.prefill_overlays:

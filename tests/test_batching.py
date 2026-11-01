@@ -69,7 +69,7 @@ def test_batch_oom_isolation_and_original_dimensions(tmp_path, monkeypatch, spli
     options = ProcessingConfig(preset="custom", regions=[Region(box=(.2,.2,.5,.5))])
     results = process_batch(tasks, options, DeploymentConfig(
         batch_size=2, batch_bucketing=True, oom_split_batch=split,
-    ), object())
+    ), SimpleNamespace(_execution_device="cuda:0"))
     assert calls == ([2,1,1,1] if split else [2,1])
     assert sum(result["ok"] for result in results) == (3 if split else 1)
     for task, result in zip(tasks, results):
@@ -99,7 +99,7 @@ def test_preparation_failure_never_writes_partial_repair(tmp_path, monkeypatch):
     )
     results = process_batch(
         [{"source":str(source),"destination":str(target),"relative":"source.png"}],
-        options, DeploymentConfig(), object(),
+        options, DeploymentConfig(), SimpleNamespace(_execution_device="cuda:0"),
     )
     assert not results[0]["ok"] and "invalid second crop" in results[0]["error"]
     assert not target.exists()
