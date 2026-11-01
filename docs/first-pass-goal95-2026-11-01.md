@@ -667,3 +667,12 @@ BasicSR RRDB计算适配，完整Apache-2.0许可证与修改说明随代码保�
 不能仅因纹理守卫改善就当自然细节正确，仍需完整质量复检及有收益时的原生视觉复核。
 官方架构：https://github.com/XPixelGroup/BasicSR/blob/master/basicsr/archs/rrdbnet_arch.py
 官方推理：https://github.com/xinntao/Real-ESRGAN/blob/master/inference_realesrgan.py
+
+747cf7e完整本地568 passed、10缺Torch skip，Ruff通过；新SR真实开发机Torch两项测试通过1.78秒。
+同GEN6图的fine/feather严格QA均3/6；RealESRGAN学习式SR23.487秒处理6图，但严格QA仅1/6，
+比原3/6更差，不采用，也不为了超分“有效”改检验门槛。
+仅抽取1张178835字节原生风险拼图复核0141/0343，无大数据集传输。
+0141原生输出把粗糙泥地衔接成大面积平滑棕色区域，缺陷真实，不能凭VLM“没有问题”的解释放过数值告警。
+0343水/泥边界则出现重复、涂抹状细节，仍保留复核；不凭湿泥本可平滑就豁免。
+后续仅实验：源观察优先描述水印边沿真实材质/几何，提示保留粗糙地面与水面边界，避免“smoothly”引导成平涂；
+增加可选原始整图参考与控制分支联合条件对照，默认none不变，不是裁剪水印区域或增加生成次数。
