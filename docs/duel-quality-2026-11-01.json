@@ -1,0 +1,497 @@
+{
+  "date": "2026-11-01",
+  "goal_achieved": false,
+  "full_user_dataset_submitted": false,
+  "hardware": {
+    "physical_gpus": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "other_gpus_left_untouched": true
+  },
+  "frozen_generation": {
+    "revision": "185e202",
+    "images": 1024,
+    "seed": 202611017,
+    "unique_sha256": 1024,
+    "prior_input_overlap": 0,
+    "seconds": 2932.811,
+    "raw_counts": {
+      "passed": 893,
+      "review": 131
+    },
+    "strict_counts": {
+      "passed": 882,
+      "review": 142
+    },
+    "same_weight_corrections_excluded": 11,
+    "generation_retries": 0,
+    "processing_errors": 0,
+    "quality_errors": 0,
+    "dimension_mismatches": 0,
+    "model_edit_inputs": 1861,
+    "successful_diffusion_forwards": 1708,
+    "budget_counts": {
+      "512": 896,
+      "1024": 965
+    },
+    "peak_allocated_mib": 40744,
+    "original_results_sha256": "215af1615edc950498e741da87f9f00cef4adf8b0f7f1b3330a16ffd277ee6f6",
+    "note": "Automatic strict acceptance is not human ground-truth accuracy. No QA-driven generation retries."
+  },
+  "paired_verifiers": {
+    "tag": "duel-frozen-verifiers-v1",
+    "cases": 1132,
+    "known_source_regions": true,
+    "sources_unchanged": true,
+    "outputs_unchanged": true,
+    "profiles": [
+      {
+        "profile": "4b-bf16",
+        "weight_relation": "different_weights",
+        "seconds": 665.577,
+        "load_seconds": 21.429,
+        "source_candidates": {
+          "passed": 943,
+          "review": 81
+        },
+        "controls": {
+          "clean_total": 27,
+          "clean_not_accepted": 3,
+          "defect_total": 81,
+          "defect_passed": 18,
+          "missed_types": {
+            "shadow_18": 8,
+            "shadow_32": 8,
+            "residual_background": 1,
+            "repair_blur": 1
+          }
+        },
+        "cross_corrected": 0
+      },
+      {
+        "profile": "8b-nf4",
+        "weight_relation": "same_base_weights",
+        "seconds": 814.74,
+        "load_seconds": 19.348,
+        "source_candidates": {
+          "passed": 887,
+          "review": 137
+        },
+        "controls": {
+          "clean_total": 27,
+          "clean_not_accepted": 3,
+          "defect_total": 81,
+          "defect_passed": 18,
+          "missed_types": {
+            "shadow_18": 8,
+            "shadow_32": 9,
+            "repair_blur": 1
+          }
+        },
+        "cross_corrected": 0
+      }
+    ],
+    "source_candidate_agreement": {
+      "both_passed": 880,
+      "both_review": 74,
+      "four_b_pass_eight_b_review": 63,
+      "four_b_review_eight_b_pass": 7
+    },
+    "note": "Real pairs lack exhaustive human ground truth; compare known controls separately. Not a new generation first-pass result."
+  },
+  "weight_audit": {
+    "method": "canonical_tensor_sha256_v1",
+    "editor_and_8b_sha256": "29048a3475264273945b3c44c3a61410f596a95909882fec3a81adf3456ea650",
+    "four_b_sha256": "7a3df8dda193313991aae478bda674cebce809936bae286b8c0f047976b3561f",
+    "same_or_unknown_cross_adjudication_blocked": true
+  },
+  "limitations": [
+    "Subtle dark rectangles remain missed by the selected verifier on known controls.",
+    "Three of 27 clean controls remain unaccepted; 18 of 81 defects were accepted.",
+    "Full 1024-image validation used runtime 56d03cd; later source/guard fixes have only targeted GPU regressions.",
+    "Automatic acceptance is not ground-truth accuracy; no claim of perfect thousand-image first-pass success."
+  ],
+  "development_generation": [
+    {
+      "tag": "duel-rowwise-4b-replay-v1",
+      "revision": "28fd1f3",
+      "images": 47,
+      "passed": 38,
+      "review": 8,
+      "processing_errors": 1,
+      "seconds": 148.485,
+      "accepted_recipe": false
+    },
+    {
+      "tag": "duel-rowwise-v2-4b-replay-v1",
+      "revision": "ed9c51a",
+      "images": 47,
+      "passed": 38,
+      "review": 9,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0,
+      "seconds": 154.399,
+      "prefill": false
+    },
+    {
+      "tag": "duel-rowwise-v2-4b-frozen-v1",
+      "revision": "ed9c51a",
+      "images": 8,
+      "passed": 6,
+      "review": 2,
+      "seconds": 29.417,
+      "prefill": false
+    },
+    {
+      "tag": "duel-prefill-v1-4b-replay-v1",
+      "revision": "dc8be19",
+      "images": 47,
+      "passed": 35,
+      "review": 12,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0,
+      "seconds": 158.993,
+      "prefill": true,
+      "selected": false
+    },
+    {
+      "tag": "duel-prefill-v1-4b-frozen-v1",
+      "revision": "dc8be19",
+      "images": 8,
+      "passed": 5,
+      "review": 3,
+      "seconds": 31.301,
+      "prefill": true,
+      "selected": false
+    },
+    {
+      "tag": "duel-edge-v1-4b-replay-v1",
+      "revision": "b3dad13",
+      "images": 47,
+      "passed": 34,
+      "review": 9,
+      "processing_errors": 4,
+      "seconds": 147.447,
+      "accepted_recipe": false,
+      "reason": "Edge-audit metadata incorrectly parsed fenced detector text; fixed in 56d03cd with separate trusted evidence and per-image isolation."
+    },
+    {
+      "tag": "duel-edge-v2-4b-replay-v1",
+      "revision": "56d03cd",
+      "images": 47,
+      "passed": 38,
+      "review": 9,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0,
+      "seconds": 157.523,
+      "prefill": false,
+      "model_edit_inputs": 89,
+      "successful_diffusion_forwards": 82
+    },
+    {
+      "tag": "duel-edge-v2-4b-frozen-v1",
+      "revision": "56d03cd",
+      "images": 8,
+      "passed": 6,
+      "review": 2,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0,
+      "seconds": 31.294,
+      "prefill": false
+    }
+  ],
+  "withdrawn_carrier_context": {
+    "tag": "duel-full-carrier-controls-v1",
+    "revision": "38b4326",
+    "controls_only": true,
+    "images": 108,
+    "seconds": 81.833,
+    "load_seconds": 22.822,
+    "clean_not_accepted": 3,
+    "defect_passed": 18,
+    "cross_corrected": 0,
+    "sources_unchanged": true,
+    "outputs_unchanged": true,
+    "reverted_in": "ce94db1",
+    "reason": "No demonstrated false-positive improvement; removed extra image cost."
+  },
+  "source_edge_completion": {
+    "revision": "b3dad13",
+    "dataset_probe_images": 1024,
+    "source_images_with_evidence": 19,
+    "probe_total_seconds_including_decoding": 53.072,
+    "maximum_edge_gap_fraction": 0.008,
+    "maximum_logo_area_fraction": 0.035,
+    "requires_source_stroke_crossing": true,
+    "extra_model_calls": 0,
+    "metadata_isolated_in": "56d03cd",
+    "confirmed_case": {
+      "file": "0099.jpg",
+      "frozen_job": "87d5c19cf31042aba45058d896990e40",
+      "image_dimensions": [
+        1280,
+        1706
+      ],
+      "right_edge_before": 1273,
+      "right_edge_after": 1280,
+      "bright_pixels_last_16_by_40": {
+        "source": 50,
+        "before": 14,
+        "after": 0
+      },
+      "manual_small_preview_checked": true,
+      "extra_diffusion_calls": 0
+    },
+    "maximum_edge_gap_pixels_formula": "max(2,ceil(.008*edge_length))",
+    "context_protection": {
+      "revision": "2975e55",
+      "generated_extension": "source stroke bounding boxes plus 2px",
+      "case": "0099.jpg",
+      "restored_original_context_pixels": 1428,
+      "bright_edge_before_and_after": [
+        0,
+        0
+      ],
+      "in_memory_only": true,
+      "extra_model_calls": 0
+    }
+  },
+  "release_frozen_generation": {
+    "status": "completed_with_failures",
+    "tag": "duel-release-heldout-1024-v2",
+    "sampling_seed": 202611019,
+    "requested_images": 1024,
+    "runtime_revision": "56d03cd",
+    "benchmark_revision": "7e4132d",
+    "quality_model": "Qwen3-VL-4B-Instruct",
+    "quality_mode": "BF16",
+    "prefill": false,
+    "cross_review": false,
+    "auto_retry": false,
+    "job": "cf53e8b727764bfea4eb1b3144f6dedb",
+    "images": 1024,
+    "first_counts": {
+      "passed": 967,
+      "review": 55,
+      "processing_failed": 1,
+      "quality_error": 1
+    },
+    "seconds": 2930.285,
+    "source_inputs_unchanged": true,
+    "source_hash_audit_seconds": 2.903,
+    "source_selection_sha256": "388edee56e419309e8f0dedb3a236dd6adcacd10ed0d396f4f1ba5ae08d956e9",
+    "generation_retries": 0,
+    "dimension_mismatches_for_successful_outputs": 0,
+    "model_edit_inputs": 1844,
+    "successful_diffusion_forwards": 1701,
+    "main_1024_inputs": 963,
+    "small_512_inputs": 881,
+    "source_detail_views": 1720,
+    "peak_allocated_mib": 41958,
+    "note": "Different data/checker from the earlier run; acceptance increase is not a causal accuracy improvement. One failed source has no output."
+  },
+  "quality35_candidate": {
+    "state": "gpu_controls_rejected_not_selected",
+    "fingerprint": {
+      "relation": "different_weights",
+      "editor_tensors": 750,
+      "verifier_tensors": 738,
+      "verifier_sha256": "186411c8cd79ebfd84ab94d0783f8926e440bfa39b59a3601428fee68b7efd9f",
+      "seconds": 10.642
+    },
+    "cpu_compat": {
+      "model_class": "Qwen3_5ForConditionalGeneration",
+      "vision_dtype": "torch.bfloat16",
+      "load_seconds": 4.251,
+      "inspection_seconds": 54.134,
+      "synthetic_compatibility_only": true,
+      "cuda_model_loaded": false
+    }
+  },
+  "texture_probes": {
+    "scope": "numeric texture guard only, not full QA acceptance",
+    "v1": {
+      "images": 108,
+      "seconds": 44.696,
+      "base_clean_warned": 2,
+      "base_defect_warned": 18,
+      "clipped_caps": [
+        8,
+        12,
+        16,
+        24,
+        32
+      ],
+      "counts_unchanged": true
+    },
+    "v2": {
+      "seconds": 69.019,
+      "median": {
+        "clean_warned": 4,
+        "defect_warned": 23
+      },
+      "trim_top_quarter": {
+        "clean_warned": 2,
+        "defect_warned": 19
+      },
+      "dense_support": {
+        "clean_warned": 2,
+        "defect_warned": 19
+      }
+    },
+    "deployed": false,
+    "sources_and_outputs_unchanged": true
+  },
+  "localized_edit_support": {
+    "revision": "83a3727",
+    "scope": "unchanged measurement only, not removal approval",
+    "maximum_source_area": 0.035,
+    "minimum_roi_mae": "max(1.5,3*outside_max_tile_mae)",
+    "changed_pixel_threshold": 6,
+    "minimum_changed_fraction": 0.03,
+    "requires_every_confirmed_region_changed": true,
+    "requires_outside_change_tiles_zero": true,
+    "exact_identity_never_exempted": true,
+    "fresh_residual_scan_and_all_other_checks_still_required": true,
+    "pixel_probe_supported_files": 6,
+    "observed_model_passed_files": 5,
+    "verdicts_changed_in_probe": 0,
+    "frozen_readonly_revalidation": {
+      "tag": "duel-localized-final-v1",
+      "revision": "5214a84",
+      "source_job": "cf53e8b727764bfea4eb1b3144f6dedb",
+      "images": 6,
+      "passed": 5,
+      "quality_error": 1,
+      "seconds": 14.393,
+      "load_seconds": 23.045,
+      "sources_unchanged": true,
+      "outputs_unchanged": true,
+      "no_generation_retry": true,
+      "not_added_to_frozen_first_pass_counts": true
+    }
+  },
+  "tests": {
+    "passed": 258,
+    "ruff": "clean",
+    "environment": "WSL2 Ubuntu Linux uv"
+  },
+  "final_controls": {
+    "revision": "b20d5d8",
+    "primary4b": {
+      "tag": "duel-final-controls-v2",
+      "seconds": 79.584,
+      "load_seconds": 21.677,
+      "images": 108,
+      "passed": 42,
+      "review": 66,
+      "clean_not_accepted": 3,
+      "defect_passed": 18,
+      "quality_errors": 0
+    },
+    "qwen35_unadapted": {
+      "tag": "duel-final-controls-v2",
+      "seconds": 158.601,
+      "load_seconds": 26.833,
+      "images": 108,
+      "passed": 0,
+      "review": 28,
+      "quality_errors": 80,
+      "clean_not_accepted": 27,
+      "selected": false
+    },
+    "qwen35_adapted": {
+      "revision": "5214a84",
+      "tag": "duel-q35-adapter-controls-v1",
+      "seconds": 149.354,
+      "load_seconds": 23.641,
+      "images": 108,
+      "passed": 0,
+      "review": 108,
+      "quality_errors": 0,
+      "clean_not_accepted": 27,
+      "selected": false
+    },
+    "sources_and_outputs_unchanged": true
+  },
+  "source_context_recovery": {
+    "revision": "b20d5d8",
+    "frozen_source_job": "cf53e8b727764bfea4eb1b3144f6dedb",
+    "file": "0379.jpg",
+    "same_batch_files": [
+      "0375.jpg",
+      "0377.jpg",
+      "0378.jpg",
+      "0379.jpg"
+    ],
+    "all_sources_unchanged": true,
+    "extra_context_views": 1,
+    "views_before": 4,
+    "views_after": 5,
+    "no_diffusion_candidate_generated": true,
+    "detection_seconds": 25.977,
+    "load_seconds": 7.972,
+    "end_to_end_regression": {
+      "tag": "duel-final-source-recovery-v1",
+      "revision": "5214a84",
+      "images": 4,
+      "passed": 3,
+      "review": 1,
+      "seconds": 23.723,
+      "source_inputs_unchanged": true,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0,
+      "remaining_review_file": "0379.jpg"
+    }
+  },
+  "final_generation_regressions": [
+    {
+      "tag": "duel-final-4b-replay-v1",
+      "revision": "5214a84",
+      "images": 47,
+      "passed": 38,
+      "review": 9,
+      "seconds": 160.973,
+      "model_edit_inputs": 89,
+      "successful_diffusion_forwards": 82,
+      "source_inputs_unchanged": true,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0
+    },
+    {
+      "tag": "duel-final-4b-frozen-v1",
+      "revision": "5214a84",
+      "images": 8,
+      "passed": 6,
+      "review": 2,
+      "seconds": 30.796,
+      "source_inputs_unchanged": true,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0
+    },
+    {
+      "tag": "duel-final-source-recovery-v1",
+      "revision": "5214a84",
+      "images": 4,
+      "passed": 3,
+      "review": 1,
+      "seconds": 23.723,
+      "source_inputs_unchanged": true,
+      "processing_errors": 0,
+      "quality_errors": 0,
+      "dimension_mismatches": 0,
+      "remaining_review_file": "0379.jpg"
+    }
+  ]
+}
