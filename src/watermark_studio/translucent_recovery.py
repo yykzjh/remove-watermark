@@ -48,7 +48,7 @@ def fit_transmission(outside, inside):
     return report
 
 
-def recover_translucent_body(before, candidate, core):
+def recover_translucent_body(before, candidate, core, *, _native_padding_search=False):
     """Conservative exploratory correction inside one source-proven digital card."""
     from .surface_reference import _box
     box=_box(core)
@@ -78,23 +78,30 @@ def recover_translucent_body(before, candidate, core):
     for side,expected in [("left",l),("right",r),("bottom",b)]:
         vertical=side!="bottom"
         extent=w if vertical else h
-        if not 20<expected<extent-20:
+        if not _native_padding_search and not 20<expected<extent-20:
             continue
         inward=1 if side=="left" else -1
         lo,hi=(top+12,b-20) if vertical else (l+inset,r-inset)
         if hi-lo<64:
             continue
+        # Detector cores include .008 frame safety padding, which exceeds
+        # 20 native pixels in large originals. Cover that known uncertainty;
+        # physical-fit, two-edge and text exclusion requirements are unchanged.
+        radius=max(20,round(.008*extent)+6) if _native_padding_search else 20
         candidates=[]
-        for at in range(max(20,expected-20),min(extent-20,expected+21)):
+        for at in range(max(20,expected-radius),min(extent-20,expected+radius+1)):
             def stripe(offset,at=at,inward=inward,lo=lo,hi=hi,vertical=vertical):
                 pos=at+inward*offset
                 return blurred[lo:hi,pos-1:pos+2].mean(axis=1) if vertical else blurred[pos-1:pos+2,lo:hi].mean(axis=0)
             x,y=stripe(-6),stripe(6)
             contrast=float(np.median(np.linalg.norm(y-x,axis=1)))
             candidates.append((contrast,at,x,y))
+        if not candidates:
+            continue
         _,at,x,y=max(candidates,key=lambda record:record[0])
         fit=fit_transmission(x,y)
-        edges.append({"side":side,"position":at,"fit":fit,"outside":x,"inside":y})
+        edges.append({"side":side,"position":at,"fit":fit,"outside":x,"inside":y,
+                      "native_search_radius":radius})
     valid=[edge for edge in edges if edge["fit"]["ok"]]
     log["edges"]=[{k:v for k,v in edge.items() if k not in {"outside","inside"}} for edge in edges]
     if len(valid)<2:
