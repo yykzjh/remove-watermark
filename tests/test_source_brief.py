@@ -12,6 +12,8 @@ def test_source_facts_lock_physical_paper_and_mineral_without_inventing_grass_or
     assert guidance(facts|{"uncertain":True})==""
     assert guidance(facts|{"paper":"untrusted"})==""
     assert guidance(facts|{"status":"error"})==""
+    assert guidance(facts|{"paper":False,"vegetation":True})==""
+    assert "没有可见植被" in guidance(facts|{"mineral":False})
 
 
 def test_source_inspection_batches_original_overviews_and_isolates_invalid_schema(monkeypatch):
@@ -30,3 +32,14 @@ def test_source_inspection_batches_original_overviews_and_isolates_invalid_schem
     assert calls==[[(800,600),(600,800)],[(800,600)],[(600,800)]]
     assert rows[0]["status"]=="ok" and rows[1]["status"]=="error"
     assert all("watermark_removed" not in row for row in rows)
+
+
+def test_source_preview_does_not_resize_or_modify_full_model_reference(monkeypatch):
+    source=Image.new("RGB",(4000,3000),(23,41,67))
+    def fake(chats,*args):
+        image=chats[0][0]["content"][0]["image"]
+        assert image.size==(1024,768) and image is not source
+        return [{"paper":False,"mineral":True,"vegetation":True,"people":False,"uncertain":False}],.1
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",fake)
+    assert inspect_sources([source],None,None,"cpu")[0]["status"]=="ok"
+    assert source.size==(4000,3000) and source.getpixel((3999,2999))==(23,41,67)

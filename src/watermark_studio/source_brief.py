@@ -19,7 +19,13 @@ def guidance(brief):
         return ""
     if any(type(brief.get(key)) is not bool for key in FIELDS):
         return ""
+    # Ordinary outdoor scenes retain the exact fidelity prompt. Additional facts
+    # target the observed paper/mineral hallucinations, not every photograph.
+    if not brief["paper"] and not (brief["mineral"] and not brief["vegetation"]):
+        return ""
     notes=[]
+    if not brief["vegetation"]:
+        notes.append("原图中没有可见植被。保持原有背景材质和颜色，不得新增草地、树木、绿化或绿色植物纹理。")
     if brief["paper"]:
         notes.append("原图中有真实纸质文档。完整保留纸张轮廓、透视、表格、所有原本可见印刷字和手写笔迹。"
                      "被水印完全盖住的未知文字不能臆造为新的准确数据；只延续纸面和有证据的结构，不新增可辨识文字。")
