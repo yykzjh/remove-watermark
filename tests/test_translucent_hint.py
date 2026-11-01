@@ -61,3 +61,77 @@ def test_invalid_transmission_cannot_silently_change_a_reference(beta):
     source, _, row = fixture()
     with pytest.raises(ValueError):
         translucent_body_hint(source, [row], beta)
+
+
+def test_hint_worker_uses_one_whole_generation_and_original_semantics_and_qa(tmp_path, monkeypatch):
+    import json
+    import sys
+    from types import SimpleNamespace
+
+    from watermark_studio.config import DeploymentConfig, ProcessingConfig
+    from watermark_studio.detection import parse_detection
+    from watermark_studio.worker import process_batch
+
+    source, _, proof = fixture()
+    path, target = tmp_path/"source.png", tmp_path/"result.png"
+    source.save(path)
+    original = path.read_bytes()
+    core = proof["core"]
+    raw = json.dumps({"scene":"outdoor","watermarks":[
+        {"kind":"panel","box":[round(v*1000) for v in core]}]})
+    regions = parse_detection(raw)
+    # Bind the proof to the actual detector mask/core returned for this source.
+    from watermark_studio.detection import source_core_boxes
+    cores = [{"mask":list(mask),"core":list(box)} for mask,box in source_core_boxes(raw).items()]
+    proof = propose_blue_card_rims(source, regions, cores)[0]
+    yes = {"digital_card":True,"rim_clear":True,"uncertain":False,"area":"none"}
+    proof.update(approved=True, editor=yes, independent=yes, weights_relation="different_weights",
+                 ocr={"status":"clear"}, source_rim_sha256=hashlib.sha256(
+                     source.crop(tuple(proof["restore_pixels"])).tobytes()).hexdigest())
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch", lambda *a:[(regions,raw)])
+    monkeypatch.setattr("watermark_studio.source_panel_rims.inspect_photo_rims", lambda *a:[proof])
+    monkeypatch.setattr("watermark_studio.batching.dimensions", lambda image,*a:image.size)
+    generated = []
+    def generate(pipe, items, *args):
+        assert len(items) == 1
+        edit = items[0]
+        assert edit["image"].size == source.size and edit["image"].tobytes() != source.tobytes()
+        assert edit["_semantic_reference"].tobytes() == source.tobytes()
+        assert edit["prefilled"] is False  # Must NOT invoke conditioning drift exemptions.
+        assert any(r["applied"] for r in edit["translucent_hint"])
+        generated.append(True)
+        return [source.copy()]
+    monkeypatch.setattr("watermark_studio.batching.independent_batch", generate)
+    def verify(pairs, *args, **kwargs):
+        assert pairs[0][0].tobytes() == source.tobytes()
+        assert "conditioning_initialization" not in kwargs["editor_context"][0]
+        return [{"status":"review","guard_codes":["repair_texture_collapse"]}]
+    monkeypatch.setattr("watermark_studio.quality.verify_batch", verify)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None, synchronize=lambda:None,
+        max_memory_allocated=lambda:0, max_memory_reserved=lambda:0)))
+    pipe = SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu",
+        _quality_encoder=None,_quality_processor=None,_quality_weights_relation="different_weights",
+        _source_rim_text_detector=None)
+    config = DeploymentConfig(translucent_body_hint=True,protect_source_rims=True,
+        quality_verifier=True,quality_backend="independent",protection_core_feather=True)
+    row = process_batch([{"source":str(path),"destination":str(target),"relative":"source.png"}],
+        ProcessingConfig(scope="full_image",preserve_background=True,quality_check=True), config, pipe)[0]
+    assert row["ok"] and row["model_inferences"] == 1 and generated == [True]
+    assert row["conditioning_prefill"] == [False] and row["original_semantic_reference"]
+    assert row["whole_conditioning_source"] == "assumed_translucent_body_hint"
+    assert row["quality"]["status"] == "review" and path.read_bytes() == original
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"translucent_body_hint":True},
+    {"translucent_body_hint":True, "protect_source_rims":True, "quality_verifier":True,
+     "quality_backend":"independent", "prefill_overlays":True},
+    {"translucent_transmission":float("nan")},
+])
+def test_invalid_hint_configuration_is_rejected(kwargs):
+    from pydantic import ValidationError
+
+    from watermark_studio.config import DeploymentConfig
+    with pytest.raises(ValidationError):
+        DeploymentConfig(**kwargs)

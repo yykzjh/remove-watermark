@@ -20,6 +20,8 @@ def translucent_body_hint(source, records, transmission=.55):
     """
     if not math.isfinite(transmission) or not .35 <= transmission <= .85:
         raise ValueError("Experimental transmission must be finite in0.35..0.85")
+    if not any(isinstance(r,dict) and r.get("approved") is True for r in records or []):
+        return source, []
     original = np.asarray(source.convert("RGB"), dtype=np.float32)
     result = original.copy()
     occupied = np.zeros(original.shape[:2], dtype=bool)

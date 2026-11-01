@@ -55,8 +55,10 @@ def test_all_boolean_flags_are_opt_in(tmp_path):
         if field.annotation is bool:
             assert getattr(baseline, name) is False
             flags=["--config",str(path),"--"+name.replace("_","-")]
-            if name=="protect_source_rims":
+            if name in {"protect_source_rims","translucent_body_hint"}:
                 flags+=["--quality-verifier","--quality-backend","independent"]
+            if name=="translucent_body_hint":
+                flags+=["--protect-source-rims"]
             value, _ = parse_deployment(flags)
             assert getattr(value, name) is True
 

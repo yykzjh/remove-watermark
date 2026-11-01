@@ -114,6 +114,8 @@ class DeploymentConfig(BaseModel):
     prefill_original_semantics: bool = False
     protect_denoising_context: bool = False
     protect_source_rims: bool = False
+    translucent_body_hint: bool = False
+    translucent_transmission: float = Field(default=.55, ge=.35, le=.85, allow_inf_nan=False)
     transformer_phase_offload: bool = False
     batch_window: int = Field(default=4, ge=1, le=8)
     batch_bucketing: bool = False
@@ -170,6 +172,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.translucent_body_hint and (not self.protect_source_rims or self.prefill_overlays):
+            raise ValueError("半透明背景输入实验需要protect-source-rims且不能同时使用prefill-overlays")
         if self.transformer_phase_offload and (self.quantization!="none" or self.offload!="none"):
             raise ValueError("源图阶段停放扩散模型目前仅支持quantization=none、offload=none")
         if self.protect_source_rims and (not self.quality_verifier or self.quality_backend!="independent"):

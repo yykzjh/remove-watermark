@@ -20,6 +20,8 @@ HELP = {
     "prefill_original_semantics": "Experimental protected whole prefill: encode the original full photograph with the baseline prompt; initialize only the VAE reference; active with prefill-overlays",
     "protect_denoising_context": "Experimental protected whole editing: preserve original context on the flow trajectory, reuse existing full-frame VAE latents; no extra model forwards; incompatible with prefill-overlays",
     "transformer_phase_offload": "Stage DiT around source/QA, and already encoded editor during generation/VAE decode; immutable pinned mirrors; requires quantization=none and offload=none",
+    "translucent_body_hint": "Experimental full-frame VAE contrast hint inside independently proven translucent digital card bodies; original semantics/QA and all vetoes retained, no extra generation; requires protect-source-rims",
+    "translucent_transmission": "Assumed white-card transmission 0.35..0.85 for experimental VAE hint, not a measured opacity or final pixel restoration",
     "protect_source_rims": "Experimental source photo-rim preservation: OCR and two independent source proofs; additionally inspect tighter boundaries. Requires independent quality-verifier and quality-ocr extra",
     "large_batch_size": "Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks",
     "small_batch_size": "Optional separate batch cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it",

@@ -406,6 +406,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 crop = (0,0,*source.size) if state["whole_generation"] else context_box(box, source.size, options.context)
                 reference = source if state["whole_generation"] else source.crop(crop)
                 prefilled=False
+                hint_audits=[]
+                if config.translucent_body_hint and state["whole_generation"] and state["protected_regions"] is not None:
+                    from .translucent_hint import translucent_body_hint
+                    reference,hint_audits=translucent_body_hint(source,source_rim_audits.get(task["relative"],[]),
+                        config.translucent_transmission)
+                hint_applied=any(r.get("applied") for r in hint_audits)
                 if config.prefill_overlays and state["whole_generation"] and state["protected_regions"] is not None:
                     from .images import prefill_whole_reference
                     reference,prefilled=prefill_whole_reference(
@@ -445,8 +451,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     "_denoising_context_regions": ([r.model_dump() for r in state["denoising_regions"]]
                         if config.protect_denoising_context and state["whole_generation"]
                         and state["protected_regions"] is not None else None),
-                    "_semantic_reference": (source if prefilled and state["whole_generation"]
-                                            and config.prefill_original_semantics else None),
+                    "_semantic_reference": (source if hint_applied or (prefilled and state["whole_generation"]
+                                            and config.prefill_original_semantics) else None),
                     "prompt": (build_full_prompt(extra_prompt,options.whole_prompt_profile)
                                if prefilled and state["whole_generation"] and config.prefill_original_semantics else
                                build_prefilled_full_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] else
@@ -456,7 +462,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                if small else build_focused_prompt(region.kind,box,crop,extra_prompt,scene)
                                if focused else build_prompt(region.kind,box,crop,extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
-                    "scene_hint":scene,"core_box":core_box,"prefilled":prefilled,
+                    "scene_hint":scene,"core_box":core_box,"prefilled":prefilled,"translucent_hint":hint_audits,
                     "resolution":budget, "size": dimensions(reference,budget),
                 })
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
@@ -586,11 +592,15 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "window_prefill_stats":prefill_stats,
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
+            "translucent_hint":[r for e in edits if e["state"] is state for r in e.get("translucent_hint",[])],
             "denoising_context": [e.get("_denoising_context_log") for e in edits if e["state"] is state
                                   and e.get("_denoising_context_log")],
             "original_semantic_reference": bool(config.prefill_original_semantics and state["whole_generation"]
-                and any(e["prefilled"] for e in edits if e["state"] is state)),
-            "whole_conditioning_source":("source_harmonic_initialization" if state["whole_generation"]
+                and any(e["prefilled"] for e in edits if e["state"] is state))
+                or any(any(r.get("applied") for r in e.get("translucent_hint",[])) for e in edits if e["state"] is state),
+            "whole_conditioning_source":("assumed_translucent_body_hint" if any(
+                any(r.get("applied") for r in e.get("translucent_hint",[])) for e in edits if e["state"] is state)
+                else "source_harmonic_initialization" if state["whole_generation"]
                 and any(e["prefilled"] for e in edits if e["state"] is state) else "unmodified_original"),
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
             "source_scene":state["source_scene"],
