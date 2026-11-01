@@ -6,6 +6,7 @@ import json
 import os
 import random
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -30,6 +31,7 @@ parser.add_argument("--source-job",help="Completed job ID for a frozen source re
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
+benchmark_revision=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()
 if not re.fullmatch(r"[a-zA-Z0-9_-]+",args.tag) or not 1<=args.images<=10000:
     parser.error("Use a simple tag and 1..10000 images")
 root=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")
@@ -38,6 +40,7 @@ work=root/("first-pass-"+args.tag)
 work.mkdir(parents=True,exist_ok=False)
 inputs=work/"input";inputs.mkdir()
 prior_hashes=set()
+automatic_exclusions=[]
 if args.subset in {"hard","all"}:
     names=(["000.jpg","008.jpg","043.jpg","028.jpg","031.jpg","011.jpg","019.jpg","017.jpg","054.jpg",
             "001.jpg","002.jpg","010.jpg","057.jpg","063.jpg"] if args.subset=="hard" else
@@ -80,12 +83,10 @@ else:
     data=root/"八标照片集"
     manifest=json.loads((data/".download-state/manifest.json").read_text())
     original="/codex-download-1mQf6F6g-20261031/八标照片集/"
-    seen=set(json.loads((base/"sources.json").read_text()))
+    from watermark_studio.evaluation import exclusion_sources
+    seen,automatic_exclusions=exclusion_sources(root,base,args.exclude_benchmarks)
     candidates=[data/r["path"].removeprefix(original) for r in manifest
                 if Path(r["path"]).suffix.lower() in {".jpg",".jpeg",".png"}]
-    for name in args.exclude_benchmarks:
-        if not re.fullmatch(r"[a-zA-Z0-9_-]+",name): parser.error("Invalid excluded benchmark name")
-        seen.update(json.loads((root/name/"sources.json").read_text()))
     seen_hashes={hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in seen if Path(p).is_file()}
     prior_hashes=set(seen_hashes)
     random.Random(args.seed).shuffle(candidates)
@@ -117,7 +118,7 @@ source_hashes={name:hashlib.sha256((inputs/name).read_bytes()).hexdigest() for n
 if args.subset=="holdout" and (len(set(source_hashes.values()))!=len(paths)
         or set(source_hashes.values())&prior_hashes):
     raise ValueError("Holdout hashes must be unique and disjoint from all excluded inputs")
-selection={"subset":args.subset,"sampling_seed":args.seed,"images":len(paths),
+selection={"benchmark_revision":benchmark_revision,"automatic_exclusions":automatic_exclusions,"subset":args.subset,"sampling_seed":args.seed,"images":len(paths),
     "exclusions":args.exclude_benchmarks,"prior_sha256_overlap":len(set(source_hashes.values())&prior_hashes),
     "unique_sha256":len(set(source_hashes.values())),"source_sha256":source_hashes,
     "sources":[str(p) for p in paths]}
@@ -161,7 +162,7 @@ for profile in args.profiles:
     if any(r.get("quality_attempts",1)>1 for r in rows):
         raise ValueError("A generation retry cannot count as a first-pass result")
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
-    record={"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
+    record={"benchmark_revision":benchmark_revision,"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
         "blending":args.blending,"context":context,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"quality_weight_identity":state.get("quality_weight_identity"),
         "quality_model":state.get("quality_model"),"quality_backend":state.get("quality_backend"),"seconds":round(elapsed,3),"source_inputs_unchanged":source_unchanged,"source_hash_audit_seconds":source_audit_seconds,
         "source_selection_sha256":selection_sha256,"sampling_seed":args.seed,"model_seed":42,"first_counts":dict(counts),
@@ -174,7 +175,7 @@ for profile in args.profiles:
         "successful_diffusion_forwards":round(sum(1/b for r in rows for b in r.get("batch_sizes",[])),6),
         "small_batch_size":state.get("small_batch_size",0),
         "quality_rectangle_guard":state.get("quality_rectangle_guard",False),
-        "rectangle_guard_reviews":sum("repair_rectangle_phase" in r.get("quality",{}).get("guard_codes",[]) for r in rows),
+        "rectangle_guard_reviews":sum("repair_rectangle_phase" in (r.get("quality",{}).get("guard_codes") or []) for r in rows),
         "rectangle_guard_cpu_seconds_sum":round(sum(r.get("quality",{}).get("repair_rectangle_phase",{}).get("seconds",0) for r in rows),6),
         "residual_geometry_requeries":sum(r.get("quality",{}).get("residual_scan_requery",{}).get("attempts",0) for r in rows),
         "generation_retries":sum(max(0,r.get("quality_attempts",1)-1) for r in rows),
