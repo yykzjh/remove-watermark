@@ -10,11 +10,11 @@ SOURCE_CARRIER_CONTEXT = """这是尚未去水印的原图全貌与同位置局�
 """
 
 
-def source_carrier_chats(image,box):
+def source_carrier_chats(image,box,context=.9):
     from .images import context_box, pixel_box
     from .quality import preview
 
-    crop=context_box(pixel_box(box,image.size),image.size,.9)
+    crop=context_box(pixel_box(box,image.size),image.size,context)
     local=[(box[0]*image.width-crop[0])/(crop[2]-crop[0]),
            (box[1]*image.height-crop[1])/(crop[3]-crop[1]),
            (box[2]*image.width-crop[0])/(crop[2]-crop[0]),

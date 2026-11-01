@@ -103,7 +103,10 @@ def local_findings(verdict):
                         "observation":observation, "certainty":"suspected"})
     for item in verdict.get("source_carrier_evidence",[])[:2]:
         if item.get("requires_review") and item.get("box"):
-            add("physical_text",item["box"],"原图候选存在实物载体证据但分类分歧；保留原像素，需核实，不能盲目擦除。")
+            if item.get("version")=="source-broad-consensus-v1":
+                add("uncertain_detail",item["box"],"原图检测范围过大，双模型位置或数字覆盖层证明存在分歧；保留原像素，需复核。")
+            else:
+                add("physical_text",item["box"],"原图候选存在实物载体证据但分类分歧；保留原像素，需核实，不能盲目擦除。")
     for item in verdict.get("repair_boundary", {}).get("suspect_segments", [])[:2]:
         add("rectangular_shadow",item["box"],f"修补边界{item['side']}明暗台阶 {item['luma_step']} 灰度级。")
     for item in verdict.get("repair_rectangle_phase",{}).get("findings",[])[:2]:

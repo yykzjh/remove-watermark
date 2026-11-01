@@ -64,6 +64,8 @@ def test_any_source_ambiguity_protects_the_whole_unconfirmed_area_and_requires_r
     assert len(updated[0])==1 and updated[0][0].kind=="logo"
     assert audit[0]["requires_review"] and audit[0]["status"]=="uncertain_physical_carrier"
     assert audit[0]["error"]
+    assert "source_detectors" in audit[0]
+    if failure=="classification":assert audit[0]["digital_proofs"][0]["editor"]["physical_scene_text"] is True
 
 
 def test_unrelated_small_masks_and_unknown_weight_independence_keep_the_original_contract():

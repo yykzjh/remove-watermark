@@ -145,7 +145,8 @@ def test_document_detail_budget_routes_only_large_protected_whole_inputs(tmp_pat
     assert row["ok"] and budgets==[expected] and row["model_input_budgets"]==[expected]
     assert Image.open(target).size==size and calls==[1]
 
-def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_path,monkeypatch):
+@pytest.mark.parametrize("broad",[False,True])
+def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_path,monkeypatch,broad):
     from watermark_studio.evidence import feedback_from_quality
     from watermark_studio.worker import process_batch
     source=tmp_path/"source.png";target=tmp_path/"out.png"
@@ -153,6 +154,7 @@ def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_
     raw=json.dumps({"watermarks":[{"kind":"panel","box":[400,400,500,500]}]})
     monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a:[(parse_detection(raw),raw)])
     evidence={"box":[.4,.4,.5,.5],"status":"uncertain_physical_carrier","requires_review":True}
+    if broad:evidence["version"]="source-broad-consensus-v1"
     monkeypatch.setattr("watermark_studio.source_vetting.vet_sources",lambda images,found,*a:(
         [([],raw)],{0:[evidence]}))
     monkeypatch.setattr("watermark_studio.batching.independent_batch",lambda *a:pytest.fail("ambiguous source cannot be repainted"))
@@ -167,4 +169,7 @@ def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_
     assert row["ok"] and row["action"]=="source_carrier_review" and target.read_bytes()==source.read_bytes()
     assert row["quality"]["status"]=="review" and row["retry_blocked"]=="uncertain_source_carrier"
     advice=feedback_from_quality(row["quality"])
-    assert advice==[{"issue":"physical_text","box":[.4,.4,.5,.5]}]
+    assert advice==[{"issue":"uncertain_detail" if broad else "physical_text","box":[.4,.4,.5,.5]}]
+    assert row["quality"]["judgment_basis"]["local_guard_codes"]==["source_physical_ambiguity"]
+    assert row["quality"]["retry_feedback"]==advice
+    assert ("检测范围过大" in row["quality"]["reason"]) is broad

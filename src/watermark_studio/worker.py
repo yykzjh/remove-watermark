@@ -611,8 +611,14 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             if verdict["status"]!="error":
                 verdict["status"]="review"
             verdict["guard_codes"]=list(dict.fromkeys(verdict.get("guard_codes",[])+["source_physical_ambiguity"]))
-            verdict["reason"]=(verdict.get("reason","")+" 原图小块文字存在实物载体证据，但双模型未达成完整分类证明；保留该处原图，需复核，不能盲目擦除。").strip()
+            broad_dispute=any(v.get("version")=="source-broad-consensus-v1" for v in disputed)
+            explanation=(" 原图检测范围过大，双模型未达成一致的位置或数字覆盖层证明；已保留未确认范围的原像素，需复核，不能盲目重绘。"
+                         if broad_dispute else
+                         " 原图小块文字存在实物载体证据，但双模型未达成完整分类证明；保留该处原图，需复核，不能盲目擦除。")
+            verdict["reason"]=(verdict.get("reason","")+explanation).strip()
             verdict["source_carrier_evidence"]=disputed
+            from .evidence import refresh_evidence
+            refresh_evidence(verdict)
             result["retry_blocked"]="uncertain_source_carrier"
             if result.get("action")=="no_watermark_detected":
                 result["action"]="source_carrier_review"

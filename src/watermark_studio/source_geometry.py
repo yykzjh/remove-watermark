@@ -92,6 +92,9 @@ def refine_broad_source(image,detection,editor,editor_processor,verifier,verifie
                                        SOURCE_RELOCALIZATION_PROMPT)[0]
         if isinstance(first,Exception):raise first
         if isinstance(second,Exception):raise second
+        for audit in audits:
+            audit["source_detectors"]={"editor":[r.model_dump() for r in first[0]],
+                                       "independent":[r.model_dump() for r in second[0]]}
         updated=reconcile_broad(detection,first,second)
         from .source_vetting import source_carrier_chats
         candidates=[r for r in updated[0] if any(_within(r.box,old.box) for old in broad)]
@@ -99,13 +102,17 @@ def refine_broad_source(image,detection,editor,editor_processor,verifier,verifie
             raise ValueError("Unbounded or absent replacement geometry")
         proofs=[]
         for region in candidates:
-            chats=source_carrier_chats(image,region.box)
+            chats=source_carrier_chats(image,region.box,context=.15)
+            chats[0][0]["content"][-1]["text"]+=(
+                "\n只核实标明的中心候选文字。目标外的实体牌、设备和背景，"
+                "不能代替目标本身的物理载体证据。")
             reports=[_classify(chats,model,processor,device)[0] for model,processor in
                      [(editor,editor_processor),(verifier,verifier_processor)]]
+            proofs.append({"box":list(region.box),"editor":reports[0],"independent":reports[1]})
+            for audit in audits:audit["digital_proofs"]=list(proofs)
             if not all(r.get("digital_overlay") is True and r.get("physical_scene_text") is False
                        and r.get("object_attachment") is False and r.get("uncertain") is False for r in reports):
                 raise ValueError("Tighter source component lacks dual digital-overlay proof")
-            proofs.append({"box":list(region.box),"editor":reports[0],"independent":reports[1]})
         for audit in audits:
             audit.update(status="refined_digital_geometry",requires_review=False,
                          replacement_regions=[r.model_dump() for r in updated[0]],digital_proofs=proofs)
