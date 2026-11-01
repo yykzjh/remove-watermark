@@ -181,6 +181,7 @@ def main():
             "source_rim_protection","source_edge_completion","source_geometry_requery","source_physical_vetting",
             "source_detail_views","source_detail_context_requeries")
         result={k:row[k] for k in source_fields if k in row}
+        result["repair_regions"]=[r.model_dump() for r in regions]
         result["harmonization"]=generated.info.get("harmonization")
         result["denoising_context"]=[]
         result["source_rim_composition"]={"regions":[r.model_dump() for r in scoped],"cores":mapped}

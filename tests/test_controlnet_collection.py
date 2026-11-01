@@ -27,7 +27,7 @@ def fixture(tmp_path):
             "seconds":10+i,"sources_sha256":{name:hashlib.sha256(path.read_bytes()).hexdigest()}}
         (folder/"summary.json").write_text(json.dumps(summary))
         (folder/"results.jsonl").write_text(json.dumps({"file":name,"ok":True,"quality_attempts":1,
-            "model_inferences":1,"output_size":[12,8],"controlnet_probe":{"denoising_steps":8},"harmonization":{}})+"\n")
+            "model_inferences":1,"repair_regions":[],"output_size":[12,8],"controlnet_probe":{"denoising_steps":8},"harmonization":{}})+"\n")
     return home,state,source,jobs
 
 
@@ -66,3 +66,19 @@ def test_incompatible_or_changed_shards_cannot_create_an_approval_artifact(tmp_p
     with pytest.raises(ValueError):
         run(monkeypatch,home,tmp_path,jobs)
     assert not (tmp_path/"collection").exists()
+
+
+def test_missing_empty_mask_requires_exact_source_copy_and_is_not_quality_approval(tmp_path,monkeypatch):
+    home,state,source,jobs=fixture(tmp_path);folder=state/jobs[1]
+    data=json.loads((folder/"results.jsonl").read_text());data.pop("repair_regions")
+    data.update(model_inferences=0,processing_path="source_copy")
+    (folder/"results.jsonl").write_text(json.dumps(data)+"\n")
+    with pytest.raises(ValueError,match="edit-mask provenance"):
+        run(monkeypatch,home,tmp_path,jobs)
+    import shutil
+    shutil.copyfile(source/"village/1.png",tmp_path/"output1/village/1.png")
+    run(monkeypatch,home,tmp_path,jobs)
+    result=json.loads((tmp_path/"collection/summary.json").read_text())
+    rows=list(map(json.loads,(state/result["job"]/"results.jsonl").read_text().splitlines()))
+    assert rows[1]["repair_regions"]==[] and rows[1]["source_mask_snapshot_origin"]=="verified_byte_identical_source_copy"
+    assert result["quality_evaluated"] is False

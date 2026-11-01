@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -53,6 +54,16 @@ def main():
             digest=hashlib.sha256(source.read_bytes()).hexdigest()
             if digest!=report["sources_sha256"][str(name)]:
                 raise ValueError("Frozen original changed")
+            if "repair_regions" not in row:
+                # Older isolated probes omitted the empty mask on exact copies.
+                # This does not prove that the photo has no watermark; fresh QA
+                # must still inspect it and may reject it. Never infer a mask
+                # for generated or changed output pixels.
+                if (row["model_inferences"]!=0 or row.get("processing_path")!="source_copy"
+                        or hashlib.sha256(candidate.read_bytes()).hexdigest()!=digest):
+                    raise ValueError("Missing original edit-mask provenance")
+                row["repair_regions"]=[]
+                row["source_mask_snapshot_origin"]="verified_byte_identical_source_copy"
             with Image.open(candidate) as saved:
                 if list(saved.size)!=row["output_size"]:
                     raise ValueError("Saved output dimensions changed")
@@ -77,7 +88,8 @@ def main():
         scope="Collected disjoint development GEN1; no generation or quality approval in collection",
         total=len(rows),sources_sha256=hashes,quality_evaluated=False,
         generation_wall_seconds_max=max(r["seconds"] for r in reports),
-        source_shard_jobs=a.jobs)
+        source_shard_jobs=a.jobs,collector_revision=subprocess.check_output(
+            ["git","rev-parse","--short","HEAD"],text=True).strip())
     (folder/"results.jsonl").write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in sorted(rows,key=lambda r:r["file"])))
     (folder/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2))
