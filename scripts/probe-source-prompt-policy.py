@@ -18,7 +18,7 @@ import torch
 
 from watermark_studio.config import DeploymentConfig
 from watermark_studio.images import load_photo
-from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
+from watermark_studio.quality_loading import load_quality_encoder
 from watermark_studio.source_brief import inspect_sources
 
 torch.set_num_threads(1)
@@ -35,7 +35,9 @@ model=Path.home()/".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/sna
 cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent")
 began=time.monotonic()
 encoder=load_quality_encoder(str(model/"text_encoder"),cfg,"cuda:0")
-processor=load_quality_processor(str(model/"processor"))
+from transformers import Qwen3VLProcessor
+
+processor=Qwen3VLProcessor.from_pretrained(str(model/"processor"),local_files_only=True)
 loaded=time.monotonic()-began
 rows=[];began=time.monotonic()
 for name in sorted(fid):
