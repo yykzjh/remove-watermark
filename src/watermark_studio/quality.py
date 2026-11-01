@@ -896,6 +896,30 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                     verdict.update(status="review",natural=False,uncertain=True)
                     verdict["guard_codes"]=verdict.get("guard_codes",[])+["repair_rectangle_phase"]
                     verdict["reason"]=(verdict["reason"]+" 原水印多条边界出现同向且对齐的矩形明暗突变，需复核。").strip()[:400]
+            rim_records=contexts[index].get("source_rim_protection") or []
+            if any(isinstance(r,dict) and r.get("approved") is True for r in rim_records):
+                from .source_panel_rims import effective_rim_scope
+                scoped,scoped_cores,invalid=effective_rim_scope(
+                    before,regions,contexts[index].get("protected_core_boxes",[]),rim_records)
+                extra={"scope":"additional_source_proven_boundaries","invalid_provenance":invalid,
+                       "regions":[r.model_dump() for r in scoped]}
+                if invalid:
+                    verdict.update(status="review",uncertain=True)
+                    verdict["guard_codes"]=verdict.get("guard_codes",[])+["source_rim_provenance_invalid"]
+                    verdict["reason"]=(verdict["reason"]+" 原图边沿证据不匹配，需要复核。").strip()[:400]
+                else:
+                    extra["boundary"]=repair_boundary_warnings(seam_photo,scoped,feather,before=before)
+                    extra["texture"]=repair_texture_warnings(seam_photo,scoped,feather,
+                        before=before,core_boxes=scoped_cores)
+                    if rectangle_guard:
+                        extra["phase"]=rectangle_phase(before,seam_photo,scoped)
+                    for key,code in [("boundary","repair_boundary_step"),("texture","repair_texture_collapse"),
+                                     ("phase","repair_rectangle_phase")]:
+                        if extra.get(key,{}).get("count"):
+                            verdict.update(status="review",natural=False,uncertain=True)
+                            verdict["guard_codes"]=list(dict.fromkeys(verdict.get("guard_codes",[])+[code]))
+                            verdict["reason"]=(verdict["reason"]+" 经原图证明的更精确水印边沿存在衔接缺陷，需要复核。").strip()[:400]
+                verdict["source_rim_guard"]=extra
             verdict["local_comparison_seconds"] = round(time.monotonic()-started, 3)
             if local["tiles"]:
                 verdict.update(status="review", uncertain=True)

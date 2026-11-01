@@ -45,3 +45,5 @@ prefill_overlays = false
 prefill_original_semantics = false
 
 protect_denoising_context = false
+
+protect_source_rims = false

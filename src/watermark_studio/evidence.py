@@ -103,10 +103,22 @@ def local_findings(verdict):
                         "observation":observation, "certainty":"suspected"})
     for item in verdict.get("source_carrier_evidence",[])[:2]:
         if item.get("requires_review") and item.get("box"):
-            if item.get("version")=="source-broad-consensus-v1":
+            if item.get("version")=="source-rim-identity-v1":
+                add("uncertain_detail",item["box"],"原图信息卡的数字身份未获确认；保留该处原像素，需复核。")
+            elif item.get("version")=="source-broad-consensus-v1":
                 add("uncertain_detail",item["box"],"原图检测范围过大，双模型位置或数字覆盖层证明存在分歧；保留原像素，需复核。")
             else:
                 add("physical_text",item["box"],"原图候选存在实物载体证据但分类分歧；保留原像素，需核实，不能盲目擦除。")
+    rim_guard=verdict.get("source_rim_guard",{})
+    for item in rim_guard.get("boundary",{}).get("suspect_segments",[])[:2]:
+        add("rectangular_shadow",item["box"],"经原图证明的水印边沿存在明暗台阶，不能以原图外圈已恢复替代内部验收。")
+    for item in rim_guard.get("texture",{}).get("suspect_segments",[])[:2]:
+        add("blur_smear",item["box"],"经原图证明的更精确水印边沿存在纹理衰减。")
+    for item in rim_guard.get("phase",{}).get("findings",[])[:2]:
+        add("rectangular_shadow",item["box"],"经原图证明的水印多边界存在同向矩形明暗阶跃。")
+    if rim_guard.get("invalid_provenance"):
+        for box in rim_guard["invalid_provenance"][:2]:
+            add("uncertain_detail",box,"原图边沿保护的证据或像素摘要已失配，需要复核。")
     for item in verdict.get("repair_boundary", {}).get("suspect_segments", [])[:2]:
         add("rectangular_shadow",item["box"],f"修补边界{item['side']}明暗台阶 {item['luma_step']} 灰度级。")
     for item in verdict.get("repair_rectangle_phase",{}).get("findings",[])[:2]:

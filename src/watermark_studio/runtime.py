@@ -477,6 +477,7 @@ class Runtime:
                     "prefill_overlays": self.config.prefill_overlays,
                     "prefill_original_semantics": self.config.prefill_original_semantics,
                     "protect_denoising_context": self.config.protect_denoising_context,
+                    "protect_source_rims": self.config.protect_source_rims,
                     "encoder_batch_size":self.config.encoder_batch_size,
                     "detection_batch_size":self.config.detection_batch_size,
                     "protected_document_resolution":self.config.protected_document_resolution,

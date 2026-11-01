@@ -38,6 +38,11 @@ def load_pipeline(config, model_path):
     torch.backends.cudnn.benchmark = config.cudnn_benchmark
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA 不可用，请检查 NVIDIA 驱动及 PyTorch CUDA 环境")
+    rim_detector = None
+    if config.protect_source_rims:
+        from .text_presence import TargetTextPresence
+        rim_detector = TargetTextPresence()
+        rim_detector._engine()  # Fail before loading GPU weights if the extra is missing.
     dtype = getattr(torch, config.dtype)
     pipe = QwenImage21Pipeline.from_pretrained(model_path, dtype=dtype, local_files_only=True)
     pipe.set_progress_bar_config(disable=True)
@@ -83,6 +88,7 @@ def load_pipeline(config, model_path):
     if config.quantization != "none":
         from .optimizations import quantize_transformer
         quantize_transformer(pipe.transformer, config.quantization, config.float8_granularity)
+    pipe._source_rim_text_detector=rim_detector
     pipe._watermark_separate_vae_decode=config.separate_vae_decode
     pipe._watermark_prompt_encoder = config.prompt_encoder
     pipe._watermark_encoder_batch_size = config.encoder_batch_size
@@ -134,6 +140,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     context_evidence = {}
     source_geometry_requeries = {}
     physical_audits = {}
+    source_rim_audits = {}
     needs_detection = cuda and (
         (options.scope == "full_image" and options.preserve_background)
         or (options.scope == "regions" and options.preset == "auto")
@@ -203,6 +210,35 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 pipe._quality_encoder,pipe._quality_processor,pipe._execution_device,
                 getattr(pipe,"_quality_weights_relation","unknown"),config.source_vet_batch_size)
             physical_audits={t["relative"]:vet_audits.get(index,[]) for index,t in enumerate(detect_tasks)}
+        if config.protect_source_rims and options.scope=="full_image" and options.preserve_background and options.first_pass_mode=="whole":
+            from .detection import source_core_boxes
+            from .quality_loading import restore_quality_encoder
+            from .source_panel_rims import inspect_photo_rims, propose_blue_card_rims
+            if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):
+                pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,pipe._execution_device)
+            for index,task in enumerate(detect_tasks):
+                detection=found[index]
+                if isinstance(detection,Exception):
+                    continue
+                photo=decoded[task["relative"]][0]
+                cores=source_core_boxes(detection[1])
+                core_rows=[{"mask":list(mask),"core":list(core)} for mask,core in cores.items()]
+                proposals=propose_blue_card_rims(photo,detection[0],core_rows,options.feather)
+                audit=inspect_photo_rims(photo,proposals,pipe.text_encoder,pipe.processor,
+                    pipe._quality_encoder,pipe._quality_processor,pipe._execution_device,
+                    pipe._quality_weights_relation,pipe._source_rim_text_detector)
+                source_rim_audits[task["relative"]]=audit
+                blocked=[]
+                for row in audit:
+                    if any(report.get("digital_card") is False and report.get("uncertain") is False
+                           for report in [row.get("editor",{}),row.get("independent",{})]):
+                        blocked.append(tuple(row["mask"]))
+                        physical_audits.setdefault(task["relative"],[]).append({
+                            "box":row["mask"],"status":"uncertain_physical_carrier",
+                            "version":"source-rim-identity-v1","requires_review":True,
+                            "reason":"Source digital identity was not established; preserve original pixels"})
+                if blocked:
+                    found[index]=([r for r in detection[0] if tuple(r.box) not in blocked],detection[1])
         elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
         detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
     source_briefs={}
@@ -241,7 +277,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         "repair_regions":task["_repair_provenance"]["regions"],
                         "source_scene":task["_repair_provenance"].get("scene","unknown"),
                         "harmonization":task["_repair_provenance"].get("harmonization"),
-                        "protected_core_boxes":task["_repair_provenance"].get("protected_core_boxes",[])}
+                        "protected_core_boxes":task["_repair_provenance"].get("protected_core_boxes",[]),
+                        "source_rim_protection":task["_repair_provenance"].get("source_rim_protection",[]),
+                        "denoising_context":task["_repair_provenance"].get("denoising_context",[])}
                        if task.get("_repair_provenance") else {}),
                 }
                 continue
@@ -319,6 +357,15 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     state["protection_cores"]=source_core_boxes(detections[task["relative"]][0][1])
                 except (ValueError,TypeError,KeyError):
                     pass  # Invalid/missing source-core provenance keeps the whole padded mask opaque.
+            state["denoising_regions"]=state["protected_regions"]
+            if config.protect_denoising_context and source_rim_audits.get(task["relative"]):
+                from .source_panel_rims import effective_rim_scope
+                scoped,_,invalid=effective_rim_scope(source,state["protected_regions"],
+                    [{"mask":list(mask),"core":list(core)} for mask,core in state["protection_cores"].items()],
+                    source_rim_audits[task["relative"]])
+                if invalid:
+                    raise RuntimeError("Source-rim evidence does not match the denoising reference")
+                state["denoising_regions"]=scoped
             stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
             for index, region in enumerate(regions):
                 box = pixel_box(region.box, source.size)
@@ -361,7 +408,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     core_box=None
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
-                    "_denoising_context_regions": ([r.model_dump() for r in state["protected_regions"]]
+                    "_denoising_context_regions": ([r.model_dump() for r in state["denoising_regions"]]
                         if config.protect_denoising_context and state["whole_generation"]
                         and state["protected_regions"] is not None else None),
                     "_semantic_reference": (source if prefilled and state["whole_generation"]
@@ -526,6 +573,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             result["edge_context_pixels_preserved"]=restored
             if output.size != state["source"].size:
                 raise RuntimeError("Output dimensions differ from original")
+            rims=source_rim_audits.get(task["relative"],[])
+            if rims:
+                from .source_panel_rims import restore_proven_rims
+                output,count=restore_proven_rims(state["source"],output,rims)
+                if count!=sum(r.get("approved") is True for r in rims):
+                    raise RuntimeError("Approved source-rim provenance no longer matches the original")
+                result["protected_source_rim_count"]=count
             if state["alpha"] is not None:
                 output.putalpha(state["alpha"])
             output_size = save_output(output, task["source"], task["destination"],
@@ -534,6 +588,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
         results[task["relative"]] = result
+    for task in tasks:
+        results[task["relative"]].setdefault("source_rim_protection",source_rim_audits.get(task["relative"],[]))
     if options.quality_check:
         if phase_manage:
             transfer_started=time.monotonic()
@@ -572,7 +628,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                      "action":results[t["relative"]].get("action"),
                                      "source_scene":results[t["relative"]].get("source_scene","unknown"),
                                      "harmonization":results[t["relative"]].get("harmonization"),
-                                     "protected_core_boxes":results[t["relative"]].get("protected_core_boxes",[])} for t in group],
+                                     "protected_core_boxes":results[t["relative"]].get("protected_core_boxes",[]),
+                                     "source_rim_protection":results[t["relative"]].get("source_rim_protection",[]),
+                                     "denoising_context":results[t["relative"]].get("denoising_context",[])} for t in group],
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                     rectangle_guard=config.quality_rectangle_guard,
                     cross_context=config.quality_cross_full_context,
@@ -623,8 +681,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 verdict["status"]="review"
             verdict["guard_codes"]=list(dict.fromkeys(verdict.get("guard_codes",[])+["source_physical_ambiguity"]))
             broad_dispute=any(v.get("version")=="source-broad-consensus-v1" for v in disputed)
+            rim_dispute=any(v.get("version")=="source-rim-identity-v1" for v in disputed)
             explanation=(" 原图检测范围过大，双模型未达成一致的位置或数字覆盖层证明；已保留未确认范围的原像素，需复核，不能盲目重绘。"
                          if broad_dispute else
+                         " 原图信息卡候选的数字身份存在分类分歧；已保留该处原像素，需要复核，不能盲目擦除。"
+                         if rim_dispute else
                          " 原图小块文字存在实物载体证据，但双模型未达成完整分类证明；保留该处原图，需复核，不能盲目擦除。")
             verdict["reason"]=(verdict.get("reason","")+explanation).strip()
             verdict["source_carrier_evidence"]=disputed
@@ -661,6 +722,8 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate, q
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
     try:
         with load_gate:
+            if config.protect_source_rims and config.backend!="mock" and quality_weights_relation!="different_weights":
+                raise RuntimeError("原图边沿保护需要与编辑器不同的独立检验权重")
             pipe = None if config.backend == "mock" else load_pipeline(config, model_path)
             if pipe is not None and quality_path:
                 import torch

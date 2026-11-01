@@ -76,6 +76,7 @@ def first_snapshot(state_root, job, target_root, tag):
         record = {k: original[k] for k in (
             "file", "ok", "repair_regions", "source_scene", "background_preserved",
             "protected_core_boxes", "harmonization", "processing_path",
+            "source_rim_protection", "denoising_context",
         ) if k in original}
         record.update(quality=first["quality"], quality_attempts=1)
         prepared.append((source, candidate, record, digest(source), digest(candidate)))

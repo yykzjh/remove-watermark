@@ -54,7 +54,10 @@ def test_all_boolean_flags_are_opt_in(tmp_path):
     for name, field in DeploymentConfig.model_fields.items():
         if field.annotation is bool:
             assert getattr(baseline, name) is False
-            value, _ = parse_deployment(["--config", str(path), "--" + name.replace("_", "-")])
+            flags=["--config",str(path),"--"+name.replace("_","-")]
+            if name=="protect_source_rims":
+                flags+=["--quality-verifier","--quality-backend","independent"]
+            value, _ = parse_deployment(flags)
             assert getattr(value, name) is True
 
 

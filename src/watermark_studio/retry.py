@@ -131,7 +131,9 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                     "regions":best_saved.get("repair_regions",[]),
                     "scene":best_saved.get("source_scene","unknown"),
                     "harmonization":best_saved.get("harmonization"),
-                    "protected_core_boxes":best_saved.get("protected_core_boxes",[])}
+                    "protected_core_boxes":best_saved.get("protected_core_boxes",[]),
+                    "source_rim_protection":best_saved.get("source_rim_protection",[]),
+                    "denoising_context":best_saved.get("denoising_context",[])}
 
     results = process(prepared, settings, config, pipe, batch_limits)
     for (task, paths, saved), result in zip(records, results):
