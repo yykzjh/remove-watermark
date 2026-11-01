@@ -26,12 +26,16 @@ def vet_small_panels(image, detection, editor, editor_processor, verifier, verif
             chats[0][0]["content"][-1]["text"]+="\n"+SOURCE_CARRIER_CONTEXT
             first=_classify(chats,editor,editor_processor,device)[0]
             record["editor"]=first
-            if physical(first):
+            if physical(first) or first.get("object_attachment") or first.get("physical_scene_text"):
                 second=_classify(chats,verifier,verifier_processor,device)[0]
                 record["independent"]=second
-                if physical(second):
+                if physical(first) and physical(second):
                     kept.remove(region)
                     record["status"]="protected_physical_text"
+                else:
+                    kept.remove(region)
+                    record["status"]="uncertain_physical_carrier"
+                    record["requires_review"]=True
         except Exception as error:  # noqa: BLE001 - ambiguity cannot discharge a detected overlay
             record["error"]=f"{type(error).__name__}: {error}"[:300]
         audit.append(record)

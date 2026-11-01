@@ -51,6 +51,7 @@ def unsupported_residual_dispute(quality):
 def retry_allowed(result, options, attempt):
     return (
         options.quality_auto_retry and result.get("quality", {}).get("status") in {"review", "error"}
+        and "source_physical_ambiguity" not in result.get("quality",{}).get("guard_codes",[])
         and (options.quality_max_attempts == 0 or attempt < options.quality_max_attempts)
     )
 

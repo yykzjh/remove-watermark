@@ -587,6 +587,18 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
 
         for offset in range(0, len(pending), options.quality_batch_size):
             review(pending[offset:offset + options.quality_batch_size])
+    for task in tasks:
+        result=results[task["relative"]]
+        disputed=[v for v in physical_audits.get(task["relative"],[]) if v.get("requires_review")]
+        if disputed and result.get("ok"):
+            verdict=result.setdefault("quality",{"status":"review","reason":""})
+            verdict["pre_source_carrier_guard"]={"status":verdict["status"],"reason":verdict.get("reason")}
+            if verdict["status"]!="error":
+                verdict["status"]="review"
+            verdict["guard_codes"]=list(dict.fromkeys(verdict.get("guard_codes",[])+["source_physical_ambiguity"]))
+            verdict["reason"]=(verdict.get("reason","")+" 原图小块文字存在实物载体证据，但双模型未达成完整分类证明；保留该处原图，需复核，不能盲目擦除。").strip()
+            verdict["source_carrier_evidence"]=disputed
+            result["retry_blocked"]="uncertain_source_carrier"
     if cuda:
         torch.cuda.synchronize()
     metrics = {

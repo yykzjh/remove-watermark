@@ -436,3 +436,7 @@ def test_readonly_recheck_reuses_actual_repair_masks_only_for_unchanged_source(t
         return [{"file":"a.png","ok":True,"quality":verdict("passed",removed=True)}]
     final=process_attempts([retry],options,cfg,None,{},"job",check)[0]
     assert final["quality"]["status"]=="passed"
+
+def test_ambiguous_source_carrier_cannot_be_blindly_regenerated_or_approved():
+    options=ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_max_attempts=0)
+    assert not retry_allowed({"quality":{"status":"review","guard_codes":["source_physical_ambiguity"]}},options,1)
