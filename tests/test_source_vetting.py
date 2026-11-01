@@ -56,3 +56,12 @@ def test_json_recovery_preserves_trusted_source_carrier_clarification(monkeypatc
     report=_recover_classification(chat,"{}","missing flags",None,None,"cpu")
     assert "真实卷尺的印刷刻度属于实物文字" in observed[0]
     assert report["uncertain"] and not report["physical_scene_text"]
+
+def test_source_carrier_classifier_receives_global_context_and_native_detail():
+    from watermark_studio.source_vetting import source_carrier_chats
+    image=Image.new("RGB",(2000,1500))
+    chat=source_carrier_chats(image,(.4,.4,.5,.5))[0][0]["content"]
+    views=[c["image"] for c in chat if c["type"]=="image"]
+    assert len(views)==2 and views[0].size==(640,480)
+    assert max(views[1].size)<=640 and views[1].size!=views[0].size
+    assert "不要把别处水印" in chat[0]["text"]
