@@ -100,3 +100,33 @@ def test_real_fused_swiglu_lora_matches_both_split_matrices(tmp_path):
     expected=torch.nn.functional.silu(x@(gate+(b@a)[:4]).T)*(x@(up+(b@a)[4:]).T)
     assert torch.allclose(torch.nn.functional.silu(mlp.gate_layer(x))*mlp.proj(x),expected)
     assert report["split_gate_up_pairs"]==1 and report["target_weights"]==2
+
+
+def test_named_default_peft_adapter_keeps_original_keys_and_all_safety_checks():
+    named={k.replace(".lora_A.weight",".lora_A.default.weight")
+              .replace(".lora_B.weight",".lora_B.default.weight"):v for k,v in shapes().items()}
+    plan=adapter_plan(named,{"block.q.weight":[4,3]},alpha=2)
+    assert plan[0]["a"]=="diffusion_model.block.q.lora_A.default.weight"
+    assert plan[0]["b"]=="diffusion_model.block.q.lora_B.default.weight"
+    assert plan[0]["target"]=="block.q.weight"
+    with pytest.raises(ValueError,match="Duplicate"):
+        adapter_plan(named|shapes(),{"block.q.weight":[4,3]},alpha=2)
+    with pytest.raises(ValueError,match="unsupported"):
+        adapter_plan({k.replace(".default.",".another."):v for k,v in named.items()},
+                     {"block.q.weight":[4,3]},alpha=2)
+
+
+def test_actual_named_peft_fusion_matches_published_unit_scaling(tmp_path):
+    torch=pytest.importorskip("torch")
+    safetensors=pytest.importorskip("safetensors.torch")
+    from watermark_studio.adapters import fuse_cpu_adapter
+    model=torch.nn.Module();model.block=torch.nn.Module()
+    model.block.q=torch.nn.Linear(3,4,bias=False)
+    before=model.block.q.weight.detach().clone()
+    a=torch.arange(6,dtype=torch.float32).reshape(2,3)/10
+    b=torch.arange(8,dtype=torch.float32).reshape(4,2)/10
+    path=tmp_path/"named.safetensors"
+    safetensors.save_file({"block.q.lora_A.default.weight":a,"block.q.lora_B.default.weight":b},str(path))
+    report=fuse_cpu_adapter(model,path,alpha=2,scale=1.)
+    assert torch.allclose(model.block.q.weight,before+b@a)
+    assert report["pairs"]==1 and report["runtime_adapter_forwards"]==0

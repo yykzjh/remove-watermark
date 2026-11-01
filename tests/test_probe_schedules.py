@@ -32,3 +32,8 @@ def test_midpoint_probes_keep_trained_nodes_and_exact_forward_budget():
         assert (.704534+.414568)/2 in result and .414568/2 in result
         assert result[-1]>0
     assert tail_sigma_grid(original,"mid12")[-1]==.414568/4
+
+
+def test_published_three_step_grid_is_not_a_tail_refinement():
+    original=[1.,.978453,.95418,.926626,.89508,.845148,.704534,.414568]
+    assert tail_sigma_grid(original,"turturbo3")==[1.,.845148,.414568]

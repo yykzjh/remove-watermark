@@ -767,3 +767,23 @@ source-description+tail10同6图生成62.674秒+23.242加载，新QA34.539秒，
 仍3/6，与不加描述相同（0141/0241/0848），无收益，不接默认。
 新增mid10/mid12离线网格保留全部8训练节点，向最后大跨度区间添加中点；
 不是官方推荐，也不声称其有质量收益。分辨率/仅编码器驻留探针用于隔离旧检测版本混杂。
+
+
+9157848扩展tail10至完整64张（60单次生成+4原样复制）：46/64，当前原生8步同图47/64；
+1增2减，纹理否决3→2但矩形相位5→7，未证实整体收益，拒绝默认采用tail10。
+第一/第三生成分片191.450/196.171秒（分片并发条件单独记录），
+新QA两GPU133.690秒+21.443加载，不能与其它并发/分组方式直接声称提速。
+mid10/mid12同6图分别62.624/70.698秒，均3/6，未优于tail10，暂不扩大。
+
+新的研究候选为官方DiffSynth已训练的3步OPD LoRA：
+[训练说明](https://github.com/modelscope/DiffSynth-Studio/blob/main/docs/en/Training/Distillation.md)，
+[公开模型卡](https://modelscope.cn/models/DiffSynth-Studio/Qwen-Image-2.1-TurTurbo)。
+它仅声明T2I训练，不保证图像编辑效果；只准备离线验证，不进行自训练，不更换服务默认。
+Turbo-T2I-3steps.safetensors固定revision3e8fad8b363ef8334519932299050251c4942b05，
+681699696字节，发布者SHA256 fa465274a7bb69687bfd6fd36d3e6cda967efba7a649aab25a37d62adf6286be，
+由WSL独立读取官方文件API确认。远端只直接HTTP下载，不经SSH传输权重。
+其456个矩阵键为228对rank128，明确包含调制、时间嵌入、输出norm及全部32块。
+按[官方训练实现](https://github.com/modelscope/DiffSynth-Studio/blob/main/diffsynth/diffusion/training_module.py)
+alpha=rank128，单位倍数加载，不猜测缩放，也不忽略未知键。
+新增精确支持PEFT默认命名lora_A.default/lora_B.default；其它名字、重复映射和形状错误仍拒绝。
+3步网格只允许上述固定权重及显式alpha128；不允许裸Turbo误用。真实效果尚未验证。

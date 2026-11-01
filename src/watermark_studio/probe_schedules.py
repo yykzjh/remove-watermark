@@ -4,12 +4,15 @@ from itertools import pairwise
 
 
 def tail_sigma_grid(original,profile="native"):
-    if profile not in ("native","tail9","tail10","tail12","mid10","mid12"):
+    if profile not in ("native","tail9","tail10","tail12","mid10","mid12","turturbo3"):
         raise ValueError("Unknown explicit sigma experiment")
     values=list(original)
     if (len(values)!=8 or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not 0<v<=1 for v in values)
             or any(a<=b for a,b in pairwise(values))):
         raise ValueError("Original descending positive eight-sigma Turbo grid required")
+    if profile=="turturbo3":
+        # Published DiffSynth Turbo-T2I-3steps LoRA schedule, never bare Turbo.
+        return [values[0],values[5],values[7]]
     if profile in {"mid10","mid12"}:
         # Keep every trained node. Only add evaluation points inside the large
         # low-noise Euler intervals; this is an explicitly unvalidated probe.

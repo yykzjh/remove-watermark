@@ -19,7 +19,7 @@ def main():
     p.add_argument("--sha256",default="4f44ada1be2189cc23b3d010f9603543403f48454e2f76842a3d30109b20bd63")
     p.add_argument("--size",type=int,default=159436496)
     p.add_argument("--max-bytes",type=int,default=1024**3,help="Explicit download budget; maximum 16 GiB, default 1 GiB")
-    p.add_argument("--endpoint",choices=["https://huggingface.co","https://hf-mirror.com"],default="https://hf-mirror.com")
+    p.add_argument("--endpoint",choices=["https://huggingface.co","https://hf-mirror.com","https://modelscope.cn/models"],default="https://hf-mirror.com")
     a=p.parse_args()
     if (not re.fullmatch(r"[\w.-]+/[\w.-]+",a.repo) or not re.fullmatch(r"[0-9a-f]{40}",a.revision)
             or Path(a.filename).name!=a.filename or not a.filename.endswith(".safetensors")

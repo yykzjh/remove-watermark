@@ -17,10 +17,12 @@ def adapter_plan(shapes, target_shapes, *, alpha=0, metadata_alpha=None, pair_al
         raise ValueError("Explicit finite nonnegative LoRA alpha required")
     pairs, consumed, targets = [], set(), set()
     for name, shape in shapes.items():
-        if not name.endswith(".lora_A.weight"):
+        suffix=next((tail for tail in (".lora_A.weight",".lora_A.default.weight")
+                     if name.endswith(tail)),None)
+        if suffix is None:
             continue
-        prefix = name.removesuffix(".lora_A.weight")
-        other = prefix+".lora_B.weight"
+        prefix = name.removesuffix(suffix)
+        other = prefix+suffix.replace(".lora_A.",".lora_B.")
         target = prefix
         for wrapper in ("diffusion_model.", "transformer."):
             if target.startswith(wrapper):
