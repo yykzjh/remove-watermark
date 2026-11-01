@@ -5,17 +5,22 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 
-def _single_phase(before, after, regions, resolution=1024, forced_sign=None, core_mapping=None):
-    """Require a sharp, spatially coherent tone step on every available panel side."""
-    panels=[r for r in regions if r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06]
-    if not panels:
-        return {"method":"source_panel_phase_v1","count":0,"findings":[],"comparison_size":None}
+def _prepare_phase(before, after, resolution):
     scale=min(1,resolution/max(after.size))
     size=(max(32,round(after.width*scale)),max(32,round(after.height*scale)))
     photos=[image.convert("RGB").resize(size,Image.Resampling.LANCZOS).filter(
         ImageFilter.GaussianBlur(1.2)) for image in (before,after)]
     source,rgb=[np.asarray(image,dtype=np.float32) for image in photos]
     y=np.log(16+rgb@np.array([.2126,.7152,.0722],dtype=np.float32))
+    return source,rgb,y,size
+
+
+def _single_phase(before, after, regions, resolution=1024, forced_sign=None, core_mapping=None, prepared=None):
+    """Require a sharp, spatially coherent tone step on every available panel side."""
+    panels=[r for r in regions if r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06]
+    if not panels:
+        return {"method":"source_panel_phase_v1","count":0,"findings":[],"comparison_size":None}
+    source,rgb,y,size=prepared if prepared is not None else _prepare_phase(before,after,resolution)
     findings=[]
     for region in panels:
         l,t,r,b=region.box
@@ -104,7 +109,7 @@ def _single_phase(before, after, regions, resolution=1024, forced_sign=None, cor
             "comparison_size":list(size)}
 
 
-def rectangle_phase(before, after, regions, resolution=1024):
+def rectangle_phase(before, after, regions, resolution=1024, *, _prepared=None):
     """Joint bright/dark hypotheses keep texture distractors from hiding a box.
 
     All side, amplitude, coherence, contamination and source-change conditions
@@ -112,8 +117,10 @@ def rectangle_phase(before, after, regions, resolution=1024):
     """
     findings={}
     size=None
+    has_panel=any(r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06 for r in regions)
+    prepared=(_prepared if _prepared is not None else _prepare_phase(before,after,resolution)) if has_panel else None
     for sign in (-1,1):
-        result=_single_phase(before,after,regions,resolution,sign)
+        result=_single_phase(before,after,regions,resolution,sign,prepared=prepared)
         size=result["comparison_size"]
         for item in result["findings"]:
             key=tuple(item["box"])
@@ -143,11 +150,13 @@ def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024):
         if (match is not None and mask[0]<=core[0]<core[2]<=mask[2]
                 and mask[1]<=core[1]<core[3]<=mask[3]):
             mapping[match] = core
-    baseline = rectangle_phase(before,after,regions,resolution)
+    has_panel=any(r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06 for r in regions)
+    prepared=_prepare_phase(before,after,resolution) if has_panel else None
+    baseline = rectangle_phase(before,after,regions,resolution,_prepared=prepared)
     findings = {tuple(item["box"]): item for item in baseline["findings"]}
     if mapping:
         for sign in (-1,1):
-            result = _single_phase(before,after,regions,resolution,sign,mapping)
+            result = _single_phase(before,after,regions,resolution,sign,mapping,prepared)
             for item in result["findings"]:
                 findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"source_core_search":True})
     return baseline|{"method":"source_panel_phase_v3_core_experiment",

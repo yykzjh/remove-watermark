@@ -14,17 +14,19 @@ p=argparse.ArgumentParser()
 p.add_argument("--job",required=True)
 p.add_argument("--files",nargs="+",required=True)
 p.add_argument("--output",type=Path,required=True)
+p.add_argument("--native",action="store_true",help="480px source/outputs at native scale near largest overlay boundary; <=256KiB")
 p.add_argument("--full",action="store_true",help="Show the full photograph instead of the repair crop")
 p.add_argument("--compare-job",help="Read-only source/baseline/candidate view instead of boundary ribbons")
 a=p.parse_args()
-if not 1<=len(a.files)<=6 or a.output.exists():
+if not 1<=len(a.files)<=6 or a.output.exists() or (a.native and (a.full or len(a.files)>3)):
     p.error("One to six cases and a fresh preview file required")
 helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
 cases=helper["frozen_job_cases"](Path.home()/".local/state/watermark-studio",a.job,a.files)
 other=helper["frozen_job_cases"](Path.home()/".local/state/watermark-studio",a.compare_job,a.files) if a.compare_job else []
 comparison={c["file"]:c for c in other}
 hashes=helper["file_hashes"](cases+other)
-canvas=Image.new("RGB",(1440,320*len(cases)),"white")
+row_height=512 if a.native else 320
+canvas=Image.new("RGB",(1440,row_height*len(cases)),"white")
 draw=ImageDraw.Draw(canvas)
 for index,c in enumerate(cases):
     source=load_photo(c["source"])[0]
@@ -35,6 +37,14 @@ for index,c in enumerate(cases):
     else:
         region=max(regions,key=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1]))
         box=context_box(pixel_box(region.box,source.size),source.size,.22)
+        if a.native:
+            raw=next((item["core"] for item in c.get("source_cores",[]) if item.get("mask")==list(region.box)),region.box)
+            edge=min(480,*source.size)
+            cx=(raw[0]+raw[2])*source.width/2
+            cy=raw[1]*source.height
+            x=max(0,min(source.width-edge,round(cx-edge/2)))
+            y=max(0,min(source.height-edge,round(cy-edge/2)))
+            box=(x,y,x+edge,y+edge)
     ribbon,_=boundary_ribbons(result,regions)
     views=[source.crop(box),result.crop(box),ribbon or result]
     if comparison:
@@ -45,15 +55,16 @@ for index,c in enumerate(cases):
         assert candidate_result.size==result.size
         views=[source.crop(box),result.crop(box),candidate_result.crop(box)]
     for column,image in enumerate(views):
-        thumb=ImageOps.contain(image,(478,292))
-        canvas.paste(thumb,(column*480+(480-thumb.width)//2,index*320+25))
-    draw.text((4,index*320+4),c["file"]+(" SOURCE / BASELINE / CANDIDATE" if comparison else " SOURCE / OUTPUT / OUTPUT BOUNDARIES"),fill="black")
+        thumb=image if a.native else ImageOps.contain(image,(478,292))
+        canvas.paste(thumb,(column*480+(480-thumb.width)//2,index*row_height+25))
+    draw.text((4,index*row_height+4),c["file"]+(" SOURCE / BASELINE / CANDIDATE" if comparison else " SOURCE / OUTPUT / OUTPUT BOUNDARIES"),fill="black")
 a.output.parent.mkdir(parents=True,exist_ok=True)
-for quality in (70,60,50,40,30):
+budget=262144 if a.native else 98304
+for quality in (78,70,60,50,40,30):
     canvas.save(a.output,quality=quality)
-    if a.output.stat().st_size<=98304:
+    if a.output.stat().st_size<=budget:
         break
-if a.output.stat().st_size>98304:
+if a.output.stat().st_size>budget:
     a.output.unlink()
     raise RuntimeError("Preview exceeds the small transfer budget")
 assert hashes==helper["file_hashes"](cases+other),"Frozen image changed during preview"
