@@ -358,3 +358,46 @@ def test_untrusted_protocol_preserves_meter_carrier_rules_in_global_reinspection
                inspection_profile="untrusted")
     assert any("机械翻字计数窗" in text for text in captured)
     assert any("不是豁免清单" in text for text in captured)
+
+
+@pytest.mark.parametrize("full_context,expected",[(False,1),(True,2)])
+def test_full_context_can_locate_two_distinct_carrier_texts_without_changing_default(monkeypatch,full_context,expected):
+    from watermark_studio.cross_review import discover_dispute
+    prompt = []
+    def generate(chats,*args):
+        prompt.extend(item["text"] for item in chats[0][0]["content"] if item["type"]=="text")
+        return [{"assessment":"uncertain","findings":[
+            {"issue":"physical_text","box":[.2,.1,.5,.25]},
+            {"issue":"physical_text","box":[.2,.3,.5,.45]}]}]
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",generate)
+    image=Image.new("RGB",(1000,800),"gray")
+    result=discover_dispute(image,image,"center",None,None,"cpu",full_context=full_context)
+    assert len(result["findings"])==expected
+    assert any(("findings最多2项" if full_context else "findings最多1项") in text for text in prompt)
+
+
+def test_full_context_does_not_silently_select_two_from_excessive_locations(monkeypatch):
+    from watermark_studio.cross_review import discover_dispute
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[{
+        "assessment":"uncertain","findings":[
+            {"issue":"physical_text","box":[.2,t,.5,t+.1]} for t in (.1,.3,.5)]}])
+    image=Image.new("RGB",(1000,800),"gray")
+    result=discover_dispute(image,image,"center",None,None,"cpu",full_context=True)
+    assert result["findings"]==[] and result["rejected_locations"][-1]["reason"]=="excessive_precise_locations"
+
+
+@pytest.mark.parametrize("disagrees", ["editor","validator"])
+def test_two_locations_require_every_carrier_proof_from_both_models(monkeypatch,disagrees):
+    before,after,q=fixture()
+    q["residual_regions"].append({"kind":"logo","box":[.75,.3,.9,.45]})
+    history=[]
+    def classify(chats,*args):
+        history.append(len(chats))
+        stage="editor" if len(history)==1 else "validator"
+        return [report(),report(uncertain=stage==disagrees)]
+    monkeypatch.setattr("watermark_studio.cross_review._classify",classify)
+    monkeypatch.setattr("watermark_studio.cross_review._reinspect",
+                        lambda *a,**kw:pytest.fail("An ambiguous second carrier must prevent global appeal"))
+    run(before,after,q,full_context=True)
+    assert q["status"]=="review"
+    assert history==([2] if disagrees=="editor" else [2,2])

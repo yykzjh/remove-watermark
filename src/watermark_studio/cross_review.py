@@ -232,13 +232,16 @@ def discover_dispute(before,after,area,encoder,processor,device,full_context=Fal
               "局部左上(0,0)、右下(1000,1000)，不要使用完整照片坐标；"
               "observation写可见载体依据。没有精确线索则findings为空。"}]
     if full_context:
+        content[-1]["text"]=content[-1]["text"].replace(
+            "一处真实实物文字", "最多两处彼此分离的真实实物文字").replace("findings最多1项", "findings最多2项")
         content[-1]["text"]+=(
             "\n图2为完整结果，只补充载体上下文；box仍必须相对图1局部，不能用全图坐标。"
             "真实印刷文字、机械铭牌、贴纸和测量刻度属于实物文字，不要求现场书写或喷涂；"
             "数字相机覆盖层不能因靠近物体而当成实物。")
         content[-1:-1]=[{"type":"text","text":"图2完整结果；只辅助判断目标文字是否附着于真实物体。"},
                         {"type":"image","image":preview(after,640)}]
-    report=_generate_explanations([[{"role":"user","content":content}]],encoder,processor,device,192)[0]
+    report=_generate_explanations([[{"role":"user","content":content}]],encoder,processor,device,
+        320 if full_context else 192)[0]
     findings=report.get("findings",[])
     # The later checks still require pixel evidence, both models, a complete
     # reinspection and an un-whitelisted residual scan.
@@ -263,7 +266,11 @@ def discover_dispute(before,after,area,encoder,processor,device,full_context=Fal
         full=valid_box([left+x0*(right-left),top+y0*(bottom-top),
                         left+x1*(right-left),top+y1*(bottom-top)])
         mapped.append(finding|{"box":full})
-    report["findings"]=mapped[:1]
+    if full_context and len(mapped)>2:
+        report["findings"]=[]
+        report["rejected_locations"].append({"reason":"excessive_precise_locations"})
+    else:
+        report["findings"]=mapped[:2 if full_context else 1]
     return report
 
 
