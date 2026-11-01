@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import statistics
+import subprocess
 import time
 from pathlib import Path
 
@@ -21,6 +22,7 @@ batches=[int(s) for s in a.batches.split(",")]
 if not batches or len(set(batches))!=len(batches) or any(n<1 or n>4 for n in batches):
     p.error("Distinct batch sizes 1..4 required")
 if a.output.exists(): p.error("Fresh report required")
+revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
 os.environ["TOKENIZERS_PARALLELISM"]="false"
 os.environ["PYTORCH_ALLOC_CONF"]="expandable_segments:True"
@@ -97,6 +99,8 @@ for size in batches:
 assert before==hashlib.sha256(a.source.read_bytes()).hexdigest()
 report={"scope":"GPU generation+encoder and optional residency cycles; no detector/QA/IO",
         "physical_gpu":a.gpu,"resolution":a.resolution,"source_unchanged":True,
+        "source_sha256":before,"code_revision":revision,"batches":batches,
+        "inference_dimensions":dimensions(photo,a.resolution),
         "verifier_resident_at_cycle_boundaries":True,"phase_offload":a.quality_phase_offload,
         "host_pinned_mib":round(getattr(verifier,"_quality_host_pinned_bytes",0)/2**20),
         "prompt_profile":a.whole_prompt_profile,"saved_sigma_count":len(pipe.config.sample_sigmas),
