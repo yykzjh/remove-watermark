@@ -2783,6 +2783,88 @@
       "losses": 0,
       "previous_seconds": 375.775,
       "seconds_change_percent": 2.137
+    },
+    "quality_resolution1024_rejected": {
+      "profile": "4b-bf16",
+      "source_job": null,
+      "source_files": null,
+      "code_revision": "3c71b05",
+      "images": 108,
+      "verifications": 108,
+      "cross_full_context": false,
+      "paired_context": false,
+      "quality_resolution": 1024,
+      "select_review": false,
+      "rectangle_guard": true,
+      "source_mask_origin": "frozen_original_source_snapshot_and_synthetic_annotation",
+      "weight_identity": {
+        "relation": "different_weights",
+        "method": "canonical_tensor_sha256_v1",
+        "editor_sha256": "29048a3475264273945b3c44c3a61410f596a95909882fec3a81adf3456ea650",
+        "verifier_sha256": "7a3df8dda193313991aae478bda674cebce809936bae286b8c0f047976b3561f",
+        "editor_tensors": 750,
+        "verifier_tensors": 713
+      },
+      "cross_review_requested": true,
+      "cross_review_effective": true,
+      "seconds": 94.607,
+      "load_seconds": 22.583,
+      "cohorts": {
+        "controls": {
+          "images": 108,
+          "counts": {
+            "passed": 32,
+            "review": 75,
+            "error": 1
+          },
+          "model_seconds_sum": 423.6051,
+          "cross_corrected": 0,
+          "clean_refused": 7,
+          "defect_passed": 12,
+          "false_accept_files": [
+            "00-shadow_18.png",
+            "00-shadow_32.png",
+            "01-shadow_18.png",
+            "02-shadow_18.png",
+            "03-shadow_32.png",
+            "03-shadow_18.png",
+            "04-shadow_18.png",
+            "04-shadow_32.png",
+            "05-shadow_18.png",
+            "05-shadow_32.png",
+            "07-shadow_32.png",
+            "07-shadow_18.png"
+          ],
+          "false_refuse_files": [
+            "02-exact_jpeg.png",
+            "03-exact_jpeg.png",
+            "06-exact_jpeg.png",
+            "06-identity.png",
+            "08-exact_removal.png",
+            "08-exact_jpeg.png",
+            "08-identity.png"
+          ]
+        }
+      },
+      "outputs_unchanged": true,
+      "sources_unchanged": true,
+      "comparison": {
+        "baseline_seconds": 88.404,
+        "new_false_accepts": [],
+        "new_clean_refusals": [
+          "02-exact_jpeg.png",
+          "03-exact_jpeg.png",
+          "06-exact_jpeg.png",
+          "06-identity.png"
+        ],
+        "adopt": false
+      },
+      "errors": [
+        {
+          "file": "08-residual_text.png",
+          "reason": "Residual scan: 自动检测区域覆盖过大，已避免整图重绘"
+        }
+      ]
     }
   },
   "final_neutral_holdout1024": {

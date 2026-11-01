@@ -56,7 +56,7 @@ uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
 另检查完全不变、近乎不变及新出现的大面积纯色等异常；这些是保守保护条件，不是质量分数。
 原图确实无水印且模型检查通过、扫描为空时，完全不变的结果可以通过；原图定位若已发现水印，则不能仅凭低清残留扫描为空放行。
 
-- quality_resolution：预览长边，默认768。提高至1024/1280便于看小字，但增加耗时与显存。
+- quality_resolution：检验预览长边，默认768。更大不一定更准：本轮108份对照的1024预览新增4份正确图误拒，未采用；详见[最新完整实测](whole-protected-scale-2026-11-01.md)。
 - quality_batch_size：每卡一次检验的图片对上限，默认1，支持1..4；可从2试起，OOM拆分。
 - quality_detail_patches：0..8，默认4。按变化及结构自动选局部放大；不能穷尽每个像素。
 - quality_max_tokens：64..256，默认128。截断、解析错误、调用失败均记error。
