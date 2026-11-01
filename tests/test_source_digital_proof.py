@@ -140,3 +140,21 @@ def test_gray_small_raw_core_does_not_change_small_opaque_composition_policy():
     assert len(cores)==1
     mask,core=next(iter(cores.items()))
     assert core==parse_detection(raw,relative_padding=0)[0].box and mask!=core
+
+
+def test_structured_source_identity_never_uses_physical_only_appeal_recovery(monkeypatch):
+    from watermark_studio.source_digital_proof import SOURCE_DIGITAL_PROMPT, _classify
+    monkeypatch.setattr("watermark_studio.cross_review._recover_classification",lambda *a:pytest.fail("Wrong task"))
+    def structured(chats,fields,*a):
+        text=chats[0][0]["content"][-1]["text"]
+        assert "不是专门表示缺少实物载体" in text and "正面证据" in text
+        return [{f:report()[f] for f in fields}|{"area":"none"}],.1
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    chats=[[{"role":"user","content":[{"type":"text","text":SOURCE_DIGITAL_PROMPT}]}]]
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[{"status":"error"}])
+    with pytest.raises(ValueError,match="observable explanation"):
+        _classify(chats,None,None,"cpu")
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[
+        {"status":"summary_only","summary":"半透明卡片跨越不同方向的背景纹理，保持相同屏幕平面。"}])
+    result=_classify(chats,None,None,"cpu")[0]
+    assert digital_overlay(result) and result["protocol"]=="source-digital-structured-v3"

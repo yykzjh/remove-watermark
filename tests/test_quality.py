@@ -368,8 +368,18 @@ def test_rectangle_phase_warning_remains_a_veto_and_produces_shadow_retry_eviden
     ImageDraw.Draw(original).rectangle((160,120,560,480),fill=(30,100,220))
     ImageDraw.Draw(result).rectangle((160,120,560,480),fill=(120,120,120))
     regions=[Region(kind="panel",box=(.162,.156,.738,.844))]
+    from watermark_studio import rectangle_phase as phase_module
+    original_phase=phase_module.rectangle_phase_tight
+    cores=[{"mask":list(regions[0].box),"core":[.2,.2,.7,.8]}]
+    seen=[]
+    def strict_phase(before,after,masks,source_cores,*args,**kwargs):
+        seen.append(source_cores)
+        return original_phase(before,after,masks,source_cores,*args,**kwargs)
+    monkeypatch.setattr(phase_module,"rectangle_phase_tight",strict_phase)
     q=verify_batch([(original,result)],None,None,"cpu",source_regions=[regions],
-                   rectangle_guard=True,cross_review_allowed=[True],weights_relation="different_weights")[0]
+                   rectangle_guard=True,cross_review_allowed=[True],weights_relation="different_weights",
+                   editor_context=[{"protected_core_boxes":cores}])[0]
+    assert seen==[cores] and q["review_version"]=="2026-11-02.source-surface-v13-tight-phase"
     assert q["status"]=="review" and not q["natural"] and q["uncertain"]
     assert "repair_rectangle_phase" in q["guard_codes"]
     assert q["cross_review"]["reason"]=="strict_guard_or_content_veto"

@@ -107,3 +107,16 @@ def test_tight_search_does_not_use_unknown_or_outside_core_coordinates():
     _,source,dark,regions=fixture((.2,.2,.7,.8))
     for bad in ([{"mask":list(regions[0].box),"core":[0,0,1,1]}],[{"core":[float("nan"),0,1,1]}],[]):
         assert rectangle_phase_tight(source,dark,regions,bad)["findings"]==rectangle_phase_core(source,dark,regions,bad)["findings"]
+
+
+def test_tight_and_broad_core_reuse_the_same_fixed_blur_arrays(monkeypatch):
+    import watermark_studio.rectangle_phase as phase
+    _,source,dark,regions=fixture((.2,.2,.7,.8))
+    core={"mask":list(regions[0].box),"core":[.2,.2,.7,.8]}
+    original=phase._prepare_phase;calls=[]
+    def prepare(*args,**kwargs):
+        calls.append(kwargs.get("blur_radius"))
+        return original(*args,**kwargs)
+    monkeypatch.setattr(phase,"_prepare_phase",prepare)
+    result=phase.rectangle_phase_tight(source,dark,regions,[core])
+    assert result["count"]==1 and len(calls)==2 and calls.count(3.)==1

@@ -920,9 +920,9 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 verdict["guard_codes"] = verdict.get("guard_codes", []) + ["repair_boundary_step"]
                 verdict["reason"] = (verdict["reason"]+" 修补边界存在沿矩形方向的明暗突变，需复核。").strip()[:400]
             if rectangle_guard:
-                from .rectangle_phase import rectangle_phase
+                from .rectangle_phase import rectangle_phase_tight
                 phase_started=time.monotonic()
-                phase=rectangle_phase(before,seam_photo,regions)
+                phase=rectangle_phase_tight(before,seam_photo,regions,contexts[index].get("protected_core_boxes",[]))
                 phase["seconds"]=round(time.monotonic()-phase_started,6)
                 verdict["repair_rectangle_phase"]=phase
                 if phase["count"]:
@@ -945,7 +945,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                     extra["texture"]=repair_texture_warnings(seam_photo,scoped,feather,
                         before=before,core_boxes=scoped_cores)
                     if rectangle_guard:
-                        extra["phase"]=rectangle_phase(before,seam_photo,scoped)
+                        extra["phase"]=rectangle_phase_tight(before,seam_photo,scoped,scoped_cores)
                     for key,code in [("boundary","repair_boundary_step"),("texture","repair_texture_collapse"),
                                      ("phase","repair_rectangle_phase")]:
                         if extra.get(key,{}).get("count"):
@@ -963,7 +963,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
         verdict["scene_context"]=contexts[index].get("source_scene","unknown")
         verdict["rectangle_guard"]=rectangle_guard
-        verdict["review_version"] = ("2026-11-01.source-surface-v12-panel-phase" if rectangle_guard
+        verdict["review_version"] = ("2026-11-02.source-surface-v13-tight-phase" if rectangle_guard
                                       else "2026-11-01.source-surface-v12")
         candidate = verdict["status"] != "error" and (
             verdict["status"] == "passed" or verdict.get("watermark_removed") is False or (
@@ -1008,6 +1008,10 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             if allowed:
                 reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,
                            device,resolution,max_tokens,feather,context,weights_relation=weights_relation,full_context=cross_context)
-            verdict["review_version"]=("2026-11-01.native-reference-full-context-v12" if cross_context
-                                       else "2026-11-01.source-surface-v12")
+            if rectangle_guard:
+                verdict["review_version"]=("2026-11-02.native-reference-full-context-v13-tight-phase" if cross_context
+                                           else "2026-11-02.source-surface-v13-tight-phase")
+            else:
+                verdict["review_version"]=("2026-11-01.native-reference-full-context-v12" if cross_context
+                                           else "2026-11-01.source-surface-v12")
     return verdicts

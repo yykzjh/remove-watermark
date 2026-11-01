@@ -130,7 +130,7 @@ def rectangle_phase(before, after, regions, resolution=1024, *, _prepared=None):
             "findings":list(findings.values()),"comparison_size":size}
 
 
-def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024):
+def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024, *, _core_prepared=None):
     """Experimental added vetoes near validated raw detector edges; no approvals.
 
     Keep every original warning and all amplitude/coherence/source conditions.
@@ -160,7 +160,8 @@ def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024):
         # The safety-expanded core includes .008 frame padding: at a 1024px
         # comparison the actual photographed panel edge can be >5px inward.
         # Probe a bounded 12px neighborhood; still require every usable side.
-        core_prepared=_prepare_phase(before,after,resolution,blur_radius=3.)
+        core_prepared=(_core_prepared if _core_prepared is not None
+                       else _prepare_phase(before,after,resolution,blur_radius=3.))
         for sign in (-1,1):
             result = _single_phase(before,after,regions,resolution,sign,mapping,core_prepared,core_radius=12)
             for item in result["findings"]:
@@ -182,7 +183,6 @@ def rectangle_phase_tight(before, after, regions, core_boxes, resolution=1024):
     """
     from .surface_reference import _box
 
-    base=rectangle_phase_core(before,after,regions,core_boxes,resolution)
     mapping={}
     for item in core_boxes or []:
         if not isinstance(item,dict):
@@ -195,9 +195,10 @@ def rectangle_phase_tight(before, after, regions, core_boxes, resolution=1024):
         if (match is not None and mask[0]<=core[0]<core[2]<=mask[2]
                 and mask[1]<=core[1]<core[3]<=mask[3]):
             mapping[match]=core
+    prepared=_prepare_phase(before,after,resolution,blur_radius=3.) if mapping else None
+    base=rectangle_phase_core(before,after,regions,core_boxes,resolution,_core_prepared=prepared)
     findings={tuple(item["box"]):item for item in base["findings"]}
     if mapping:
-        prepared=_prepare_phase(before,after,resolution,blur_radius=3.)
         for sign in (-1,1):
             result=_single_phase(before,after,regions,resolution,sign,mapping,prepared,core_radius=2)
             for item in result["findings"]:

@@ -52,6 +52,7 @@ def main():
     hashes={r["file"]:hashlib.sha256((sources/r["file"]).read_bytes()).hexdigest() for r in rows}
     work=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")/a.tag
     work.mkdir(exist_ok=False);outputs=work/"output";outputs.mkdir()
+    (work/"sources.json").write_text(json.dumps([str(sources/r["file"]) for r in rows],ensure_ascii=False))
     job=uuid.uuid4().hex;folder=state/job;folder.mkdir(exist_ok=False)
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -79,6 +80,8 @@ def main():
     torch.set_num_threads(1)
     loaded=time.monotonic()
     pipe=QwenImage21Pipeline.from_pretrained(a.model,dtype=torch.bfloat16,local_files_only=True)
+    if len(pipe.config.sample_sigmas or [])!=8:
+        raise ValueError("This probe requires the original Turbo eight-sigma grid")
     branch,identity=load_branch(pipe.transformer,a.control,a.sha256)
     quantize_transformer(pipe.transformer,"float8","tensor")
     pipe.to("cuda:0");branch.to(device="cuda:0",dtype=torch.bfloat16)
@@ -125,6 +128,8 @@ def main():
                     latent=pipe(prompt=prompt,image=None,width=width,height=height,output_resolution=a.resolution,
                         true_cfg_scale=1.,use_kv_cache=False,generator=torch.Generator("cpu").manual_seed(seed),
                         output_type="latent").images
+                if len(pipe.scheduler.timesteps)!=8:
+                    raise ValueError("Turbo step count changed")
                 generated=decode_latents(pipe,latent,height,width)[0].convert("RGB").resize(source.size,Image.Resampling.LANCZOS)
                 del latent,context
                 generated=composite_protected(source,generated,scoped,options.feather,options.repair_blending,
@@ -146,7 +151,8 @@ def main():
         result.update(ok=True,quality={},quality_attempts=1,model_inferences=int(bool(regions)),
             processing_path="whole_composite" if regions else "source_copy",
             action="restored" if regions else "no_watermark_detected",output_size=size,controlnet_probe={"weights":identity,
-            "scale":a.scale,"source_caption":caption,"source_masks_frozen":True,"whole_frame":True,
+            "scale":a.scale,"denoising_steps":8 if regions else 0,
+            "source_caption":caption,"source_masks_frozen":True,"whole_frame":True,
             "kv_cache":False,"seconds":round(time.monotonic()-start,3),
             "peak_allocated_mib":round(torch.cuda.max_memory_allocated()/2**20)})
         results.append(result)
