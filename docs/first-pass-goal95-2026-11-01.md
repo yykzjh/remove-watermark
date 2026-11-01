@@ -684,3 +684,8 @@ BasicSR RRDB计算适配，完整Apache-2.0许可证与修改说明随代码保�
 纯ControlNet原本没有可复用的原图VAE prefix，因此必须明确多算1次VAE编码（不是额外扩散生成）；
 原始整图参考已经提供正确prefix时可复用为0次。不会把新增参考作为额外prefix插入纯ControlNet序列。
 不改原sigmas、前向次数、源/输出目录、质量门槛；异常时恢复所有临时方法覆盖，须单测与真实试验。
+
+0690639的flow-none/flow-source首图均在实际pipeline的retrieve_timesteps兼容检查提前中止：
+临时set_timesteps包装器未保留sigmas方法签名，模型误判不支持自定义sigmas；不是图像质量失败，也不是OOM。
+修复为两项临时方法均functools.wraps保留原签名，并将原测试改为实际第三方retrieve_timesteps入口，
+而非仅直接调用包装器。旧失败记录保留，新试验须另起v2；实际8步sigmas仍不修改。

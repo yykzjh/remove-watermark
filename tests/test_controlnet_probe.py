@@ -114,6 +114,7 @@ def test_control_source_flow_anchors_only_unmasked_target_without_inserting_a_pr
     torch=pytest.importorskip("torch")
     pytest.importorskip("diffusers")
     from diffusers import FlowMatchEulerDiscreteScheduler
+    from diffusers.pipelines.qwenimage21.pipeline_qwenimage21 import retrieve_timesteps
     from PIL import Image
 
     from watermark_studio.config import Region
@@ -135,7 +136,7 @@ def test_control_source_flow_anchors_only_unmasked_target_without_inserting_a_pr
     with source_flow_context(pipe,Image.new("RGB",(128,128)),[Region(box=(.4,.4,.6,.6))],128,128,True) as (callbacks,audit):
         noise,prefix=pipe.prepare_latents(None)
         assert (prefix is reference) if reuse_prefix else prefix is None
-        pipe.scheduler.set_timesteps(sigmas=[1.,.5],device="cpu")
+        retrieve_timesteps(pipe.scheduler,sigmas=[1.,.5],device="cpu")
         for i in range(2):
             pipe.scheduler._step_index=i+1
             result=callbacks["callback_on_step_end"](pipe,i,None,{"latents":torch.full_like(noise,7.)})["latents"]

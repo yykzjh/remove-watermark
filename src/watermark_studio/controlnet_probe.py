@@ -179,6 +179,8 @@ def source_flow_context(pipe,source,regions,width,height,enabled=False):
     if not enabled:
         yield {},{}
         return
+    from functools import wraps
+
     import torch
 
     from .batching import override_methods
@@ -189,6 +191,7 @@ def source_flow_context(pipe,source,regions,width,height,enabled=False):
     ctx=DenoisingContext([item],width,height,pipe.vae_scale_factor)
     original_prepare=pipe.prepare_latents;original_schedule=pipe.scheduler.set_timesteps
     audit={"enabled":True,"extra_vae_encodes":0,"extra_diffusion_forwards":0}
+    @wraps(original_prepare)
     def prepare(images,*args,**kwargs):
         noise,prefix=original_prepare(images,*args,**kwargs)
         reference=prefix
@@ -200,6 +203,7 @@ def source_flow_context(pipe,source,regions,width,height,enabled=False):
             audit["extra_vae_encodes"]=1
         ctx.capture(noise,reference)
         return noise,prefix
+    @wraps(original_schedule)
     def schedule(*args,**kwargs):
         result=original_schedule(*args,**kwargs)
         ctx.schedule(pipe.scheduler.sigmas)
