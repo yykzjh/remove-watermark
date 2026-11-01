@@ -111,6 +111,7 @@ class DeploymentConfig(BaseModel):
     large_batch_size: int = Field(default=0, ge=0, le=16)
     small_batch_size: int = Field(default=0, ge=0, le=16)
     prefill_overlays: bool = False
+    prefill_style: Literal["harmonic","gray"] = "harmonic"
     prefill_original_semantics: bool = False
     protect_denoising_context: bool = False
     protect_source_rims: bool = False
@@ -176,6 +177,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.prefill_style=="gray" and (not self.prefill_overlays or not self.protect_source_rims or self.prefill_original_semantics):
+            raise ValueError("Gray whole conditioning requires prefill-overlays and protect-source-rims; original-semantics is incompatible")
         if self.translucent_body_hint and (not self.protect_source_rims or self.prefill_overlays):
             raise ValueError("半透明背景输入实验需要protect-source-rims且不能同时使用prefill-overlays")
         if self.transformer_phase_offload and (self.quantization!="none" or self.offload!="none"):

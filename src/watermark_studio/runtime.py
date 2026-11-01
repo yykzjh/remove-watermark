@@ -479,6 +479,7 @@ class Runtime:
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
                     "prefill_overlays": self.config.prefill_overlays,
+                    "prefill_style": self.config.prefill_style,
                     "prefill_original_semantics": self.config.prefill_original_semantics,
                     "protect_denoising_context": self.config.protect_denoising_context,
                     "protect_source_rims": self.config.protect_source_rims,

@@ -8,14 +8,22 @@ from pathlib import Path
 
 from watermark_studio.config import Region
 from watermark_studio.images import load_photo
-from watermark_studio.rectangle_phase import rectangle_phase, rectangle_phase_core
+from watermark_studio.rectangle_phase import (
+    _prepare_phase,
+    _single_phase,
+    rectangle_phase,
+    rectangle_phase_core,
+)
 
 p=argparse.ArgumentParser()
 p.add_argument("--controls",type=Path,required=True)
 p.add_argument("--baseline",type=Path,required=True)
 p.add_argument("--core-boundaries",action="store_true")
+p.add_argument("--tight-core",action="store_true",help="Offline only: fixed two-pixel source-core search; original thresholds and all side requirements")
 p.add_argument("--output",type=Path,required=True)
 a=p.parse_args()
+if a.core_boundaries and a.tight_core:
+    p.error("Choose one diagnostic search")
 if a.output.exists():
     p.error("Fresh output required")
 helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
@@ -27,14 +35,23 @@ rows=[]
 for c in cases:
     arguments=(load_photo(c["source"])[0],load_photo(c["output"])[0],
                [Region.model_validate(r) for r in c["regions"]])
-    result=(rectangle_phase_core(*arguments,c["source_cores"]) if a.core_boundaries
-            else rectangle_phase(*arguments))
+    if a.tight_core:
+        mapping={tuple(item["mask"]):tuple(item["core"]) for item in c["source_cores"]}
+        prepared=_prepare_phase(arguments[0],arguments[1],1024,blur_radius=3.)
+        found={}
+        for sign in (-1,1):
+            cue=_single_phase(*arguments,1024,sign,mapping,prepared,core_radius=2)
+            found.update({tuple(item["box"]):item for item in cue["findings"]})
+        result={"method":"offline_tight_source_core_v1","count":len(found),"findings":list(found.values())}
+    else:
+        result=(rectangle_phase_core(*arguments,c["source_cores"]) if a.core_boundaries
+                else rectangle_phase(*arguments))
     rows.append({"file":c["file"],"expected":c["expected"],"baseline":baseline[c["file"]],"phase":result})
 assert hashes==helper["file_hashes"](cases)
 report={"code_revision":subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip(),"images":len(cases),"sources_and_outputs_unchanged":True,"seconds":round(time.monotonic()-started,3),
         "clean_warned":[r["file"] for r in rows if r["expected"]=="passed" and r["phase"]["count"]],
         "newly_caught_defects":[r["file"] for r in rows if r["expected"]=="review" and r["baseline"]=="passed" and r["phase"]["count"]],
         "all_defects_warned":sum(r["expected"]=="review" and bool(r["phase"]["count"]) for r in rows),
-        "core_boundaries":a.core_boundaries,"scope":"offline cue, not full QA acceptance","rows":rows}
+        "core_boundaries":a.core_boundaries,"tight_core":a.tight_core,"scope":"offline cue, not full QA acceptance","rows":rows}
 a.output.write_text(json.dumps(report,indent=2))
 print(json.dumps({k:v for k,v in report.items() if k!="rows"}),flush=True)

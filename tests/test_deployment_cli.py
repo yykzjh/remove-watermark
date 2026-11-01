@@ -105,3 +105,16 @@ def test_adapter_cli_keeps_artifact_fingerprint_and_rejects_nonfinite_strength(t
     for flags in (["--lora-scale","nan"],["--lora-alpha","inf"],["--lora-sha256","invalid"]):
         with pytest.raises(SystemExit):
             parse_deployment(["--config",str(path),*flags])
+
+
+
+@pytest.mark.parametrize("flags",[
+    ["--prefill-style","gray"],
+    ["--prefill-style","gray","--prefill-overlays"],
+    ["--prefill-style","gray","--prefill-overlays","--protect-source-rims",
+     "--quality-verifier","--quality-backend","independent","--prefill-original-semantics"],
+])
+def test_gray_conditioning_requires_source_proofs_and_its_own_semantics(tmp_path,flags):
+    path=tmp_path/"base.toml";path.write_text("")
+    with pytest.raises(SystemExit):
+        parse_deployment(["--config",str(path),*flags])

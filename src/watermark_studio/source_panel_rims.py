@@ -138,6 +138,7 @@ def inspect_photo_rims(photo, proposals, editor, editor_processor, verifier,
     from .quality import _structured_vqa, preview
 
     audited = []
+    source_rgb_sha256 = None
     for proposal in proposals:
         record = dict(proposal)
         record.update(weights_relation=weights_relation, approved=False)
@@ -179,6 +180,9 @@ def inspect_photo_rims(photo, proposals, editor, editor_processor, verifier,
             record["reason"] = "two_source_proofs_and_text_veto" if record["approved"] else "independent_disagreed"
             if record["approved"]:
                 record["source_rim_sha256"] = hashlib.sha256(photo.crop((l, t, r, b)).tobytes()).hexdigest()
+                if source_rgb_sha256 is None:
+                    source_rgb_sha256 = hashlib.sha256(photo.convert("RGB").tobytes()).hexdigest()
+                record["source_rgb_sha256"] = source_rgb_sha256
         except Exception as error:  # noqa: BLE001 - never restore uncertain source pixels
             record.update(reason="source_proof_error", error=f"{type(error).__name__}: {error}"[:240])
         finally:

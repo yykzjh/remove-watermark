@@ -21,6 +21,7 @@ from .images import (
 from .prompts import (
     build_focused_prompt,
     build_full_prompt,
+    build_gray_outpaint_prompt,
     build_prefilled_full_prompt,
     build_prefilled_prompt,
     build_prompt,
@@ -419,8 +420,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 hint_applied=any(r.get("applied") for r in hint_audits)
                 if config.prefill_overlays and state["whole_generation"] and state["protected_regions"] is not None:
                     from .images import prefill_whole_reference
-                    reference,prefilled=prefill_whole_reference(
-                        source,state["protected_regions"],state["protection_cores"])
+                    if config.prefill_style=="gray":
+                        from .gray_conditioning import gray_whole_reference
+                        reference,prefilled=gray_whole_reference(source,state["protected_regions"],
+                            state["protection_cores"],source_rim_audits.get(task["relative"],[]))
+                    else:
+                        reference,prefilled=prefill_whole_reference(
+                            source,state["protected_regions"],state["protection_cores"])
                 elif config.prefill_overlays and focused_auto:
                     reference,prefilled=prefill_overlay_reference(source,box,crop,regions)
                 extra_prompt = options.extra_prompt
@@ -460,6 +466,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                             and config.prefill_original_semantics) else None),
                     "prompt": (build_full_prompt(extra_prompt,options.whole_prompt_profile)
                                if prefilled and state["whole_generation"] and config.prefill_original_semantics else
+                               build_gray_outpaint_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] and config.prefill_style=="gray" else
                                build_prefilled_full_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] else
                                build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
                                build_full_prompt(extra_prompt, options.whole_prompt_profile) if state["whole_generation"] else
@@ -596,6 +603,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "model_prefill_batch_sizes":[e.get("_prefill_batch_size",0) for e in edits if e["state"] is state],
             "window_prefill_stats":prefill_stats,
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
+            "prefill_style":config.prefill_style,
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
             "translucent_hint":[r for e in edits if e["state"] is state for r in e.get("translucent_hint",[])],
             "denoising_context": [e.get("_denoising_context_log") for e in edits if e["state"] is state
@@ -605,6 +613,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 or any(any(r.get("applied") for r in e.get("translucent_hint",[])) for e in edits if e["state"] is state),
             "whole_conditioning_source":("assumed_translucent_body_hint" if any(
                 any(r.get("applied") for r in e.get("translucent_hint",[])) for e in edits if e["state"] is state)
+                else "source_proven_gray_initialization" if config.prefill_style=="gray" and state["whole_generation"]
+                and any(e["prefilled"] for e in edits if e["state"] is state)
                 else "source_harmonic_initialization" if state["whole_generation"]
                 and any(e["prefilled"] for e in edits if e["state"] is state) else "unmodified_original"),
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
