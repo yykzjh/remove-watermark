@@ -156,3 +156,11 @@ def test_retry_locations_are_projected_into_actual_crop_without_cross_region_lea
     prompt=local_retry_guidance(findings,(100,100,500,500),(1000,500))
     assert "当前输入裁切图0..1坐标 0.2500,0.2500,0.7500,0.7500" in prompt
     assert "明暗和色温台阶" in prompt and "细小防伪码" not in prompt
+
+
+def test_full_image_retry_coordinates_do_not_claim_a_crop():
+    from watermark_studio.evidence import local_retry_guidance
+    text=local_retry_guidance([{"issue":"material_mismatch","box":[0,.6,.4,1]}],
+                             (0,0,2000,1500),(2000,1500))
+    assert "当前完整输入图" in text and "裁切图" not in text
+    assert "0.0000,0.6000,0.4000,1.0000" in text

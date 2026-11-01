@@ -185,7 +185,9 @@ def local_retry_guidance(findings, crop, image_size):
             box=[(x0-left)/(right-left),(y0-top)/(bottom-top),
                  (x1-left)/(right-left),(y1-top)/(bottom-top)]
         local.append({"issue":item["issue"],"box":box})
-    return retry_guidance(local).replace("完整原图0..1坐标","当前输入裁切图0..1坐标")
+    label=("当前完整输入图0..1坐标" if (left,top,right,bottom)==(0,0,width,height)
+           else "当前输入裁切图0..1坐标")
+    return retry_guidance(local).replace("完整原图0..1坐标",label)
 
 
 def _explanation_chats(pairs, verdicts, resolution):
