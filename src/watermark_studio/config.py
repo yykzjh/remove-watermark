@@ -117,6 +117,8 @@ class DeploymentConfig(BaseModel):
     oom_split_batch: bool = False
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
     quality_verifier: bool = False
+    protection_detail_scan: bool = False
+    protection_core_feather: bool = False
     quality_rectangle_guard: bool = False
     quality_backend: Literal["resident", "independent"] = "resident"
     quality_model: str = "Qwen/Qwen3-VL-4B-Instruct"

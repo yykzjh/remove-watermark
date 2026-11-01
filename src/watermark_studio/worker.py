@@ -122,6 +122,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     detail_counts = {}
     edge_evidence = {}
     context_evidence = {}
+    source_geometry_requeries = {}
     needs_detection = cuda and (
         (options.scope == "full_image" and options.preserve_background)
         or (options.scope == "regions" and options.preset == "auto")
@@ -142,13 +143,29 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             pipe.text_encoder, pipe.processor, pipe._execution_device,
             options.detection_resolution,config.detection_batch_size,options.first_pass_mode!="whole",
         )
-        if options.first_pass_mode in {"thorough","complete"}:
+        protected_details=(config.protection_detail_scan and options.scope=="full_image"
+                           and options.preserve_background and options.first_pass_mode=="whole")
+        if protected_details:
+            from .detection import DETECTION_PROMPT, DetectionAreaError
+            for i,result in enumerate(found):
+                if isinstance(result,DetectionAreaError):
+                    retried=locate_watermarks_batch([decoded[detect_tasks[i]["relative"]][0]],
+                        pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,1,True,
+                        DETECTION_PROMPT+"\nInspect this ORIGINAL photograph afresh. Discard the previous oversized box. "
+                        "Physical documents/inspection boards are not digital overlays. Locate only the real "
+                        "digitally superimposed groups; keep disconnected groups separate. Never clamp boxes, "
+                        "invent empty results or weaken area limits to avoid an error.")[0]
+                    found[i]=retried
+                    source_geometry_requeries[detect_tasks[i]["relative"]]={
+                        "attempts":1,"initial_error":str(result)[:160],
+                        "status":"error" if isinstance(retried,Exception) else "valid","same_area_limit":True}
+        if options.first_pass_mode in {"thorough","complete"} or protected_details:
             from .detection import refine_source_details
             edge_audit={}
             context_audit={}
             found, counts = refine_source_details([decoded[t["relative"]][0] for t in detect_tasks],found,
                 pipe.text_encoder,pipe.processor,pipe._execution_device,options.detection_resolution,config.detection_batch_size,
-                complete=options.first_pass_mode=="complete",edge_audit=edge_audit,context_audit=context_audit)
+                complete=options.first_pass_mode=="complete" or protected_details,edge_audit=edge_audit,context_audit=context_audit)
             detail_counts={t["relative"]:counts[i] for i,t in enumerate(detect_tasks)}
             edge_evidence={t["relative"]:edge_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
             context_evidence={t["relative"]:context_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
@@ -264,6 +281,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 except (ValueError,TypeError,KeyError):
                     pass  # A missing raw core keeps the fully opaque padded mask.
             state["source_scene"]=scene
+            state["protection_cores"]={}
+            if state["whole_generation"] and state["protected_regions"] is not None and config.protection_core_feather:
+                from .detection import source_core_boxes
+                try:
+                    state["protection_cores"]=source_core_boxes(detections[task["relative"]][0][1])
+                except (ValueError,TypeError,KeyError):
+                    pass  # Invalid/missing source-core provenance keeps the whole padded mask opaque.
             stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
             for index, region in enumerate(regions):
                 box = pixel_box(region.box, source.size)
@@ -376,6 +400,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 if state["protected_regions"] is not None:
                     state["result"] = composite_protected(
                         state["source"], state["result"], state["protected_regions"], options.feather, options.repair_blending,
+                        core_boxes=state["protection_cores"],
                     )
             else:
                 state["result"] = blend_patch(
@@ -399,6 +424,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
             "whole_prompt_profile":options.whole_prompt_profile,
+            "protection_detail_scan":config.protection_detail_scan,
+            "protection_core_feather":config.protection_core_feather,
+            "protected_core_boxes":[{"mask":list(r.box),"core":list(state["protection_cores"][r.box])}
+                for r in state["protected_regions"] or [] if r.box in state["protection_cores"]],
+            "source_geometry_requery":source_geometry_requeries.get(task["relative"]),
             "source_brief":source_briefs.get(task["relative"]),
             "edit_prompt_sha256":[hashlib.sha256(e["prompt"].encode()).hexdigest() for e in edits if e["state"] is state],
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],

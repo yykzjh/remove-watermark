@@ -443,3 +443,19 @@ def source_scene(text):
         return scene if scene in {"outdoor","document","indoor","unknown"} else "unknown"
     except (ValueError,TypeError,AttributeError):
         return "unknown"
+
+
+def source_core_boxes(text):
+    """Map unchanged padded source detections to fully opaque, safety-expanded cores."""
+    padded=parse_detection(text)
+    cores=parse_detection(text,relative_padding=0)
+    result={}
+    for region in padded:
+        l,t,r,b=region.box
+        if (r-l)*(b-t)<.035:
+            continue  # Tiny codes need their entire padded mask fully opaque.
+        inside=[c.box for c in cores if l<=c.box[0]<c.box[2]<=r and t<=c.box[1]<c.box[3]<=b]
+        if inside:
+            result[region.box]=(min(c[0] for c in inside),min(c[1] for c in inside),
+                                max(c[2] for c in inside),max(c[3] for c in inside))
+    return result

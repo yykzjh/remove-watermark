@@ -90,9 +90,8 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         settings.seed = (settings.seed + 104729 * (attempt - 1)) % (2**32)
         settings.resolution = options.quality_retry_resolution
         settings.quality_batch_size = 1
-        direct_whole=(options.scope=="full_image" and options.first_pass_mode=="whole"
-                      and not options.preserve_background)
-        if not direct_whole and not (options.scope == "regions" and options.preset == "custom"):
+        whole_input=(options.scope=="full_image" and options.first_pass_mode=="whole")
+        if not whole_input and not (options.scope == "regions" and options.preset == "custom"):
             settings.scope, settings.preset, settings.regions = "regions", "auto", []
         settings.extra_prompt = (
             options.extra_prompt + "\n精确清除所有数字覆盖层及淡色文字、边框和小图标。"

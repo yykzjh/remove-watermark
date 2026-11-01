@@ -26,6 +26,8 @@ HELP = {
     "replicas_per_gpu": "Full model copies per GPU, 1..4; multiplies VRAM use",
     "quality_backend": "resident: reuse image encoder; independent: separate instruction VLM",
     "quality_verifier": "Enable post-removal review using the selected quality backend",
+    "protection_detail_scan": "Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs",
+    "protection_core_feather": "Fade only the source detector safety margin; keep the complete watermark core opaque",
     "quality_rectangle_guard": "With quality verification, review coherent multi-side panel tone steps; CPU-only, no extra model call",
     "quality_model": "Independent quality VLM repository or local path; adds GPU memory",
     "quality_revision": "Independent quality VLM revision (master for ModelScope)",

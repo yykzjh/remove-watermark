@@ -153,7 +153,7 @@ def test_explicit_quality_launch_defaults_do_not_submit_job():
         preserve_background=True, quality_check=True, quality_auto_retry=True, quality_cross_review=True,
         quality_batch_size=2, input_dir="/mnt/input", output_dir="/mnt/output",
     ))
-    assert not window.preserve_background.isChecked()
+    assert window.preserve_background.isChecked()
     assert window.quality_check.isChecked() and window.quality_retry.isChecked()
     assert window.quality_cross_review.isChecked()
     assert window.quality_batch.value() == 2
@@ -201,8 +201,7 @@ def test_tuned_launch_context_reaches_submission_without_adding_batch_regions():
     assert payload["options"]["context"]==.45
     assert payload["options"]["first_pass_mode"]=="whole"
     assert payload["options"]["whole_prompt_profile"]=="fidelity"
-    assert payload["options"]["preserve_background"] is False
-    assert not window.preserve_background.isVisible()
+    assert payload["options"]["preserve_background"] is True
     assert not window.first_pass_mode.isVisible()
     assert payload["options"]["scope"]=="full_image" and payload["options"]["regions"]==[]
     window.close()

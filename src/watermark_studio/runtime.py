@@ -471,6 +471,8 @@ class Runtime:
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
                     "prefill_overlays": self.config.prefill_overlays,
+                    "protection_detail_scan":self.config.protection_detail_scan,
+                    "protection_core_feather":self.config.protection_core_feather,
                     "cudnn_benchmark": self.config.cudnn_benchmark,
                     "vae_channels_last": self.config.vae_channels_last,
                 },

@@ -201,6 +201,8 @@ for profile,whole_prompt_profile in itertools.product(args.profiles,args.whole_p
         "residual_geometry_requeries":sum(r.get("quality",{}).get("residual_scan_requery",{}).get("attempts",0) for r in rows),
         "generation_retries":sum(max(0,r.get("quality_attempts",1)-1) for r in rows),
         "input_budgets":dict(collections.Counter(str(n) for r in rows for n in r.get("model_input_budgets",[]))),
+        "source_geometry_requeries":sum((r.get("source_geometry_requery") or {}).get("attempts",0) for r in rows),
+        "core_feather_images":sum(bool(r.get("protected_core_boxes")) for r in rows),
         "source_brief_errors":sum((r.get("source_brief") or {}).get("status")=="error" for r in rows),
         "source_brief_seconds_sum":round(sum((r.get("source_brief") or {}).get("seconds",0) for r in rows),4),
         "source_detail_views":sum(r.get("source_detail_views",0) for r in rows),

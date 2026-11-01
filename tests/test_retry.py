@@ -374,3 +374,18 @@ def test_whole_image_retry_default_does_not_reduce_the_default_input_budget():
     options=ProcessingConfig(scope="full_image",quality_check=True,quality_auto_retry=True)
     assert options.resolution==options.quality_retry_resolution==1024
     assert options.whole_prompt_profile=="fidelity"
+
+
+def test_protected_whole_retry_never_switches_to_region_crops(tmp_path):
+    target=tmp_path/"out.png"
+    options=ProcessingConfig(scope="full_image",preserve_background=True,quality_check=True,
+                             quality_auto_retry=True,quality_max_attempts=2)
+    task={"source":"unchanged-original","destination":str(target),"relative":"a.png","_retry":True,"_attempt":2}
+    def process(tasks,settings,*args):
+        assert settings.scope=="full_image" and settings.first_pass_mode=="whole"
+        assert settings.preserve_background is True
+        Path(tasks[0]["destination"]).write_bytes(b"result")
+        return [{"file":"a.png","ok":True,"quality":verdict("passed",removed=True)}]
+    result=process_attempts([task],options,DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state")),
+                            None,{},"job",process)[0]
+    assert result["quality"]["status"]=="passed" and target.read_bytes()==b"result"

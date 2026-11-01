@@ -349,8 +349,9 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setObjectName("muted")
         form.addRow(note)
-        self.preserve_background = QCheckBox("自动保护原图内容（减少非水印内容被重绘）")
-        self.preserve_background.setToolTip("历史对照参数：自动定位后裁切或合成；客户端自动模式始终整图直接处理。")
+        self.preserve_background = QCheckBox("自动保护原图内容（整图推理，仅合成每张图的水印处）")
+        self.preserve_background.setToolTip("整张原图送入模型；自动逐图定位水印，只合成水印处，保留其余原图像素。无需手工框选，不裁切模型输入。JPEG重编码仍可能产生细小量化差异。")
+        self.preserve_background.toggled.connect(self.mode_changed)
         form.addRow(self.preserve_background)
         self.first_pass_mode = QComboBox()
         self.first_pass_mode.addItem("整图直接处理（无局部合成）","whole")
@@ -360,7 +361,7 @@ class MainWindow(QMainWindow):
         self.first_pass_mode.setToolTip("精细策略需启用原图保护，内部自动分配模型输入预算；细小覆盖层使用可读的输入视图，无需统一框选。它可能包含多个模型调用，不等于仅调用模型一次。")
         form.addRow("首轮去水印策略",self.first_pass_mode)
         # Retain legacy launch parsing for historical experiments, not as batch UI controls.
-        for widget in (self.preserve_background,self.first_pass_mode):
+        for widget in (self.first_pass_mode,):
             widget.hide()
         form.labelForField(self.first_pass_mode).hide()
         self.processing_note=QLabel("整张原图直接输入模型，完整结果直接输出；不裁切水印子图、不回贴原图。返工也采用整图处理。")
@@ -474,10 +475,13 @@ class MainWindow(QMainWindow):
             self.repair_blending.setVisible(show_blending)
             self.blending_label.setVisible(show_blending)
             self.repair_blending.setEnabled(show_blending)
+            selected=custom and self.tabs.currentIndex()==1
+            self.preserve_background.setVisible(not selected)
             self.processing_note.setText(
-                "自定义区域：修补所选区域后合并回整图；最终按完整图像尺寸输出。"
-                if custom and self.tabs.currentIndex()==1 else
-                "整张原图直接输入模型，完整结果直接输出；不裁切水印子图、不回贴原图。返工也采用整图处理。")
+                "自定义区域：修补所选区域后合并回整图；最终按完整图像尺寸输出。" if selected else
+                "整张原图输入模型，自动定位每张图的水印并合成修复结果，其余保留原图；返工也保持整图输入。"
+                if self.preserve_background.isChecked() else
+                "整张原图直接输入模型，完整结果直接输出；返工也采用整图处理。")
         self.canvas.set_selectable(custom and bool(self.preview_path))
 
     def boxes_changed(self, boxes):
@@ -551,7 +555,7 @@ class MainWindow(QMainWindow):
                 quality_auto_retry=self.quality_retry.isChecked(),
                 quality_max_attempts=self.quality_attempts.value(),
                 quality_retry_resolution=self.retry_resolution.currentData(),
-                preserve_background=False,
+                preserve_background=self.preserve_background.isChecked() and not custom,
                 repair_blending=self.repair_blending.currentData(),
                 first_pass_mode="whole",
                 whole_prompt_profile=getattr(self,"processing_whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default),
@@ -708,12 +712,12 @@ def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     window.processing_context=getattr(args,"context",.6)
     window.processing_whole_prompt_profile=getattr(args,"whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default)
-    if getattr(args,"first_pass_mode","whole")!="whole" or args.preserve_background:
-        print("Desktop automatic mode now uses whole-image direct output; legacy crop/composite options apply only to CLI/API comparisons.",file=sys.stderr)
+    if getattr(args,"first_pass_mode","whole")!="whole":
+        print("Desktop automatic mode uses whole-image inference; legacy crop strategies apply only to CLI/API comparisons.",file=sys.stderr)
     window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData("whole"))
     window.resolution.setCurrentIndex(window.resolution.findData(getattr(args,"input_resolution",1024)))
     window.repair_blending.setCurrentIndex(window.repair_blending.findData(getattr(args,"repair_blending","harmonic")))
-    window.preserve_background.setChecked(False)
+    window.preserve_background.setChecked(args.preserve_background)
     window.quality_check.setChecked(args.quality_check)
     window.quality_retry.setChecked(args.quality_auto_retry)
     window.quality_cross_review.setChecked(getattr(args,"quality_cross_review",False))
@@ -742,7 +746,7 @@ def main():
     parser.add_argument("--quality-check", action="store_true", help="Preselect quality review")
     parser.add_argument("--quality-cross-review", action="store_true", help="Preselect editor/independent dispute review")
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
-    parser.add_argument("--preserve-background", action="store_true", help="Legacy compatibility argument; desktop automatic mode always uses direct whole-image output")
+    parser.add_argument("--preserve-background", action="store_true", help="Preselect automatic per-image source protection after whole-image inference")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")

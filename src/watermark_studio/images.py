@@ -422,7 +422,7 @@ def inference_shape(path, resolution):
     height = width / ratio
     return round(width / 32) * 32, round(height / 32) * 32
 
-def composite_protected(original, generated, regions, feather=12, blending="feather"):
+def composite_protected(original, generated, regions, feather=12, blending="feather", *, core_boxes=None):
     """Keep the source outside automatically detected overlay masks."""
     if original.size != generated.size:
         raise ValueError("Protected composition requires source-sized generated image")
@@ -436,7 +436,9 @@ def composite_protected(original, generated, regions, feather=12, blending="feat
         x0, y0, x1, y1 = box
         crop = (max(0, x0-feather), max(0, y0-feather),
                 min(w, x1+feather), min(h, y1+feather))
-        result = blend_patch(result, generated.crop(crop), box, crop, feather)
+        core=(core_boxes or {}).get(tuple(region.box))
+        core=pixel_box(core,original.size) if core is not None else None
+        result = blend_patch(result, generated.crop(crop), box, crop, feather, core_box=core)
     return result
 
 

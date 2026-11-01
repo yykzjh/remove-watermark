@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--quality-auto-retry", action="store_true")
     parser.add_argument("--quality-max-attempts", type=int, default=3, help="0: until pass or cancel")
     parser.add_argument("--quality-retry-resolution", type=int, default=1024)
-    parser.add_argument("--preserve-background", action="store_true", help="Legacy crop/composite experiment; omit for direct whole-image processing")
+    parser.add_argument("--preserve-background", action="store_true", help="Automatically preserve source outside each image watermark after full-frame inference")
     parser.add_argument("--context",type=float,default=.6,help="Reconstruction context factor, 0.1..2")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
     parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene"],default="fidelity",help="fidelity: default; baseline: historical comparison; scene: experimental source-facts guidance")
