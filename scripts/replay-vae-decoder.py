@@ -47,12 +47,16 @@ def main():
         p.error("Every selected image needs one valid protected generation and its original latent capture")
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu);os.environ.pop("WATERMARK_REPAIR_CAPTURE",None)
     import torch
-    from PIL import Image
     from safetensors.torch import load_file
 
     from watermark_studio.batching import decode_latents
     from watermark_studio.config import ProcessingConfig, Region
     from watermark_studio.decoder_probe import decoder_pair
+    from watermark_studio.full_frame_sampling import (
+        full_frame_mapping,
+        restore_full_frame,
+        sample_full_frame,
+    )
     from watermark_studio.images import (
         composite_protected,
         load_photo,
@@ -101,6 +105,14 @@ def main():
         scoped,cores,invalid=effective_rim_scope(before,regions,row.get("protected_core_boxes",[]),rims,header_core=True)
         if invalid or [r.model_dump(mode="json") for r in scoped]!=row["source_rim_composition"]["regions"]:
             raise ValueError("Frozen source composition proof mismatch")
+        sampling=capture.get("full_frame_sampling")
+        if sampling is not None:
+            expected=full_frame_mapping(scoped,before.size,sampling["mass"],sampling["padding"])
+            if row.get("source_scene")=="document" or sampling!=expected:
+                raise ValueError("Sampling does not match the frozen source inspection scope")
+            forward=sample_full_frame(before,sampling)
+            if hashlib.sha256(forward.tobytes()).hexdigest()!=capture.get("forward_source_rgb_sha256"):
+                raise ValueError("Original full-frame sampling input does not reproduce")
         for label,pipe in (("baseline",old),("modified",new)):
             started=time.monotonic()
             if key=="vae_input":
@@ -114,7 +126,7 @@ def main():
             if label=="modified" and sr is not None:
                 from watermark_studio.super_resolution_probe import upscale_tiled
                 frame=upscale_tiled(frame,sr)
-            frame=frame.resize(before.size,Image.Resampling.LANCZOS)
+            frame=restore_full_frame(frame,before.size,sampling)
             if label=="baseline" and hashlib.sha256(frame.tobytes()).hexdigest()!=capture["native_generated_rgb_sha256"]:
                 raise ValueError("Original decoder does not reproduce captured GEN RGB exactly")
             image=composite_protected(before,frame,scoped,options.feather,options.repair_blending,

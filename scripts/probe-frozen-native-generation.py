@@ -26,6 +26,8 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--foveation-mass",type=float,default=0.,
+        help="Offline reversible complete-frame sampling mass in0..0.35; 0 keeps native input")
     p.add_argument("--lora-path",type=Path)
     p.add_argument("--lora-sha256",default="")
     p.add_argument("--lora-alpha",type=float,default=0.)
@@ -48,6 +50,8 @@ def main():
     a=p.parse_args()
     if a.gpu<0 or not re.fullmatch(r"[a-f0-9]{32}",a.source_job) or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
         p.error("Explicit completed source job, GPU and simple new tag required")
+    if not 0<=a.foveation_mass<=.35:
+        p.error("Full-frame sampling mass must be in0..0.35")
     if a.lora_path and (not re.fullmatch(r"[a-f0-9]{64}",a.lora_sha256) or a.lora_alpha<=0):
         p.error("Explicit artifact SHA and alpha required for offline adapter fusion")
     if a.sigma_profile=="turturbo3" and (not a.lora_path or
@@ -84,11 +88,16 @@ def main():
         captions=frozen_source_captions(state,a.caption_job,hashes)
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu);os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
     import torch
-    from PIL import Image
     from safetensors.torch import save_file
 
     from watermark_studio.batching import dimensions, independent_batch, override_methods
     from watermark_studio.config import DeploymentConfig, ProcessingConfig, Region
+    from watermark_studio.full_frame_sampling import (
+        full_frame_mapping,
+        map_region,
+        restore_full_frame,
+        sample_full_frame,
+    )
     from watermark_studio.images import (
         composite_protected,
         load_photo,
@@ -143,9 +152,13 @@ def main():
         if captions:
             from watermark_studio.probe_conditioning import observed_scene_prompt
             prompt=observed_scene_prompt(prompt,captions[name])
-        item={"image":source,"prompt":prompt,"seed":seed}
+        sampling=(full_frame_mapping(scoped,source.size,a.foveation_mass)
+                  if row.get("source_scene")!="document" else None)
+        model_source=sample_full_frame(source,sampling)
+        model_regions=[map_region(r,sampling) for r in scoped]
+        item={"image":model_source,"prompt":prompt,"seed":seed}
         if a.source_flow_context:
-            item["_denoising_context_regions"]=[r.model_dump() for r in scoped]
+            item["_denoising_context_regions"]=[r.model_dump() for r in model_regions]
         capture={};original_decode=pipe.vae.decode
         @wraps(original_decode)
         def decode(z,*args,capture=capture,name=name,width=width,height=height,seed=seed,original_decode=original_decode,**kwargs):
@@ -159,7 +172,10 @@ def main():
             return original_decode(z,*args,**kwargs)
         started=time.monotonic()
         with override_methods(pipe.vae,decode=decode):
-            generated=independent_batch(pipe,[item],budget,a.kv_cache)[0].convert("RGB").resize(source.size,Image.Resampling.LANCZOS)
+            generated=restore_full_frame(independent_batch(pipe,[item],budget,a.kv_cache)[0],source.size,sampling)
+        if sampling is not None:
+            capture["full_frame_sampling"]=sampling
+            capture["forward_source_rgb_sha256"]=hashlib.sha256(model_source.tobytes()).hexdigest()
         capture["native_generated_rgb_sha256"]=hashlib.sha256(generated.tobytes()).hexdigest()
         generated=composite_protected(source,generated,scoped,options.feather,options.repair_blending,
             core_boxes={tuple(c["mask"]):tuple(c["core"]) for c in cores})
@@ -183,7 +199,8 @@ def main():
             source_rim_composition={"regions":[r.model_dump() for r in scoped],"cores":cores},
             native_generation_probe={"model_input_size":[width,height],"seed":seed,"whole_frame":True,
                 "seconds":round(time.monotonic()-started,4),"kv_cache":a.kv_cache,
-                "encoder_residency":item.get("_encoder_generation_log"),"sigma_profile":a.sigma_profile,"steps":len(pipe.scheduler.timesteps)})
+                "encoder_residency":item.get("_encoder_generation_log"),"sigma_profile":a.sigma_profile,"steps":len(pipe.scheduler.timesteps),
+                "full_frame_sampling":sampling})
         with (folder/"results.jsonl").open("a") as f:f.write(json.dumps(result,ensure_ascii=False)+"\n")
         print(json.dumps({"completed":index+1,"total":len(rows),"job":job}),flush=True)
     if any(digest(source_root/name)!=value for name,value in hashes.items()):
@@ -195,7 +212,7 @@ def main():
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
         "native_settings":{"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
-            "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"resolution_override":a.resolution,
+            "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"foveation_mass":a.foveation_mass,"resolution_override":a.resolution,
             "generation_encoder_offload":a.generation_encoder_offload,"vae_tiling":a.vae_tiling,
             "image_adapter":getattr(pipe,"_image_adapter",None),"caption_job":a.caption_job,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
             "source_flow_context":a.source_flow_context,"separate_vae_decode":a.separate_vae_decode},
