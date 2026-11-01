@@ -37,7 +37,7 @@ def main():
     parser.add_argument("--preserve-background", action="store_true", help="Automatically preserve source outside each image watermark after full-frame inference")
     parser.add_argument("--context",type=float,default=.6,help="Reconstruction context factor, 0.1..2")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
-    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="neutral: source-material fidelity; fidelity/baseline: historical comparisons; concise: material-mismatch retry; scene/located: experimental")
+    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral","clean-photo","clean-photo-detailed"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="neutral: source-material fidelity; fidelity/baseline: historical comparisons; concise: material-mismatch retry; scene/located/clean-photo/clean-photo-detailed: experimental")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
