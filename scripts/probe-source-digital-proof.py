@@ -13,7 +13,8 @@ from pathlib import Path
 def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--controls",type=Path,required=True)
-    p.add_argument("--physical-from",type=Path,nargs="+",required=True)
+    p.add_argument("--physical-from",type=Path,nargs="+",default=[])
+    p.add_argument("--physical-fixtures",type=Path,help="Explicit source-native visually reviewed coordinates; never output-localized guesses")
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--output",type=Path,required=True)
     a=p.parse_args()
@@ -43,6 +44,12 @@ def main():
                 items[key]={"source":case["source"],"region":{"kind":"panel","box":box},
                     "core":box,"expected_digital":False,"cohort":"native_physical_candidate",
                     "reference_report":str(report),"reference_claim":finding["observation"]}
+    if a.physical_fixtures:
+        for fixture in json.loads(a.physical_fixtures.read_text()):
+            key=(hashlib.sha256(Path(fixture["source"]).read_bytes()).hexdigest(),tuple(fixture["box"]))
+            items[key]={"source":fixture["source"],"region":{"kind":"panel","box":fixture["box"]},
+                "core":fixture["box"],"expected_digital":False,"cohort":"native_source_reviewed_physical",
+                "reference_report":str(a.physical_fixtures),"reference_claim":fixture["evidence"]}
     cases=list(items.values())
     if not any(not c["expected_digital"] for c in cases):
         raise ValueError("Missing native physical negative controls")

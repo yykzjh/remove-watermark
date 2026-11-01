@@ -29,19 +29,29 @@ def _classify(chats,encoder,processor,device):
     """
     from .evidence import _generate_explanations
     from .quality import _structured_vqa
-    fields=("physical_scene_text","digital_overlay","object_attachment","surface_evidence","uncertain")
+    mapping={"physical_scene_text":"physical_scene_text","digital_compositing_evidence":"digital_overlay",
+             "real_object_attachment":"object_attachment","physical_print_surface":"surface_evidence",
+             "ambiguous_identity":"uncertain"}
+    fields=tuple(mapping)
     prepared=[]
     for chat in chats:
         content=chat[0]["content"][:-1]
         prompt=(SOURCE_DIGITAL_PROMPT.split("只返回JSON")[0]+
-                "只返回JSON，physical_scene_text、digital_overlay、object_attachment、surface_evidence、uncertain为布尔值；"
-                "area为none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。")
+                "\n逐项判断下列精确定义，仅针对中心候选文字自身，不针对下层场景照片或数字面板本身："
+                "physical_scene_text=文字确实属于现实场景中的真实物体；"
+                "digital_compositing_evidence=有可见的后期数字图层正面证据；"
+                "real_object_attachment=文字物理地印刷/手写/雕刻/粘贴在现实物体上；"
+                "physical_print_surface=文字所在的真实实体表面有对应材质、透视或形变证据。"
+                "数字面板的平面/边缘/透明底色、照片下层的泥土草地纹理不属于physical_print_surface，"
+                "图像合成或空间相邻不属于real_object_attachment；两项必须是文字依附真实物体的证据。"
+                "ambiguous_identity=上述数字/实物身份不能可靠确定，不能仅因数字层没有真实载体而为真。"
+                "只返回JSON，上述五个命题为布尔值；area为none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。")
         prepared.append([{"role":"user","content":content+[{"type":"text","text":prompt}]}])
     rows,_=_structured_vqa(prepared,fields,encoder,processor,device,192)
     results=[]
     for chat,row in zip(chats,rows,strict=True):
-        result={key:row[key] for key in fields}
-        result.update(evidence="未建立完整的数字身份源证明",protocol="source-digital-structured-v3")
+        result={target:row[key] for key,target in mapping.items()}
+        result.update(evidence="未建立完整的数字身份源证明",protocol="source-digital-structured-v4")
         if (result["digital_overlay"] and not result["physical_scene_text"]
                 and not result["object_attachment"] and not result["surface_evidence"] and not result["uncertain"]):
             content=chat[0]["content"][:-1]
@@ -99,7 +109,7 @@ def certify_gray_regions(photo, regions, cores, rims, editor, editor_processor,
         began=time.monotonic()
         core=cores.get(tuple(region.box))
         item={"mask":list(region.box),"kind":region.kind,"core":list(core) if core is not None else None,
-              "approved":False,"version":"gray-source-digital-v3","weights_relation":weights_relation,
+              "approved":False,"version":"gray-source-digital-v4","weights_relation":weights_relation,
               "source_size":list(photo.size),"source_rgb_sha256":fingerprint}
         try:
             if weights_relation!="different_weights" or editor is verifier:

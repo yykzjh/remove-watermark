@@ -148,7 +148,10 @@ def test_structured_source_identity_never_uses_physical_only_appeal_recovery(mon
     def structured(chats,fields,*a):
         text=chats[0][0]["content"][-1]["text"]
         assert "不是专门表示缺少实物载体" in text and "正面证据" in text
-        return [{f:report()[f] for f in fields}|{"area":"none"}],.1
+        assert "physical_print_surface" in fields and "real_object_attachment" in fields
+        values={"physical_scene_text":False,"digital_compositing_evidence":True,
+            "real_object_attachment":False,"physical_print_surface":False,"ambiguous_identity":False}
+        return [{f:values[f] for f in fields}|{"area":"none"}],.1
     monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
     chats=[[{"role":"user","content":[{"type":"text","text":SOURCE_DIGITAL_PROMPT}]}]]
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[{"status":"error"}])
@@ -157,4 +160,4 @@ def test_structured_source_identity_never_uses_physical_only_appeal_recovery(mon
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[
         {"status":"summary_only","summary":"半透明卡片跨越不同方向的背景纹理，保持相同屏幕平面。"}])
     result=_classify(chats,None,None,"cpu")[0]
-    assert digital_overlay(result) and result["protocol"]=="source-digital-structured-v3"
+    assert digital_overlay(result) and result["protocol"]=="source-digital-structured-v4"

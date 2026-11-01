@@ -26,6 +26,8 @@ def fixture():
 
 
 def calls(monkeypatch, reports=None, residuals=(), recheck=None):
+    monkeypatch.setattr("watermark_studio.cross_review.candidate_glyphs",lambda before,after,boxes:[
+        {"visible_glyphs":True} for _ in boxes])
     history=[]
     reports=reports or [report(),report()]
     def classify(chats,encoder,*args):
@@ -277,16 +279,20 @@ def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds
     result_image=Image.new("RGB",source.size,"green")
     result=discover_dispute(source,result_image,"center",None,None,"cpu",full_context=full_context)
     l,t,r,b=result["crop_in_photo"]
-    assert result["findings"][0]["box"] == pytest.approx(
-        [l+.2*(r-l),t+.1*(b-t),l+.5*(r-l),t+.3*(b-t)],abs=1e-6)
+    expected=([.2,.1,.5,.3] if full_context else
+              [l+.2*(r-l),t+.1*(b-t),l+.5*(r-l),t+.3*(b-t)])
+    assert result["findings"][0]["box"] == pytest.approx(expected,abs=1e-6)
     assert result["local_findings"][0]["box"] == [.2,.1,.5,.3]
-    assert result["coordinate_source"] == "crop_local_mapped_by_program"
+    assert result["coordinate_source"] == ("single_full_photo" if full_context else "crop_local_mapped_by_program")
     text=" ".join(item.get("text","") for item in captured[0][0]["content"])
-    assert "当前局部图像0..1000" in text and "不要使用完整照片坐标" in text
+    if full_context:
+        assert "完整照片0..1000" in text and "没有裁切局部" in text
+    else:
+        assert "当前局部图像0..1000" in text and "不要使用完整照片坐标" in text
     images=[item["image"] for item in captured[0][0]["content"] if item["type"]=="image"]
-    assert len(images)==(2 if full_context else 1)
+    assert len(images)==1
     assert all(image.getpixel((0,0))==(0,128,0) for image in images)
-    assert "只定位当前结果中实际可见" in text
+    assert ("只定位实际可见" if full_context else "只定位当前结果中实际可见") in text
 
 
 @pytest.mark.parametrize("relation", ["unknown", "same_base_weights", "same_instance"])
@@ -388,6 +394,8 @@ def test_full_context_does_not_silently_select_two_from_excessive_locations(monk
 
 @pytest.mark.parametrize("disagrees", ["editor","validator"])
 def test_two_locations_require_every_carrier_proof_from_both_models(monkeypatch,disagrees):
+    monkeypatch.setattr("watermark_studio.cross_review.candidate_glyphs",lambda before,after,boxes:[
+        {"visible_glyphs":True} for _ in boxes])
     before,after,q=fixture()
     q["residual_regions"].append({"kind":"logo","box":[.75,.3,.9,.45]})
     history=[]
@@ -417,3 +425,41 @@ def test_output_only_global_residual_scan_never_sees_original_watermark_pixels(m
     assert result["watermark_removed"] and len(captured)==2
     assert all(item["image"].getpixel((0,0))==(0,128,0) for item in captured)
     assert before.getpixel((0,0))==(0,0,255)
+
+
+def test_full_context_cannot_adjudicate_a_text_claim_localized_on_bare_ground(monkeypatch):
+    before,after,q=fixture();history=calls(monkeypatch)
+    monkeypatch.setattr("watermark_studio.cross_review.candidate_glyphs",lambda *a:[{"visible_glyphs":False}])
+    run(before,after,q,full_context=True)
+    assert not history and q["status"]=="review"
+    assert q["cross_review"]["reason"]=="localized_physical_text_has_no_native_glyph_evidence"
+
+
+def test_every_localized_candidate_needs_actual_glyphs_in_both_native_images(monkeypatch):
+    import watermark_studio.cross_review as review
+    statuses=iter(["text_present","clear","text_present","text_present"])
+    calls=[]
+    class Detector:
+        def inspect(self,image,boxes):
+            calls.append((image,boxes))
+            return {"status":next(statuses)}
+    monkeypatch.setattr(review,"_APPEAL_TEXT_DETECTOR",Detector())
+    before,after,_=fixture();boxes=[[.5,.2,.6,.3],[.7,.3,.8,.4]]
+    rows=review.candidate_glyphs(before,after,boxes)
+    assert [r["visible_glyphs"] for r in rows]==[False,True]
+    assert len(calls)==4 and calls[0][0] is before and calls[1][0] is after
+
+
+def test_full_photo_localization_never_remaps_a_real_label_to_a_blank_crop(monkeypatch):
+    from watermark_studio.cross_review import discover_dispute
+    box=[.57,.42,.82,.49]
+    def generate(chats,*args):
+        content=chats[0][0]["content"]
+        images=[i["image"] for i in content if i["type"]=="image"]
+        assert len(images)==1 and images[0].size==(960,1280)
+        assert "完整照片0..1000" in content[-1]["text"]
+        return [{"findings":[{"issue":"physical_text","box":box}],"assessment":"uncertain"}]
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",generate)
+    photo=Image.new("RGB",(2064,2752),"gray")
+    result=discover_dispute(photo,photo,"center",None,None,"cpu",full_context=True)
+    assert result["findings"][0]["box"]==box and result["coordinate_source"]=="single_full_photo"

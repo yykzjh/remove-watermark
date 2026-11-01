@@ -44,7 +44,7 @@
 |--quality-phase-offload|False|Park independent unquantized verifier during editor-only source scan and generation; restore for dual source proofs and QA; no SSH transfer|
 |--quality-phase-offload-above|0|Swap verifier weights only above this model-input budget; 0 disables adaptive swapping|
 |--quality-cross-full-context|False|Experimental full-result context in physical-text dispute localization and proofs. No guard, source overlap, pixel, dual-model or residual-scan condition is waived.|
-|--quality-rectangle-guard|False|With quality verification, add CPU-only review of coherent multi-side panel tone steps; records boundary evidence, cannot approve images or override existing vetoes. No extra model call. Quality recipe explicitly enables it; see [round 2 validation](first-pass-round2-2026-11-01.md).|
+|--quality-rectangle-guard|False|With quality verification, add CPU-only review of coherent multi-side panel tone steps, including validated raw-core searches (v5); retains every v2 veto and records boundary evidence, cannot approve images or override existing vetoes. No extra model call. Quality recipe explicitly enables it; see [round 2 validation](first-pass-round2-2026-11-01.md).|
 |--quality-backend|resident|resident: reuse image encoder; independent: separate instruction VLM; launch-throughput-quality.sh explicitly selects independent|
 |--quality-model|Qwen/Qwen3-VL-4B-Instruct|Independent quality VLM repository or local path; adds GPU memory|
 |--quality-revision|main|Independent quality VLM revision (master for ModelScope)|
