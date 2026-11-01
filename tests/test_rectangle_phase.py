@@ -133,3 +133,18 @@ def test_offline_fixed_padding_hypothesis_preserves_every_v5_veto_and_original_p
     assert rectangle_phase_inset(source,clean,regions,cores)["count"]==0
     assert rectangle_phase_inset(dark,dark.copy(),regions,cores)["count"]==0
     assert before==(source.tobytes(),dark.tobytes())
+
+
+def test_offline_sharp_search_retains_v5_vetoes_and_cannot_approve_or_modify_pixels():
+    from watermark_studio.rectangle_phase import rectangle_phase_sharp, rectangle_phase_tight
+    clean,source,dark,regions=fixture((.2,.2,.7,.8))
+    cores=[{"mask":list(regions[0].box),"core":[.2,.2,.7,.8]}]
+    hashes=source.tobytes(),dark.tobytes()
+    old=rectangle_phase_tight(source,dark,regions,cores)
+    result=rectangle_phase_sharp(source,dark,regions,cores)
+    assert all(item in result["findings"] for item in old["findings"])
+    assert rectangle_phase_sharp(source,clean,regions,cores)["count"]==0
+    assert rectangle_phase_sharp(dark,dark.copy(),regions,cores)["count"]==0
+    assert (source.tobytes(),dark.tobytes())==hashes
+    for invalid in ([],[{"mask":list(regions[0].box),"core":[0,0,1,1]}]):
+        assert rectangle_phase_sharp(source,dark,regions,invalid)["findings"]==rectangle_phase_tight(source,dark,regions,invalid)["findings"]

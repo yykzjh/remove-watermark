@@ -236,3 +236,35 @@ def rectangle_phase_inset(before,after,regions,core_boxes,resolution=1024):
                 findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"fixed_core_inset":.008,
                     "core_blur_radius":3.,"core_search_radius":2})
     return base|{"method":"source_panel_phase_v6_inset_experiment","findings":list(findings.values()),"count":len(findings)}
+
+
+def rectangle_phase_sharp(before,after,regions,core_boxes,resolution=1024):
+    """Offline fixed source-core search with original 1.2px smoothing.
+
+    Heavy smoothing can erase a faint step at an otherwise known boundary.
+    Keep every v5 warning and its original amplitude/coherence/all-side rules;
+    these extra source-coordinate hypotheses never provide approval.
+    """
+    from .surface_reference import _box
+    mapping={}
+    for item in core_boxes or []:
+        if not isinstance(item,dict):
+            continue
+        mask,core=_box(item.get("mask")),_box(item.get("core"))
+        if mask is None or core is None:
+            continue
+        match=next((tuple(r.box) for r in regions if all(abs(a-b)<1e-6 for a,b in zip(r.box,mask))),None)
+        if match is not None and mask[0]<=core[0]<core[2]<=mask[2] and mask[1]<=core[1]<core[3]<=mask[3]:
+            mapping[match]=core
+    base=rectangle_phase_tight(before,after,regions,core_boxes,resolution)
+    findings={tuple(v["box"]):v for v in base["findings"]}
+    prepared=_prepare_phase(before,after,resolution,blur_radius=1.2) if mapping else None
+    for inset in (0.,.008):
+        adjusted={mask:[c[0]+inset,c[1]+inset,c[2]-inset,c[3]-inset] for mask,c in mapping.items()
+                  if c[2]-c[0]>2*inset and c[3]-c[1]>2*inset}
+        for sign in (-1,1):
+            result=_single_phase(before,after,regions,resolution,sign,adjusted,prepared,core_radius=2)
+            for item in result["findings"]:
+                findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"fixed_core_inset":inset,
+                    "core_blur_radius":1.2,"core_search_radius":2})
+    return base|{"method":"source_panel_phase_v7_sharp_experiment","findings":list(findings.values()),"count":len(findings)}
