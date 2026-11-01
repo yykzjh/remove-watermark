@@ -540,6 +540,12 @@ def prefill_whole_reference(original, regions, core_mapping):
     for region in regions:
         if region.kind!="panel":
             continue
+        # Small footer/code detections deliberately have no feather core. Leave
+        # their ORIGINAL appearance for Qwen to remove; their missing metadata
+        # must not cancel initialization of a separate validated large card.
+        l,t,r,b=region.box
+        if (r-l)*(b-t)<.035:
+            continue
         raw=core_mapping.get(tuple(region.box))
         core=_box(raw)
         if (core is None or not (region.box[0]<=core[0]<core[2]<=region.box[2]

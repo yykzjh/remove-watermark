@@ -170,3 +170,25 @@ def test_conditioning_colour_field_is_distinct_from_final_raw_drift_veto():
     result=harmonize_repair(clean,bad,[region])
     assert result.info["harmonization"]["correction_withheld"] is True
     assert result.info["harmonization"]["conditioning_only"] is False
+
+
+def test_small_footer_without_a_core_does_not_cancel_the_separate_large_panel():
+    from watermark_studio.images import prefill_whole_reference
+
+    original=Image.new("RGB",(800,600),(90,80,70))
+    panel=Region(kind="panel",box=(.02,.58,.44,.98))
+    footer=Region(kind="panel",box=(.84,.93,.99,.99))
+    draw=ImageDraw.Draw(original)
+    draw.rectangle((20,360,339,579),fill="blue")
+    draw.rectangle((680,564,779,589),fill="white")
+    photo_bytes=original.tobytes()
+    initialized,used=prefill_whole_reference(original,[panel,footer],
+                                             {panel.box:(.025,.6,.425,.965)})
+    assert used and initialized.size==original.size
+    assert initialized.getpixel((100,450))!=(0,0,255)
+    assert initialized.getpixel((720,575))==original.getpixel((720,575))
+    assert initialized.getpixel((500,450))==original.getpixel((500,450))
+    assert original.tobytes()==photo_bytes
+    # Missing metadata for a large target still blocks initialization entirely.
+    untouched,used=prefill_whole_reference(original,[panel,footer],{})
+    assert not used and untouched.tobytes()==photo_bytes
