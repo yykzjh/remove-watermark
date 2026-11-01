@@ -69,7 +69,7 @@ def preserved_patch(before, after, box):
             "mae":round(mean,4),"p95":round(p95,4),"changed_fraction":round(fraction,6)}
 
 
-def dispute_chats(before,after,boxes,full_context=False):
+def dispute_chats(before,after,boxes,full_context=False,*,inspection_profile="legacy"):
     from .images import context_box, pixel_box
     from .quality import preview
 
@@ -86,6 +86,11 @@ def dispute_chats(before,after,boxes,full_context=False):
                  {"type":"text","text":"同位置结果局部，核实文字是否属于数字覆盖层。"},
                  {"type":"image","image":preview(after.crop(crop),512)},
                  {"type":"text","text":CLASSIFY_PROMPT}]
+        if inspection_profile=="untrusted":
+            content[-1]["text"]+=(
+                "\n实物文字还包括测距轮机械翻字计数窗、仪表读数与器具型号；"
+                "必须能看见实际窗口/外壳及连接、材质或透视证据。"
+                "不能把漂浮数字、相机时间或数字信息卡仅因靠近器具就当作实物。")
         if full_context:
             content[-1]["text"]+=(
                 "\n图3完整结果只提供候选所附物体的上下文，勿把别处水印当成此候选。"
@@ -185,17 +190,18 @@ def physical(report):
             report["object_attachment"] and report["surface_evidence"] and not report["uncertain"])
 
 
-def _reinspect(before,after,boxes,encoder,processor,device,resolution,max_tokens):
-    from .quality import OUTPUT_PROMPT, _structured_vqa, preview
+def _reinspect(before,after,boxes,encoder,processor,device,resolution,max_tokens,*,inspection_profile="legacy"):
+    from .quality import _structured_vqa, output_review_prompt, preview
 
     content=[{"type":"text","text":"这是完整结果图。后面的原图局部仅用于核实编辑侧提出的实物文字假设。"},
              {"type":"image","image":preview(after,resolution)}]
     # Do not feed model-generated prose as instructions. Claims are bounded coded data.
     claims=[]
-    for chat,box in zip(dispute_chats(before,after,boxes),boxes):
+    for chat,box in zip(dispute_chats(before,after,boxes,
+            **({"inspection_profile":"untrusted"} if inspection_profile=="untrusted" else {})),boxes):
         content.extend(chat[0]["content"][:-1])
         claims.append({"hypothesis":"physical_scene_text","box":box,"original_pixels_preserved":True})
-    content.append({"type":"text","text":OUTPUT_PROMPT+"\n编辑侧假设（不是豁免清单）："+
+    content.append({"type":"text","text":output_review_prompt(inspection_profile)+"\n编辑侧假设（不是豁免清单）："+
         json.dumps(claims)+"\n必须独立核实假设；继续检查结果整图所有其他位置，真实数字水印、底纹、细小代码仍必须拒绝。原图中的水印不能混当结果残留。"})
     rows,_=_structured_vqa([[{"role":"user","content":content}]],
         ("watermark_removed","natural","uncertain"),encoder,processor,device,max_tokens)
@@ -335,7 +341,8 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
         log["reason"]="original_text_not_preserved"; return
     started=time.monotonic();log["attempted"]=True
     try:
-        chats=dispute_chats(before,after,boxes,full_context=full_context)
+        profile_options=({"inspection_profile":"untrusted"} if verdict.get("inspection_profile")=="untrusted" else {})
+        chats=dispute_chats(before,after,boxes,full_context=full_context,**profile_options)
         editor=_classify(chats,editor_encoder,editor_processor,device)
         log["editor_claims"]=editor
         if not all(physical(r) for r in editor):
@@ -350,7 +357,7 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
             # A supported physical-text claim must not cause destructive blind repainting.
             verdict["retry_recheck_only"]=True
             return
-        checked=_reinspect(before,after,boxes,encoder,processor,device,resolution,max_tokens)
+        checked=_reinspect(before,after,boxes,encoder,processor,device,resolution,max_tokens,**profile_options)
         log["global_reinspection"]=checked
         if not checked["watermark_removed"] or not checked["natural"] or checked["uncertain"]:
             log.update(status="unresolved",reason="global_reinspection_rejected"); return

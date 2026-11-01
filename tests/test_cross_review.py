@@ -343,3 +343,18 @@ def test_output_localizer_cannot_use_entire_context_as_precise_text_evidence(mon
     result=discover_dispute(photo,photo,"top_left",None,None,"cpu")
     assert result["findings"]==[]
     assert result["rejected_locations"][0]["reason"]=="imprecise_crop_coverage"
+
+
+def test_untrusted_protocol_preserves_meter_carrier_rules_in_global_reinspection(monkeypatch):
+    from watermark_studio.cross_review import _reinspect
+
+    captured = []
+    def structured(chats, fields, *args):
+        captured.extend(item["text"] for item in chats[0][0]["content"] if item["type"] == "text")
+        return [{f: f != "uncertain" for f in fields} | {"area": "none"}], .1
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa", structured)
+    source = Image.new("RGB", (400,300), "gray")
+    _reinspect(source, source.copy(), [[.3,.3,.5,.5]], None, None, "cpu", 768, 128,
+               inspection_profile="untrusted")
+    assert any("机械翻字计数窗" in text for text in captured)
+    assert any("不是豁免清单" in text for text in captured)

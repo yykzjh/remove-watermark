@@ -606,6 +606,16 @@ uncertain：是否有细节看不清、无法可靠判断？不确定不能默�
 只输出JSON，以上三项为布尔值，area为主要问题在照片总览的位置：
 none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。不要解释。"""
 
+
+def output_review_prompt(profile="legacy"):
+    extra = (
+        "\n真实测距轮的机械翻字计数窗、仪表读数、器具型号和刻度，在能看清实体外壳、"
+        "连接关系及表面/透视证据时属于现场实物，不能仅因黑底白字或数字就当作相机水印。"
+        "数字相机覆盖也可能靠近器具；必须逐项看载体证据，看不清就uncertain，"
+        "不能因类别名称而豁免真实数字覆盖层。")
+    return OUTPUT_PROMPT+(extra if profile=="untrusted" else "")
+
+
 CONTENT_PROMPT = """图1是原照片，图2是去水印后的照片。只比较原来可见的场景内容：
 人物数量、脸和姿势、服装、机械、建筑、道路与沟渠边线、树木、物体位置是否发生变化？
 保留测量尺刻度和读数、钢筋根数间距、手持验收牌、合格证及袋子上的真实文字、临时标记和真实投影。
@@ -815,16 +825,10 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 {"type": "text", "text": f"局部在完整照片中的归一化范围：{[round(v,4) for v in box]}。裁切边缘不是水印。"},
                 {"type": "image", "image": detail},
             ])
-        content.append({"type": "text", "text": OUTPUT_PROMPT.replace(
+        content.append({"type": "text", "text": output_review_prompt(inspection_profile).replace(
             "这是一张去水印结果的检验画布：上方为整图，下方（如有）为同一结果图的放大细节。",
             "图1是完整结果照片，后续图是标明原照片坐标的放大局部。结合整图透视和物体关系区分真实印刷文字。")
             +scene_review_context(contexts[pair_index].get("source_scene"))})
-        if inspection_profile=="untrusted":
-            content[-1]["text"]+=(
-                "\n真实测距轮的机械翻字计数窗、仪表读数、器具型号和刻度，在能看清实体外壳、"
-                "连接关系及表面/透视证据时属于现场实物，不能仅因黑底白字或数字就当作相机水印。"
-                "数字相机覆盖也可能靠近器具；必须逐项看载体证据，看不清就uncertain，"
-                "不能因类别名称而豁免真实数字覆盖层。")
         output_chats.append([{"role": "user", "content": content}])
         content_chats.append(reference_inspection(before,aligned,regions,resolution,
             detail_patches,contexts[pair_index].get("source_scene"),
