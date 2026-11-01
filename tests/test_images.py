@@ -176,3 +176,16 @@ def test_mirror_rejects_output_link_escape_and_file_directory_conflicts(tmp_path
     (source/"sub").mkdir(); (target/"sub").symlink_to(outside, target_is_directory=True)
     with pytest.raises(ValueError, match="符号链接"):
         scan_images(source, target, False)
+
+
+def test_harmonic_does_not_camouflage_catastrophic_raw_generation():
+    from watermark_studio.config import Region
+    from watermark_studio.images import harmonize_repair
+    values=np.linspace(145,245,256).astype(np.uint8)
+    reference=np.broadcast_to(values[None,:,None],(192,256,3)).copy()
+    original=Image.fromarray(reference)
+    wrong=Image.new("RGB",original.size,(25,50,15))
+    result=harmonize_repair(original,wrong,[Region(kind="panel",box=(0,.65,.4,1))])
+    assert np.array_equal(np.asarray(result),np.asarray(wrong))
+    assert result.info["harmonization"]["correction_withheld"] is True
+    assert result.info["harmonization"]["reference_over_64_fraction"]>=.5

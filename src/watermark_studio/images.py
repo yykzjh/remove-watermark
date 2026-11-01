@@ -252,8 +252,18 @@ def harmonize_repair(original, generated, regions, reference_resolution=512):
         offset = Image.fromarray(previous[..., channel]).resize(original.size, Image.Resampling.BILINEAR)
         result[..., channel] += np.asarray(offset, dtype=np.float32)
     output=Image.fromarray(np.clip(np.rint(result),0,255).astype(np.uint8))
+    # A smooth colour field cannot repair a generated scene/material change.
+    # Do not disguise catastrophic whole-frame drift as plausible local texture.
+    # Preserve the diagnostic even when correction is withheld, so QA/retry can
+    # veto it rather than treating a colour-matched reconstruction as evidence.
+    quantiles=np.quantile(raw_delta[valid],[.1,.9],axis=0)
+    shift_spread=float(np.median(quantiles[1]-quantiles[0]))
+    excessive_drift=float((np.abs(raw_delta[valid])>64).mean())>=.5 and shift_spread>=32
+    if excessive_drift:
+        output=generated.convert("RGB").copy()
     output.info["harmonization"]={
-        "method":"masked_harmonic_rgb_v2","reference_grid":list(size),
+        "method":"masked_harmonic_rgb_v3","reference_grid":list(size),
+        "correction_withheld":excessive_drift,"reference_shift_spread":round(shift_spread,3),
         "reference_max_abs_delta":round(float(np.abs(raw_delta[valid]).max()),3),
         "reference_over_64_fraction":round(float((np.abs(raw_delta[valid])>64).mean()),5),
         "offset_min":round(float(previous.min()),3),"offset_max":round(float(previous.max()),3),

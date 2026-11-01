@@ -117,6 +117,9 @@ def local_findings(verdict):
         cue=verdict.get("repair_cue_assessment",{})
         for box in cue.get("boxes",[])[:2]:
             add("rectangular_shadow" if cue.get("numeric_seam_segments") else "blur_smear",box,"检测框内侧的明暗/纹理候选经正常局部与明暗诊断图复核，需检查修补衔接。")
+    if "generation_reference_drift" in verdict.get("guard_codes",[]):
+        for region in verdict.get("source_regions",[])[:2]:
+            add("blur_smear",region["box"],"融合前生成结果与原图非水印区大幅偏离；不能用明暗融合掩盖错误材质或色偏，须按邻近真实材质重新生成。")
     if "new_flat_fill" in verdict.get("guard_codes", []):
         add("blur_smear",None,"结果新增大面积近乎纯色的区域，需检查填块或纹理丢失。")
     return records[:8]

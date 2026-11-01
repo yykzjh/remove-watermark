@@ -397,3 +397,45 @@ def test_native_texture_views_respect_zero_and_small_detail_budgets():
     for count in (0,1,2,3):
         views,boxes=output_detail_views(image,image,count,regions)
         assert len(views)==len(boxes)==count
+
+
+def test_raw_generation_drift_cannot_pass_after_plausible_colour_composition(monkeypatch):
+    from watermark_studio.config import Region
+    from watermark_studio.quality import verify_batch
+    photo=Image.new("RGB",(400,300),"gray")
+    def inspect(chats,fields,*args):
+        return [{**{k:k!="uncertain" for k in fields},"area":"none"} for _ in chats],0
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",inspect)
+    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
+    monkeypatch.setattr("watermark_studio.evidence.attach_evidence",lambda *a,**k:None)
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+        lambda images,*a:[([],"{}") for _ in images])
+    context={"harmonization":{"correction_withheld":True,"reference_over_64_fraction":.95}}
+    q=verify_batch([(photo,photo.copy())],None,None,"cpu",detail_patches=0,
+        source_regions=[[Region(box=(0,.6,.4,1))]],editor_context=[context])[0]
+    assert q["status"]=="review" and q["natural"] is False
+    assert "generation_reference_drift" in q["guard_codes"]
+    assert q["generation_reference_drift"]["correction_withheld"] is True
+
+
+def test_minimal_whole_prompt_is_neutral_and_still_constrains_visible_content():
+    from watermark_studio.config import ProcessingConfig
+    from watermark_studio.prompts import build_full_prompt
+    assert ProcessingConfig(whole_prompt_profile="minimal").whole_prompt_profile=="minimal"
+    prompt=build_full_prompt(profile="minimal")
+    assert "信息卡底板" in prompt and "真实物体上的文字不变" in prompt
+    assert "草地" not in prompt and "树木" not in prompt
+    assert len(prompt)<150
+
+
+def test_reference_native_pair_retains_original_pixel_scale_and_context():
+    from watermark_studio.config import Region
+    from watermark_studio.quality import reference_inspection
+    before=Image.new("RGB",(2560,1920),(130,110,90))
+    after=before.copy()
+    region=Region(box=(0,.6,.42,1))
+    chat=reference_inspection(before,after,[region],768,4,"outdoor")[0]["content"]
+    native=[c["image"] for c in chat if c["type"]=="image" and c["image"].size==(512,512)]
+    assert len(native)==2
+    assert native[0].getpixel((0,0))==(130,110,90)
+    assert any("原始像素尺度" in c.get("text","") for c in chat)

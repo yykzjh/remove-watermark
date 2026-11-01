@@ -159,6 +159,7 @@ def build_prefilled_prompt(box,crop,extra="",scene="unknown"):
 # Whole-image candidates deliberately avoid a default landscape/material assumption.
 # Keep the baseline available for same-input/same-seed experiments.
 WHOLE_PROMPTS = {
+    "minimal": "去除照片中所有后期叠加的水印文字、信息卡底板和相机标识。仅重建被覆盖部分，严格延续紧邻区域已经存在的材质、颜色、纹理、结构和光照。保持所有其余画面和真实物体上的文字不变，输出同一张照片。",
     "fidelity": """以输入的完整原始照片为唯一参照，只清除实际存在的后期数字水印。
 修改严格限于水印及其底板覆盖处。水印之外所有可见内容保持原样：人物身份、姿态、肢体、衣物、
 植物、建筑、物体、道路边线、沟渠、地面痕迹及真实文字均不得改动。保持原构图、视角和几何位置，

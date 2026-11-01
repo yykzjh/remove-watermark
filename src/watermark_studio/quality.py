@@ -587,7 +587,7 @@ OUTPUT_PROMPT = """这是一张去水印结果的检验画布：上方为整图�
 watermark_removed：是否完全没有数字叠加的文字、蓝白/灰黑信息卡、黄底黑字、
 绿蓝应用图标、今日水印、相机、日期地点、防伪码、半透明底纹、细小残影？
 真实标牌、手持验收牌、尺子刻度、合格证、包装袋文字、条码、机械品牌、衣服文字和施工标记必须保留，不能当作数字水印。
-natural：仅当修补自然且不存在以下异常时为true：接缝、矩形填块、模糊抹痕、重复纹理、断裂工程线条、人体畸形。
+natural：仅当修补自然且不存在以下异常时为true：接缝、矩形填块、模糊抹痕、重复纹理、断裂工程线条、人体畸形、异常绿紫杂点或细密规则颗粒。
 注意人物手脚、泥水、草木、履带印、模板钢筋及阴影，不得把工地美化成光滑地面。
 uncertain：是否有细节看不清、无法可靠判断？不确定不能默认通过。
 只输出JSON，以上三项为布尔值，area为主要问题在照片总览的位置：
@@ -689,6 +689,19 @@ def reference_inspection(before, after, regions, resolution, detail_patches, sce
             {"type":"text","text":"结果明暗辅助图：已模糊并增强对比度，仅帮助看矩形明暗阶跃，处理造成的模糊/灰度不算原图缺陷；须在正常结果中确认。"},
             {"type":"image","image":diagnostic},
         ])
+    if regions and detail_patches and max(after.size)>1280:
+        region=max(regions,key=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1]))
+        left,top,right,bottom=pixel_box(region.box,before.size)
+        if max(right-left,bottom-top)>640:
+            edge=min(512,before.width,before.height)
+            xx=max(0,min(before.width-edge,(left+right)//2-edge//2))
+            yy=max(0,min(before.height-edge,top-edge//2))
+            tile=(xx,yy,xx+edge,yy+edge)
+            content.extend([
+                {"type":"text","text":"下面两图是同一位置的原始像素尺度对照，依次为原图和结果。只以原图未被覆盖部分作材质参照，覆盖文字本身不算结果缺陷。检查原水印边界两侧是否存在错误材质、异常绿紫杂点、细密规则颗粒、突变的清晰度；不能将土石或混凝土续成植被。仅凭实际像素判断，原本就有的颗粒和正常纹理不算缺陷。"},
+                {"type":"image","image":before.crop(tile).convert("RGB")},
+                {"type":"image","image":after.crop(tile).convert("RGB")},
+            ])
     content.append({"type":"text","text":CONTENT_PROMPT+scene_review_context(scene)})
     return [{"role":"user","content":content}]
 
@@ -834,6 +847,12 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["repair_boundary"] = seam
             texture=repair_texture_warnings(seam_photo,regions,feather,before=before)
             verdict["repair_texture"]=texture
+            generation_drift=contexts[index].get("harmonization") or {}
+            if generation_drift.get("correction_withheld") is True:
+                verdict.update(status="review",natural=False,uncertain=True)
+                verdict["guard_codes"]=verdict.get("guard_codes",[])+["generation_reference_drift"]
+                verdict["generation_reference_drift"]=generation_drift
+                verdict["reason"]=(verdict["reason"]+" 融合前生成图在非水印参照区大幅偏离原图，颜色融合不能证明材质正确，需重新生成。").strip()[:400]
             if texture["count"]:
                 verdict.update(status="review",natural=False,uncertain=True)
                 verdict["guard_codes"]=verdict.get("guard_codes",[])+["repair_texture_collapse"]

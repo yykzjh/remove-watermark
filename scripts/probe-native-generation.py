@@ -1,6 +1,11 @@
 """Isolate raw generation from composition on frozen native-scale defect cases."""
-import argparse, hashlib, json, os, time
+import argparse
+import hashlib
+import json
+import os
+import time
 from pathlib import Path
+
 p=argparse.ArgumentParser()
 p.add_argument("--gpu",type=int,required=True)
 p.add_argument("--cases",type=Path,required=True)
@@ -16,11 +21,13 @@ os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
 os.environ["TOKENIZERS_PARALLELISM"]="false"
 import numpy as np
 import torch
-from watermark_studio.config import DeploymentConfig, Region
-from watermark_studio.worker import load_pipeline
-from watermark_studio.images import load_photo, harmonize_repair
+
 from watermark_studio.batching import independent_batch, preencode_window
+from watermark_studio.config import DeploymentConfig, Region
+from watermark_studio.images import harmonize_repair, load_photo
 from watermark_studio.prompts import build_full_prompt, scene_instruction
+from watermark_studio.worker import load_pipeline
+
 torch.set_num_threads(1)
 assert torch.cuda.mem_get_info()[0]>35*2**30
 cfg=DeploymentConfig.model_validate(json.loads(Path(".run/deployment.json").read_text())|{
@@ -48,7 +55,7 @@ for label,bs,kv in variants:
   for item in current:
    item["prompt"]="去除照片中所有后期叠加的水印文字、信息卡底板和相机标识。仅重建被覆盖部分，严格延续紧邻区域已经存在的材质、颜色、纹理、结构和光照。保持所有其余画面和真实物体上的文字不变，输出同一张照片。"
  if label=="source_facts":
-  from watermark_studio.source_brief import inspect_sources,guidance
+  from watermark_studio.source_brief import guidance, inspect_sources
   briefs=inspect_sources([i["image"] for i in current],pipe.text_encoder,pipe.processor,pipe._execution_device,2)
   for item,brief in zip(current,briefs):
    item["prompt"]+=guidance(brief)
