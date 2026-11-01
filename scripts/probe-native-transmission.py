@@ -47,7 +47,7 @@ def main():
             _restored,count=restore_proven_rims(before,before,[record])
             if count!=1:
                 raise ValueError("Source band/whole-photo SHA proof mismatch")
-            if not any(r["kind"]=="panel" and r["box"]==record["mask"] for r in case["regions"]):
+            if not any(r["kind"]=="panel" and tuple(r["box"])==tuple(record["mask"]) for r in case["regions"]):
                 raise ValueError("Proof must belong to the frozen original digital panel")
             result,log=recover_translucent_body(before,result,record["core"],
                 _native_padding_search=a.native_padding_search)
