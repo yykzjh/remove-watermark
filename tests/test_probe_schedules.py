@@ -21,3 +21,14 @@ def test_tail_probe_preserves_every_trained_sigma_and_only_adds_explicit_positiv
 def test_invalid_or_non_native_grid_cannot_be_silently_replaced(values):
     with pytest.raises(ValueError):
         tail_sigma_grid(values,"tail9")
+
+
+def test_midpoint_probes_keep_trained_nodes_and_exact_forward_budget():
+    original=[1.,.978453,.95418,.926626,.89508,.845148,.704534,.414568]
+    for profile,count in (("mid10",10),("mid12",12)):
+        result=tail_sigma_grid(original,profile)
+        assert len(result)==count and all(value in result for value in original)
+        assert all(a>b for a,b in pairwise(result))
+        assert (.704534+.414568)/2 in result and .414568/2 in result
+        assert result[-1]>0
+    assert tail_sigma_grid(original,"mid12")[-1]==.414568/4
