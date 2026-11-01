@@ -27,6 +27,7 @@ def main():
     p.add_argument("--caption-words",type=int,choices=range(40,121),default=80)
     p.add_argument("--resolution",type=int,choices=[1024,1536],default=1024)
     p.add_argument("--reference-image",choices=["none","masked"],default="none",help="Experimental whole-frame masked visual reference; no diffusion ROI crop")
+    p.add_argument("--decode-encoder-offload",action="store_true",help="Park unquantized editor only during full-frame VAE decoding; restore even on decode failure")
     p.add_argument("--capture-raw",action="store_true",help="Retain raw full-frame diagnostic PNGs on the development machine")
     p.add_argument("--files",nargs="+")
     p.add_argument("--shards",type=int,choices=range(1,9),default=1)
@@ -94,6 +95,7 @@ def main():
         save_output,
     )
     from watermark_studio.optimizations import quantize_transformer
+    from watermark_studio.quality_loading import park_quality_encoder, restore_quality_encoder
     from watermark_studio.source_panel_rims import effective_rim_scope, restore_proven_rims
     torch.set_num_threads(1)
     if torch.cuda.mem_get_info()[0]<42*2**30:
@@ -175,7 +177,15 @@ def main():
                 phase_start=stamp()
                 if len(pipe.scheduler.timesteps)!=8:
                     raise ValueError("Turbo step count changed")
-                generated=decode_latents(pipe,latent,height,width)[0].convert("RGB").resize(source.size,Image.Resampling.LANCZOS)
+                if a.decode_encoder_offload:
+                    park_quality_encoder(pipe.text_encoder)
+                    torch.cuda.empty_cache()
+                try:
+                    generated=decode_latents(pipe,latent,height,width)[0].convert("RGB").resize(source.size,Image.Resampling.LANCZOS)
+                finally:
+                    if a.decode_encoder_offload:
+                        torch.cuda.empty_cache()
+                        restore_quality_encoder(pipe.text_encoder,"cuda:0")
                 del latent,context
                 phases["decode_seconds"]=round(stamp()-phase_start,4)
                 phase_start=time.monotonic()
@@ -206,7 +216,7 @@ def main():
         result.update(ok=True,quality={},quality_attempts=1,model_inferences=int(bool(regions)),
             processing_path="whole_composite" if regions else "source_copy",
             action="restored" if regions else "no_watermark_detected",output_size=size,controlnet_probe={"weights":identity,
-            "scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"model_input_size":[width,height] if regions else None,
+            "scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"decode_encoder_offload":a.decode_encoder_offload,"model_input_size":[width,height] if regions else None,
             "denoising_steps":8 if regions else 0,"dit_forwards":(16 if a.cfg_scale>1 else 8) if regions else 0,
             "source_caption":caption,"caption_audit":caption_audit,"phase_seconds":phases,"source_masks_frozen":True,"whole_frame":True,
             "kv_cache":False,"seconds":round(time.monotonic()-start,3),
@@ -226,7 +236,7 @@ def main():
         "total":len(rows),"probe_shard":{"count":a.shards,"index":a.shard_index,"all_files":all_files},
         "options":options.model_dump(),"seconds":round(time.monotonic()-began,3),
         "load_seconds":round(load_seconds,3),"sources_sha256":hashes,"quality_evaluated":False,
-        "controlnet":identity,"controlnet_settings":{"scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"capture_raw":a.capture_raw,"kv_cache":False,
+        "controlnet":identity,"controlnet_settings":{"scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"decode_encoder_offload":a.decode_encoder_offload,"capture_raw":a.capture_raw,"kv_cache":False,
             "caption_words":a.caption_words,"caption_max_tokens":128,"quantization_device":"cuda"},
         "server_isolation":server}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
