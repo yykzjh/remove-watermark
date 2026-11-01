@@ -39,8 +39,9 @@ def vet_small_panels(image, detection, editor, editor_processor, verifier, verif
     for region in candidates[:4]:
         record={"box":list(region.box),"status":"retained_for_edit","version":"source-carrier-global-context-v3"}
         try:
-            chats=source_carrier_chats(image,region.box)
+            chats=None
             if first_reports is None:
+                chats=source_carrier_chats(image,region.box)
                 first=_classify(chats,editor,editor_processor,device)[0]
                 record["primary_batch_size"]=1
             else:
@@ -49,6 +50,8 @@ def vet_small_panels(image, detection, editor, editor_processor, verifier, verif
                     raise first
             record["editor"]=first
             if physical(first) or first.get("object_attachment") or first.get("physical_scene_text"):
+                if chats is None:
+                    chats=source_carrier_chats(image,region.box)
                 second=_classify(chats,verifier,verifier_processor,device)[0]
                 record["independent"]=second
                 if physical(first) and physical(second):

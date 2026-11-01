@@ -139,3 +139,27 @@ def test_document_detail_budget_routes_only_large_protected_whole_inputs(tmp_pat
         SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu"))[0]
     assert row["ok"] and budgets==[expected] and row["model_input_budgets"]==[expected]
     assert Image.open(target).size==size and calls==[1]
+
+def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_path,monkeypatch):
+    from watermark_studio.evidence import feedback_from_quality
+    from watermark_studio.worker import process_batch
+    source=tmp_path/"source.png";target=tmp_path/"out.png"
+    Image.new("RGB",(80,60),"gray").save(source)
+    raw=json.dumps({"watermarks":[{"kind":"panel","box":[400,400,500,500]}]})
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a:[(parse_detection(raw),raw)])
+    evidence={"box":[.4,.4,.5,.5],"status":"uncertain_physical_carrier","requires_review":True}
+    monkeypatch.setattr("watermark_studio.source_vetting.vet_sources",lambda images,found,*a:(
+        [([],raw)],{0:[evidence]}))
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",lambda *a:pytest.fail("ambiguous source cannot be repainted"))
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,max_memory_allocated=lambda:0,
+        max_memory_reserved=lambda:0)))
+    pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu",
+                         _quality_encoder=SimpleNamespace(device="cuda:0"),_quality_processor=None)
+    row=process_batch([{"source":str(source),"destination":str(target),"relative":"source.png"}],
+        ProcessingConfig(scope="full_image",preserve_background=True),
+        DeploymentConfig(protection_physical_vet=True,quality_backend="independent"),pipe)[0]
+    assert row["ok"] and row["action"]=="source_carrier_review" and target.read_bytes()==source.read_bytes()
+    assert row["quality"]["status"]=="review" and row["retry_blocked"]=="uncertain_source_carrier"
+    advice=feedback_from_quality(row["quality"])
+    assert advice==[{"issue":"physical_text","box":[.4,.4,.5,.5]}]

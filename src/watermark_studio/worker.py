@@ -598,6 +598,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             verdict["reason"]=(verdict.get("reason","")+" 原图小块文字存在实物载体证据，但双模型未达成完整分类证明；保留该处原图，需复核，不能盲目擦除。").strip()
             verdict["source_carrier_evidence"]=disputed
             result["retry_blocked"]="uncertain_source_carrier"
+            if result.get("action")=="no_watermark_detected":
+                result["action"]="source_carrier_review"
     if cuda:
         torch.cuda.synchronize()
     metrics = {
