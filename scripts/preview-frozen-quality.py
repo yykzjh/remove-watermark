@@ -14,6 +14,7 @@ p=argparse.ArgumentParser()
 p.add_argument("--job",required=True)
 p.add_argument("--files",nargs="+",required=True)
 p.add_argument("--output",type=Path,required=True)
+p.add_argument("--full",action="store_true",help="Show the full photograph instead of the repair crop")
 p.add_argument("--compare-job",help="Read-only source/baseline/candidate view instead of boundary ribbons")
 a=p.parse_args()
 if not 1<=len(a.files)<=6 or a.output.exists():
@@ -29,7 +30,7 @@ for index,c in enumerate(cases):
     source=load_photo(c["source"])[0]
     result=load_photo(c["output"])[0]
     regions=[Region.model_validate(r) for r in c["regions"]]
-    if not regions:
+    if a.full or not regions:
         box=(0,0,source.width,source.height)
     else:
         region=max(regions,key=lambda r:(r.box[2]-r.box[0])*(r.box[3]-r.box[1]))
