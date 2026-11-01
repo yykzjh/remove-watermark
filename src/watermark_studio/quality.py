@@ -573,7 +573,7 @@ natural：仅当修补自然且不存在以下异常时为true：接缝、矩形
 注意人物手脚、泥水、草木、履带印、模板钢筋及阴影，不得把工地美化成光滑地面。
 uncertain：是否有细节看不清、无法可靠判断？不确定不能默认通过。
 只输出JSON，以上三项为布尔值，area为主要问题在照片总览的位置：
-none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。不要解释。""" + PHYSICAL_CARRIER_RULES
+none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。不要解释。"""
 
 CONTENT_PROMPT = """图1是原照片，图2是去水印后的照片。只比较原来可见的场景内容：
 人物数量、脸和姿势、服装、机械、建筑、道路与沟渠边线、树木、物体位置是否发生变化？
@@ -695,13 +695,13 @@ def reference_inspection(before, after, regions, resolution, detail_patches, sce
 
 
 
-def retry_oversized_residual(image, initial, encoder, processor, device, resolution):
+def retry_oversized_residual(image, initial, encoder, processor, device, resolution, physical_guidance=False):
     """One fresh full-output scan for an invalid area; never clip or discard boxes."""
     from .detection import DETECTION_PROMPT, DetectionAreaError, locate_watermarks_batch
     if not isinstance(initial,DetectionAreaError):
         return initial,None
     started=time.monotonic()
-    prompt=DETECTION_PROMPT+(
+    prompt=DETECTION_PROMPT+(PHYSICAL_CARRIER_RULES if physical_guidance else "")+(
         "\nInspect this full photograph afresh. The previous localization had an invalid oversized "
         "or merged area and is discarded. Distinct disconnected digital overlay groups must stay "
         "separate; never bridge them through ordinary scene content. Keep actual physical printing "
@@ -732,9 +732,10 @@ def scene_review_context(scene):
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
                  cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None,
-                 weights_relation="unknown", boundary_views=False, native_verdicts=False, artifact_question=False):
-    from .detection import locate_watermarks_batch, source_scene
+                 weights_relation="unknown", boundary_views=False, native_verdicts=False, artifact_question=False, physical_guidance=False):
+    from .detection import DETECTION_PROMPT, locate_watermarks_batch, source_scene
 
+    detection_prompt=DETECTION_PROMPT+PHYSICAL_CARRIER_RULES if physical_guidance else None
     contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
     if len(contexts)!=len(pairs):
         raise ValueError("Editor context count mismatch")
@@ -747,7 +748,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         started = time.monotonic()
         detected = locate_watermarks_batch(
             [pairs[i][0] for i in missing], encoder, processor, device,
-            max(1024, resolution), detection_batch_size, True,
+            max(1024, resolution), detection_batch_size, True, detection_prompt,
         )
         source_seconds = (time.monotonic()-started)/len(missing)
         for index, detection in zip(missing, detected):
@@ -769,6 +770,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         content.append({"type": "text", "text": OUTPUT_PROMPT.replace(
             "这是一张去水印结果的检验画布：上方为整图，下方（如有）为同一结果图的放大细节。",
             "图1是完整结果照片，后续图是标明原照片坐标的放大局部。结合整图透视和物体关系区分真实印刷文字。")
+            +(PHYSICAL_CARRIER_RULES if physical_guidance else "")
             +scene_review_context(contexts[pair_index].get("source_scene"))})
         output_chats.append([{"role": "user", "content": content}])
         content_chats.append(reference_inspection(before,aligned,regions,resolution,
@@ -870,6 +872,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         verdict["boundary_views"]=boundary_views
         verdict["native_verdicts"]=native_verdicts
         verdict["artifact_question"]=artifact_question
+        verdict["physical_guidance"]=physical_guidance
         verdict["review_version"] = "2026-11-01.reference-natural-v9"
         candidate = verdict["status"] != "error" and (
             verdict["status"] == "passed" or verdict.get("watermark_removed") is False or (
@@ -881,11 +884,11 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         started = time.monotonic()
         scanned = locate_watermarks_batch(
             [after for _, after in residual_candidates], encoder, processor, device,
-            resolution, detection_batch_size,
+            resolution, detection_batch_size, False, detection_prompt,
         )
         seconds = (time.monotonic()-started)/len(residual_candidates)
         for (verdict, image), detection in zip(residual_candidates, scanned):
-            detection,requery=retry_oversized_residual(image,detection,encoder,processor,device,resolution)
+            detection,requery=retry_oversized_residual(image,detection,encoder,processor,device,resolution,physical_guidance)
             if requery is not None:
                 verdict["residual_scan_requery"]=requery
                 verdict["seconds"]=round(verdict["seconds"]+requery["seconds"],3)

@@ -92,7 +92,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, boundary_views, native_verdicts, artifact_question, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, boundary_views, native_verdicts, artifact_question, physical_guidance, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -127,7 +127,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                     source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
                     editor_context=[{"source_scene":c["scene"]} for c in group],
                     cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
-                    reviewer="paired_"+mode,weights_relation=relation,boundary_views=boundary_views,native_verdicts=native_verdicts,artifact_question=artifact_question)
+                    reviewer="paired_"+mode,weights_relation=relation,boundary_views=boundary_views,native_verdicts=native_verdicts,artifact_question=artifact_question,physical_guidance=physical_guidance)
                 if len(values)!=len(group):
                     raise RuntimeError("Verifier response count differs from frozen pairs")
                 ready.put({"type":"rows","rows":[c|{"quality":v} for c,v in zip(group,values)]})
@@ -166,6 +166,7 @@ def main():
     parser.add_argument("--boundary-views",action="store_true")
     parser.add_argument("--native-verdicts",action="store_true")
     parser.add_argument("--artifact-question",action="store_true")
+    parser.add_argument("--physical-guidance",action="store_true")
     parser.add_argument("--controls",type=Path)
     parser.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
     parser.add_argument("--models-root",type=Path,default=Path.home()/".cache/watermark-models/models")
@@ -209,7 +210,7 @@ def main():
         for rank,gpu in enumerate(gpus):
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
-                args.cross_review,args.quality_batch_size,args.boundary_views,args.native_verdicts,args.artifact_question,events,start))
+                args.cross_review,args.quality_batch_size,args.boundary_views,args.native_verdicts,args.artifact_question,args.physical_guidance,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -253,7 +254,7 @@ def main():
                     clean_refused=sum(r["expected"]=="passed" and r["quality"]["status"]!="passed" for r in selected),
                     defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected))
         result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
-                 "code_revision":code_revision,"images":len(cases),"boundary_views":args.boundary_views,"native_verdicts":args.native_verdicts,"artifact_question":args.artifact_question,
+                 "code_revision":code_revision,"images":len(cases),"boundary_views":args.boundary_views,"native_verdicts":args.native_verdicts,"artifact_question":args.artifact_question,"physical_guidance":args.physical_guidance,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,
                 "cross_review_effective":args.cross_review and identity["relation"]=="different_weights",
