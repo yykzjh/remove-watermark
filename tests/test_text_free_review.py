@@ -155,3 +155,33 @@ def test_location_contradiction_gets_only_one_same_model_consistency_check(monke
     assert confirmed(result) is (second_area=="none")
     assert log["own"]["area"]=="bottom_left" and "own_consistency" in log
     assert chats[0][0]["content"]==[{"type":"text","text":"Inspect the actual output"}]
+
+def test_additional_independent_proof_cannot_replace_primary_fresh_scan(monkeypatch):
+    from watermark_studio import detection
+    f=fixture(monkeypatch);source,output,q,context,editor,validator,calls,_=f
+    proof=object();scans=[]
+    def scan(images,model,*args):
+        scans.append(model)
+        return [([], {})]
+    monkeypatch.setattr(detection,"locate_watermarks_batch",scan)
+    reconsider_text_free(source,output,q,editor,None,validator,None,"cpu",context,
+        "different_weights",proof_validator=proof,proof_processor=object(),
+        proof_identity={"relation":"different_weights","verifier_sha256":"independent"})
+    assert q["status"]=="passed"
+    assert [c[2] for c in calls]==[editor,proof,editor]
+    assert scans==[validator]
+    assert q["text_free_review"]["additional_independent_proof"]["relation"]=="different_weights"
+
+
+def test_third_model_cannot_appeal_without_canonical_distinctness_or_over_flat_veto(monkeypatch):
+    f=fixture(monkeypatch)
+    reconsider_text_free(f[0],f[1],f[2],f[4],None,f[5],None,"cpu",f[3],
+        "different_weights",proof_validator=object())
+    assert f[2]["status"]=="review" and not f[6]
+    f=fixture(monkeypatch)
+    monkeypatch.setattr("watermark_studio.uniform_core.uniform_core_fill",
+                        lambda *args: {"count":1,"findings":[{"box":[0,.7,.4,1]}]})
+    reconsider_text_free(f[0],f[1],f[2],f[4],None,f[5],None,"cpu",f[3],
+        "different_weights",uniform_guard=True)
+    assert f[2]["status"]=="review" and not f[6]
+    assert f[2]["text_free_review"]["reason"]=="new_uniform_core_fill"

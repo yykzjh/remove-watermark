@@ -103,7 +103,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, proof_profile, proof_identity, uniform_guard, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -128,6 +128,11 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
             plain=cfg.model_copy(update={"quality_quantization":"none"})
             editor=load_quality_encoder(editor_model,plain,"cuda:0")
             ep=Qwen3VLProcessor.from_pretrained(editor_processor,local_files_only=True)
+        proof_validator=proof_processor=None
+        if proof_profile=="35-4b-bf16":
+            proof_path=Path(model).parents[2]/"Qwen--Qwen3.5-4B/snapshots/master"
+            proof_validator=load_quality_encoder(proof_path,cfg,"cuda:0")
+            proof_processor=load_quality_processor(proof_path)
         ready.put({"type":"ready","gpu":gpu})
         start.wait()
         def grade(group,contexts=None):
@@ -157,7 +162,10 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                             pair_index=group.index(case)
                             reconsider_text_free(*pairs[pair_index],value,editor,ep,encoder,processor,
                                 "cuda:0",{"background_preserved":case.get("preserved",False),
-                                "source_scene":case["scene"]},relation,resolution,proof_scope=text_free_scope)
+                                "source_scene":case["scene"],"protected_core_boxes":case.get("source_cores",[])},
+                                relation,resolution,proof_scope=text_free_scope,
+                                proof_validator=proof_validator,proof_processor=proof_processor,
+                                proof_identity=proof_identity,uniform_guard=uniform_guard)
                         if case.get("frozen_vetoes"):
                             if value["status"]!="error":
                                 value["status"]="review"
@@ -205,6 +213,8 @@ def main():
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--quality-resolution",type=int,choices=[512,768,1024,1280],default=768)
+    parser.add_argument("--text-free-proof-profile",choices=["primary","35-4b-bf16"],default="primary")
+    parser.add_argument("--text-free-uniform-guard",action="store_true")
     parser.add_argument("--inspection-profile",choices=["legacy","defects"],default="legacy")
     parser.add_argument("--first-snapshot",action="store_true",help="Validate an immutable first snapshot, then freshly grade the same pixels")
     parser.add_argument("--text-free-scope",choices=["global","targets"],default="global")
@@ -219,6 +229,12 @@ def main():
     parser.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
     parser.add_argument("--models-root",type=Path,default=Path.home()/".cache/watermark-models/models")
     args=parser.parse_args()
+    if args.text_free_proof_profile!="primary" and (not args.text_free_consensus or args.profile!="4b-bf16"):
+        parser.error("Additional proof weights require canonical4b text-free consensus")
+    if args.text_free_uniform_guard and not args.text_free_consensus:
+        parser.error("The optional uniform-core veto requires text-free consensus")
+    if args.frozen_disputes and args.inspection_profile!="legacy":
+        parser.error("Cached first verdicts cannot be relabelled with a fresh inspection protocol")
     if args.first_snapshot and (args.frozen_disputes or args.controls_only or args.profile!="4b-bf16"):
         parser.error("--first-snapshot requires a canonical4b source snapshot; no cached disputes/controls-only")
     if args.text_free_consensus and not args.cross_review:
@@ -258,6 +274,13 @@ def main():
     editor_root=args.models_root/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
     from watermark_studio.model_identity import compare_model_weights
     identity=compare_model_weights(editor_root/"text_encoder",model)
+    proof_identity=None
+    if args.text_free_proof_profile=="35-4b-bf16":
+        proof_path=args.models_root/"Qwen--Qwen3.5-4B/snapshots/master"
+        proof_identity=compare_model_weights(editor_root/"text_encoder",proof_path)
+        base_proof=compare_model_weights(model,proof_path)
+        if proof_identity["relation"]!="different_weights" or base_proof["relation"]!="different_weights":
+            raise ValueError("Additional proof must differ canonically from editor and primary verifier")
     if args.frozen_disputes or args.first_snapshot:
         from watermark_studio.frozen_candidates import validate_first_snapshot
         validate_first_snapshot(args.state_dir/args.source_job,identity)
@@ -270,7 +293,7 @@ def main():
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
                 args.cross_review,args.quality_batch_size,args.rectangle_guard,
-                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,events,start))
+                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,args.text_free_proof_profile,proof_identity,args.text_free_uniform_guard,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -328,6 +351,8 @@ def main():
                  "code_revision":code_revision,"images":len(cases),"verifications":expected_total,
                 "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
                 "inspection_profile":args.inspection_profile,"first_snapshot":args.first_snapshot,
+                "text_free_proof_profile":args.text_free_proof_profile,"proof_identity":proof_identity,
+                "text_free_uniform_guard":args.text_free_uniform_guard,
                 "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,"text_free_scope":args.text_free_scope,
                 "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",

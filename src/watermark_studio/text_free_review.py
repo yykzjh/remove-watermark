@@ -51,7 +51,9 @@ def confirmed(report):
 
 def reconsider_text_free(before, after, verdict, editor, editor_processor, validator,
                          validator_processor, device, context, weights_relation,
-                         resolution=768, max_tokens=128, proof_scope="global"):
+                         resolution=768, max_tokens=128, proof_scope="global",
+                         proof_validator=None, proof_processor=None, proof_identity=None,
+                         uniform_guard=False):
     from .quality import output_detail_views, preview, reference_inspection
 
     log = {"attempted": False, "status": "skipped", "experimental": True,
@@ -67,6 +69,14 @@ def reconsider_text_free(before, after, verdict, editor, editor_processor, valid
     if proof_scope not in {"global", "targets"}:
         log["reason"] = "unknown_proof_scope"
         return
+    proof_validator=validator if proof_validator is None else proof_validator
+    proof_processor=validator_processor if proof_processor is None else proof_processor
+    if proof_validator is not validator:
+        if (not proof_identity or proof_identity.get("relation")!="different_weights"
+                or proof_validator is editor):
+            log["reason"]="different_canonical_proof_weights_required"
+            return
+        log["additional_independent_proof"]=proof_identity
     started = time.monotonic()
     log["attempted"] = True
     log["requested_scope"] = proof_scope
@@ -74,6 +84,13 @@ def reconsider_text_free(before, after, verdict, editor, editor_processor, valid
         from .config import Region
         regions = [Region.model_validate(r) for r in verdict["source_regions"]]
         aligned = after if after.size == before.size else after.resize(before.size, Image.Resampling.LANCZOS)
+        if uniform_guard:
+            from .uniform_core import uniform_core_fill
+            cue=uniform_core_fill(aligned,regions,context.get("protected_core_boxes",[]))
+            log["uniform_core_guard"]=cue
+            if cue["count"]:
+                log.update(status="unresolved",reason="new_uniform_core_fill")
+                return
         scoped = proof_scope == "targets" and verdict.get("area") in POSITIONS
         log["effective_scope"] = "targets" if scoped else "global"
         content = [{"type": "text", "text": "图1为完整结果；所有后续图片也仅来自该结果。"},
@@ -105,7 +122,7 @@ def reconsider_text_free(before, after, verdict, editor, editor_processor, valid
             log.update(status="unresolved", reason="editor_did_not_confirm_text_free_natural_output")
             return
         # No editor-generated prose or verdict is supplied to the independent judge.
-        validator_report = inspect_consistently(chats, fields, validator, validator_processor, device,
+        validator_report = inspect_consistently(chats, fields, proof_validator, proof_processor, device,
             max_tokens, log, "validator_output", scoped)
         if not confirmed(validator_report):
             log.update(status="unresolved", reason="independent_output_disagreed")
