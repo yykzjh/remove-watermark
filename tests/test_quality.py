@@ -307,3 +307,28 @@ def test_localized_change_requires_every_small_overlay_not_outside_noise_or_larg
     noise=Image.fromarray(np.minimum(np.asarray(before,dtype=np.int16)+1,255).astype(np.uint8))
     assert not localized_small_edit_support(before,noise,regions,
                                             {"tiles":0,"max_tile_mae":.5})["supported"]
+
+
+@pytest.mark.parametrize("second_error",[False,True])
+def test_oversized_residual_uses_one_fresh_full_image_without_clamping_or_implicit_pass(monkeypatch,second_error):
+    from watermark_studio.config import Region
+    from watermark_studio.detection import DetectionAreaError
+    from watermark_studio.quality import retry_oversized_residual
+    photo=Image.new("RGB",(1600,1200),"gray")
+    original=photo.tobytes()
+    region=Region(kind="logo",box=(.8,.8,1,1))
+    expected=DetectionAreaError("still oversized") if second_error else ([region],'{}')
+    calls=[]
+    def locate(images,*args):
+        calls.append((images,args))
+        return [expected]
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",locate)
+    initial=DetectionAreaError("merged area too large")
+    result,audit=retry_oversized_residual(photo,initial,None,None,"cpu",768)
+    assert result is expected and len(calls)==1
+    assert calls[0][0][0] is photo and calls[0][1][3:6]==(1024,1,False)
+    assert audit["area_limits_unchanged"] and audit["attempts"]==1
+    assert audit["status"]==("error" if second_error else "valid")
+    assert photo.tobytes()==original
+    assert retry_oversized_residual(photo,RuntimeError("GPU failure"),None,None,"cpu",768)[1] is None
+    assert len(calls)==1

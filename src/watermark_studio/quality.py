@@ -669,6 +669,30 @@ def reference_inspection(before, after, regions, resolution, detail_patches, sce
     return [{"role":"user","content":content}]
 
 
+
+def retry_oversized_residual(image, initial, encoder, processor, device, resolution):
+    """One fresh full-output scan for an invalid area; never clip or discard boxes."""
+    from .detection import DETECTION_PROMPT, DetectionAreaError, locate_watermarks_batch
+    if not isinstance(initial,DetectionAreaError):
+        return initial,None
+    started=time.monotonic()
+    prompt=DETECTION_PROMPT+(
+        "\nInspect this full photograph afresh. The previous localization had an invalid oversized "
+        "or merged area and is discarded. Distinct disconnected digital overlay groups must stay "
+        "separate; never bridge them through ordinary scene content. Keep actual physical printing "
+        "and natural terrain out of overlay boxes. Include all genuinely visible digital residues, "
+        "even if tiny or faint. Do not assume removal succeeded or return empty to avoid a large box."
+    )
+    result=locate_watermarks_batch([image],encoder,processor,device,max(1024,resolution),
+                                  1,False,prompt)[0]
+    return result,{"reason":"oversized_full_output_localization","attempts":1,
+                   "initial_error":str(initial)[:160],
+                   "resolution":max(1024,resolution),
+                   "status":"error" if isinstance(result,Exception) else "valid",
+                   "seconds":round(time.monotonic()-started,3),
+                   "area_limits_unchanged":True}
+
+
 def scene_review_context(scene):
     if scene == "document":
         return ("\n完整原图是票据/证书等纸张场景。纸张自身的印刷日期、编号、表格和手写笔迹"
@@ -819,7 +843,11 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             resolution, detection_batch_size,
         )
         seconds = (time.monotonic()-started)/len(residual_candidates)
-        for (verdict, _), detection in zip(residual_candidates, scanned):
+        for (verdict, image), detection in zip(residual_candidates, scanned):
+            detection,requery=retry_oversized_residual(image,detection,encoder,processor,device,resolution)
+            if requery is not None:
+                verdict["residual_scan_requery"]=requery
+                verdict["seconds"]=round(verdict["seconds"]+requery["seconds"],3)
             if isinstance(detection, Exception):
                 verdict.update(status="error", reason=f"Residual scan: {detection}"[:400])
             else:
