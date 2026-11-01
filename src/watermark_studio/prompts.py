@@ -182,6 +182,18 @@ WHOLE_PROMPTS = {
 }
 
 
+# Preserve detailed removal/identity instructions, without enumerating desired
+# landscape materials. Long negative vegetation examples caused green material
+# substitution in source-only mineral/concrete cases in the frozen risk audit.
+WHOLE_PROMPTS["neutral"]=WHOLE_PROMPTS["fidelity"].replace(
+    "泥土继续泥土，草地继续草地；已有的水沟、车辙、积水、石块、混凝土接缝、树干枝叶保持连贯。",
+    "只延续覆盖边缘实际可见的同类材质；保留已有的表面起伏、痕迹、接缝、轮廓和空间结构，不替换背景类型。"
+).replace(
+    "材料检查和室内照片延续已有纸张、织物、包装或地面，不能凭空补成草地、树木或室外景观。",
+    "材料检查和室内照片延续已有实物表面和轮廓；没有原图证据的景物、物体和细节不添加。"
+)
+
+
 def whole_location_guidance(regions):
     """Trusted per-photo positions; full original remains the only diffusion image."""
     if not regions:

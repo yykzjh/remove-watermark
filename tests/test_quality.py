@@ -479,3 +479,14 @@ def test_readonly_worker_cannot_forget_raw_drift_when_vlm_accepts(monkeypatch,tm
     assert result["harmonization"]==drift
     assert result["quality"]["status"]=="review"
     assert "generation_reference_drift" in result["quality"]["guard_codes"]
+
+
+def test_neutral_full_prompt_keeps_precise_targets_without_default_landscape():
+    from watermark_studio.config import ProcessingConfig
+    from watermark_studio.prompts import build_full_prompt
+    assert ProcessingConfig(whole_prompt_profile="neutral").whole_prompt_profile=="neutral"
+    prompt=build_full_prompt(profile="neutral")
+    for text in ("蓝底白字","灰白半透明底黑字","今日水印","防伪码","衣物褶皱","真实","人物身份"):
+        assert text in prompt
+    assert "草地" not in prompt and "树木" not in prompt
+    assert "同类材质" in prompt and "不替换背景类型" in prompt
