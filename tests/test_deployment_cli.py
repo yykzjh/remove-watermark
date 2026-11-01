@@ -81,3 +81,9 @@ def test_separate_decode_rejects_unsupported_offload_hooks(tmp_path):
     config=tmp_path/"base.toml";config.write_text("")
     with pytest.raises(SystemExit):
         parse_deployment(["--config",str(config),"--separate-vae-decode","--offload","model"])
+
+def test_document_resolution_numeric_literal_roundtrips(tmp_path):
+    path=tmp_path/"empty.toml";path.write_text("")
+    config,_=parse_deployment(["--config",str(path),"--protected-document-resolution","1536",
+                              "--quality-phase-offload-above","1024"])
+    assert config.protected_document_resolution==1536 and config.quality_phase_offload_above==1024

@@ -94,6 +94,7 @@ def make_parser():
             options.update(action="store_true", default=False)
         elif get_origin(annotation) is Literal:
             options["choices"] = get_args(annotation)
+            options["type"] = type(options["choices"][0])
         elif get_origin(annotation) is list:
             options.update(nargs="+", type=str)
         else:
