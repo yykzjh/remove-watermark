@@ -9,6 +9,35 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+def bounded_caption(text, max_words=80, *, reached_limit=False):
+    """Compress generation conditioning to complete observed sentences.
+
+    A caption is conditioning, never a quality verdict or identity certificate.
+    Discard an unfinished tail instead of treating it as a complete fact. Never
+    invent a generic scene when no usable observation was generated.
+    """
+    import hashlib
+    import re
+    text=text.strip()
+    if not text or not 1<=max_words<=120:
+        raise ValueError("Missing bounded source caption")
+    sentences=[m.group().strip() for m in re.finditer(r".*?[.!?。！？](?=\s|$)",text,re.DOTALL)]
+    selected=[];words=0
+    for sentence in sentences:
+        size=len(sentence.split())
+        if words+size>max_words:
+            break
+        selected.append(sentence);words+=size
+    if not selected and not reached_limit and len(text.split())<=max_words:
+        selected=[text]
+    if not selected:
+        raise ValueError("No complete bounded source observation; no generic fallback")
+    return " ".join(selected),{"source_generation_reached_cap":reached_limit,
+        "conditioning_words":len(" ".join(selected).split()),
+        "source_text_sha256":hashlib.sha256(text.encode()).hexdigest(),
+        "quality_permission":False,"method":"complete_source_sentences_v1"}
+
+
 def make_branch(config, layers):
     import torch
     from diffusers.models.transformers.transformer_qwenimage21 import QwenImage21TransformerBlock

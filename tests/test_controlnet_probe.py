@@ -94,3 +94,16 @@ def test_inpaint_context_uses_full_masked_rgba_and_keep_mask_channel():
     assert seen["rgba"].shape==(1,4,1,16,16)
     assert seen["rgba"][:,:3,:,:,0:8].count_nonzero()==0
     assert torch.all(seen["rgba"][:,3]==1) and image.tobytes()==original
+
+
+def test_caption_conditioning_keeps_complete_observations_without_inventing_a_scene():
+    from watermark_studio.controlnet_probe import bounded_caption
+    source="A pipe rests on gravel. Two men stand nearby. An unfinished phrase about"
+    caption,audit=bounded_caption(source,reached_limit=True)
+    assert caption=="A pipe rests on gravel. Two men stand nearby."
+    assert audit["quality_permission"] is False and audit["source_generation_reached_cap"]
+    caption,_=bounded_caption("Green field. A longer second sentence with many extra words.",max_words=3)
+    assert caption=="Green field."
+    for value in ("", "An unfinished phrase"):
+        with pytest.raises(ValueError):
+            bounded_caption(value,reached_limit=True)
