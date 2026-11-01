@@ -42,3 +42,17 @@ def test_unambiguous_digital_footer_is_not_discharged(monkeypatch):
     detected,audit=vet_small_panels(Image.new("RGB",(800,600)),([region],"raw"),
                                    None,None,None,None,"cuda","different_weights")
     assert detected[0]==[region] and len(calls)==1 and audit[0]["status"]=="retained_for_edit"
+
+def test_json_recovery_preserves_trusted_source_carrier_clarification(monkeypatch):
+    from watermark_studio.cross_review import CLASSIFY_PROMPT, _recover_classification
+    observed=[]
+    def structured(chats,*args):
+        observed.append(chats[0][0]["content"][-1]["text"])
+        return ([verdict(physical_scene_text=False,digital_overlay=True,object_attachment=False,
+                          surface_evidence=False,uncertain=True)],{})
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    chat=[{"role":"user","content":[{"type":"text","text":"source"},
+            {"type":"text","text":CLASSIFY_PROMPT+"真实卷尺的印刷刻度属于实物文字。"}]}]
+    report=_recover_classification(chat,"{}","missing flags",None,None,"cpu")
+    assert "真实卷尺的印刷刻度属于实物文字" in observed[0]
+    assert report["uncertain"] and not report["physical_scene_text"]

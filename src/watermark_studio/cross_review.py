@@ -140,7 +140,13 @@ def _recover_classification(chat,raw,error,encoder,processor,device):
 
     fields=("physical_scene_text","digital_overlay","object_attachment","surface_evidence","uncertain")
     content=chat[0]["content"][:-1]
-    flags_prompt=(CLASSIFY_PROMPT.split("只返回JSON。")[0]+
+    # A source-only caller may append carrier clarification. Preserve that trusted
+    # instruction when recovering malformed JSON; otherwise the model silently
+    # reverts to a different semantic task.
+    actual_prompt=chat[0]["content"][-1].get("text","")
+    supplement=actual_prompt[len(CLASSIFY_PROMPT):] if actual_prompt.startswith(CLASSIFY_PROMPT) else ""
+    flags_prompt=(CLASSIFY_PROMPT.split("只返回JSON。")[0]+supplement+
+
         "只返回JSON，physical_scene_text、digital_overlay、object_attachment、surface_evidence、uncertain为布尔值；"
         "area为none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。"
         "不能只因原图也有或像素相同就认作实物，实物载体和材质/透视都必须有可见证据。")
