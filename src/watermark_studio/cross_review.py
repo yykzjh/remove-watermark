@@ -69,7 +69,7 @@ def preserved_patch(before, after, box):
             "mae":round(mean,4),"p95":round(p95,4),"changed_fraction":round(fraction,6)}
 
 
-def dispute_chats(before,after,boxes):
+def dispute_chats(before,after,boxes,full_context=False):
     from .images import context_box, pixel_box
     from .quality import preview
 
@@ -86,6 +86,14 @@ def dispute_chats(before,after,boxes):
                  {"type":"text","text":"同位置结果局部，核实文字是否属于数字覆盖层。"},
                  {"type":"image","image":preview(after.crop(crop),512)},
                  {"type":"text","text":CLASSIFY_PROMPT}]
+        if full_context:
+            content[-1]["text"]+=(
+                "\n图3完整结果只提供候选所附物体的上下文，勿把别处水印当成此候选。"
+                "实物文字不要求现场手写或喷涂；印刷、铭牌、品牌贴纸、卷尺刻度只要确实依附实际物体，"
+                "且有载体、表面/透视证据，就是实物内容。字体清晰或矩形外观不构成数字水印证明。"
+                "相机覆盖层即使看似贴在物体上仍不能豁免；缺少载体证据必须uncertain。")
+            content[-1:-1]=[{"type":"text","text":"图3：完整结果，局部候选之外的文字不属于本次载体证明。"},
+                            {"type":"image","image":preview(after,640)}]
         chats.append([{"role":"user","content":content}])
     return chats
 
@@ -194,7 +202,7 @@ def _reinspect(before,after,boxes,encoder,processor,device,resolution,max_tokens
     return rows[0]
 
 
-def discover_dispute(before,after,area,encoder,processor,device):
+def discover_dispute(before,after,area,encoder,processor,device,full_context=False):
     """Locate a precise physical-text hypothesis; never adjudicate from this call."""
     from .evidence import _generate_explanations
     from .quality import preview
@@ -218,6 +226,13 @@ def discover_dispute(before,after,area,encoder,processor,device):
               "有确切实物载体线索时issue为physical_text，box必须为当前局部图像0..1000整数坐标，"
               "局部左上(0,0)、右下(1000,1000)，不要使用完整照片坐标；"
               "observation写可见载体依据。没有精确线索则findings为空。"}]
+    if full_context:
+        content[-1]["text"]+=(
+            "\n图3为完整结果，只补充载体上下文；box仍必须相对图2局部，不能用全图坐标。"
+            "真实印刷文字、机械铭牌、贴纸和测量刻度属于实物文字，不要求现场书写或喷涂；"
+            "数字相机覆盖层不能因靠近物体而当成实物。")
+        content[-1:-1]=[{"type":"text","text":"图3完整结果；只辅助判断目标文字是否附着于真实物体。"},
+                        {"type":"image","image":preview(after,640)}]
     report=_generate_explanations([[{"role":"user","content":content}]],encoder,processor,device,192)[0]
     findings=report.get("findings",[])
     # The later checks still require pixel evidence, both models, a complete
@@ -253,10 +268,10 @@ def clean_identity_dispute(before, after, verdict):
     )
 
 def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,device,
-               resolution=768,max_tokens=128,feather=12,editor_context=None,weights_relation="unknown"):
+               resolution=768,max_tokens=128,feather=12,editor_context=None,weights_relation="unknown",full_context=False):
     """One appeal. Real defect vetoes remain; clean identity needs independent proof."""
     log={"attempted":False,"status":"skipped","editor_context":editor_context or {},
-         "weights_relation":weights_relation}
+         "weights_relation":weights_relation,"full_context":full_context}
     verdict["cross_review"]=log
     if weights_relation!="different_weights":
         log["reason"]="different_checkpoint_weights_required"; return
@@ -295,7 +310,8 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
         began=time.monotonic()
         log["attempted"]=True
         try:
-            located=discover_dispute(before,after,verdict["area"],editor_encoder,editor_processor,device)
+            located=discover_dispute(before,after,verdict["area"],editor_encoder,editor_processor,device,
+                **({"full_context":True} if full_context else {}))
             log["localization"]=located
             boxes,reason=candidate_boxes(verdict|{"evidence":located.get("findings",[])},before.size,feather)
         except Exception as error:  # noqa: BLE001 - discovery cannot grant acceptance
@@ -314,7 +330,7 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
         log["reason"]="original_text_not_preserved"; return
     started=time.monotonic();log["attempted"]=True
     try:
-        chats=dispute_chats(before,after,boxes)
+        chats=dispute_chats(before,after,boxes,full_context=full_context)
         editor=_classify(chats,editor_encoder,editor_processor,device)
         log["editor_claims"]=editor
         if not all(physical(r) for r in editor):

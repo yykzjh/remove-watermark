@@ -38,9 +38,9 @@ def calls(monkeypatch, reports=None, residuals=(), recheck=None):
     return history
 
 
-def run(before,after,q,editor=None,validator=None,weights_relation="different_weights"):
+def run(before,after,q,editor=None,validator=None,weights_relation="different_weights",full_context=False):
     editor=editor or object();validator=validator or object()
-    reconsider(before,after,q,editor,None,validator,None,"cpu",weights_relation=weights_relation)
+    reconsider(before,after,q,editor,None,validator,None,"cpu",weights_relation=weights_relation,full_context=full_context)
 
 
 def test_corrected_false_alarm_keeps_original_verdict_and_observable_reports(monkeypatch):
@@ -263,7 +263,8 @@ def test_clean_identity_final_scan_cannot_hide_any_remaining_overlay(monkeypatch
     assert q["cross_review"]["reason"] == "other_residual_overlays"
 
 
-def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds(monkeypatch):
+@pytest.mark.parametrize("full_context",[False,True])
+def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds(monkeypatch,full_context):
     from watermark_studio.cross_review import discover_dispute
     captured = []
     def explain(chats, *args):
@@ -273,7 +274,7 @@ def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds
                               "observation":"printing follows metal surface"}]}]
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations", explain)
     source=Image.new("RGB",(401,307),"gray")
-    result=discover_dispute(source,source.copy(),"center",None,None,"cpu")
+    result=discover_dispute(source,source.copy(),"center",None,None,"cpu",full_context=full_context)
     l,t,r,b=result["crop_in_photo"]
     assert result["findings"][0]["box"] == pytest.approx(
         [l+.2*(r-l),t+.1*(b-t),l+.5*(r-l),t+.3*(b-t)],abs=1e-6)
@@ -304,3 +305,26 @@ def test_production_rejects_cross_review_for_same_or_unaudited_weights(tmp_path,
         options=ProcessingConfig(quality_check=True,quality_cross_review=True,concurrency=1))
     with pytest.raises(ValueError,match="different|不同"):
         runtime.submit(request)
+
+
+@pytest.mark.parametrize("code",["repair_boundary_step","repair_texture_collapse","repair_rectangle_phase",
+                                 "outside_repair_change","new_flat_fill","source_physical_ambiguity"])
+def test_extra_global_context_cannot_override_any_artifact_or_source_veto(monkeypatch,code):
+    before,after,q=fixture();history=calls(monkeypatch)
+    q["guard_codes"]=[code]
+    run(before,after,q,full_context=True)
+    assert q["status"]=="review" and not history
+
+def test_full_context_keeps_both_carrier_proofs_and_unwhitelisted_residual_scan(monkeypatch):
+    from watermark_studio.cross_review import dispute_chats
+    before,after,q=fixture();history=calls(monkeypatch)
+    chats=dispute_chats(before,after,[[.55,.3,.7,.45]],full_context=True)
+    content=chats[0][0]["content"]
+    assert sum(x["type"]=="image" for x in content)==3
+    assert "卷尺刻度" in content[-1]["text"] and "uncertain" in content[-1]["text"]
+    run(before,after,q,full_context=True)
+    assert len(history)==2 and history[0] is not history[1] and q["status"]=="passed"
+    before,after,q=fixture()
+    calls(monkeypatch,residuals=[Region(kind="logo",box=(.55,.3,.7,.45))])
+    run(before,after,q,full_context=True)
+    assert q["status"]=="review" and q["cross_review"]["reason"]=="other_residual_overlays"

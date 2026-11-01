@@ -64,7 +64,9 @@ def frozen_job_cases(state_root, job, files=None):
             raise ValueError("Untrusted source scene category")
         cases.append({"file":str(name),"source":str(source),"output":str(output),
                       "regions":regions,"scene":scene,"cohort":"source_job",
-                      "generation_attempts":row.get("quality_attempts",1)})
+                      "generation_attempts":row.get("quality_attempts",1),
+                      "baseline_status":q.get("status"),
+                      "frozen_vetoes":[g for g in q.get("guard_codes",[]) if g!="identical"]})
     return cases
 
 
@@ -97,7 +99,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -124,25 +126,45 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
             ep=Qwen3VLProcessor.from_pretrained(editor_processor,local_files_only=True)
         ready.put({"type":"ready","gpu":gpu})
         start.wait()
-        def grade(group):
-            try:
-                pairs=[(load_photo(c["source"])[0],load_photo(c["output"])[0]) for c in group]
-                values=verify_batch(pairs,encoder,processor,"cuda:0",resolution=768,
-                    detail_patches=4,detection_batch_size=2,
-                    source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
-                    editor_context=[{"source_scene":c["scene"]} for c in group],
-                    cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
-                    reviewer="paired_"+mode,weights_relation=relation,rectangle_guard=rectangle_guard)
-                if len(values)!=len(group):
-                    raise RuntimeError("Verifier response count differs from frozen pairs")
-                ready.put({"type":"rows","rows":[c|{"quality":v} for c,v in zip(group,values)]})
-            except Exception as error:  # noqa: BLE001 - isolate model and GPU failures
+        def grade(group,contexts=None):
+            variants=contexts if contexts is not None else ((False,True) if paired_context else (full_context,))
+            for context in variants:
+                failure=None
+                try:
+                    pairs=[(load_photo(c["source"])[0],load_photo(c["output"])[0]) for c in group]
+                    began=time.monotonic()
+                    values=verify_batch(pairs,encoder,processor,"cuda:0",resolution=768,
+                        detail_patches=4,detection_batch_size=2,
+                        source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
+                        editor_context=[{"source_scene":c["scene"]} for c in group],
+                        cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
+                        reviewer="paired_"+mode,weights_relation=relation,rectangle_guard=rectangle_guard,
+                        cross_context=context)
+                    if len(values)!=len(group):
+                        raise RuntimeError("Verifier response count differs from frozen pairs")
+                    torch.cuda.synchronize()
+                    elapsed=time.monotonic()-began
+                    for case,value in zip(group,values):
+                        if case.get("frozen_vetoes"):
+                            if value["status"]!="error":
+                                value["status"]="review"
+                            value["guard_codes"]=sorted(set(value.get("guard_codes",[])+case["frozen_vetoes"]))
+                            value["reason"]=(value.get("reason","")+" 保留冻结候选的不可豁免约束。").strip()
+                            if value.get("cross_review",{}).get("status")=="corrected":
+                                value["cross_review"]["status"]="blocked_frozen_veto"
+                    ready.put({"type":"rows","rows":[c|{"quality":v,"context_variant":"full" if context else "local",
+                        "variant_group_seconds":round(elapsed/len(group),4)} for c,v in zip(group,values)]})
+                    continue
+                except Exception as error:  # noqa: BLE001 - retry only this variant and release traceback first
+                    failure=f"{type(error).__name__}: {error}"[:300]
                 torch.cuda.empty_cache()
                 if len(group)>1:
-                    middle=len(group)//2;grade(group[:middle]);grade(group[middle:])
+                    middle=len(group)//2
+                    grade(group[:middle],(context,));grade(group[middle:],(context,))
                 else:
-                    ready.put({"type":"rows","rows":[group[0]|{"quality":{
-                        "status":"error","reason":f"{type(error).__name__}: {error}"[:300]}}]})
+                    ready.put({"type":"rows","rows":[group[0]|{
+                        "context_variant":"full" if context else "local",
+                        "quality":{"status":"error","reason":failure}}]})
         for at in range(0,len(cases),batch):
             grade(cases[at:at+batch])
     except Exception as error:  # noqa: BLE001 - report child failure before cleanup
@@ -169,6 +191,9 @@ def main():
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--cross-review",action="store_true")
     parser.add_argument("--rectangle-guard",action="store_true")
+    parser.add_argument("--cross-full-context",action="store_true")
+    parser.add_argument("--paired-context",action="store_true")
+    parser.add_argument("--select-review",action="store_true",help="Frozen source final unaccepted files only")
     parser.add_argument("--controls",type=Path)
     parser.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
     parser.add_argument("--models-root",type=Path,default=Path.home()/".cache/watermark-models/models")
@@ -197,7 +222,9 @@ def main():
     target.mkdir(parents=True,exist_ok=False)
     cases=known_control_cases(args.controls) if args.controls else []
     if not args.controls_only:
-        cases+=frozen_job_cases(args.state_dir,args.source_job,args.files)
+        source_cases=frozen_job_cases(args.state_dir,args.source_job,args.files)
+        cases += [c for c in source_cases if not args.select_review or c["baseline_status"]!="passed"]
+    expected_total=len(cases)*(2 if args.paired_context else 1)
     before=file_hashes(cases)
     repository,mode=PROFILES[args.profile]
     model=args.models_root/repository/"snapshots/master"
@@ -212,7 +239,8 @@ def main():
         for rank,gpu in enumerate(gpus):
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
-                args.cross_review,args.quality_batch_size,args.rectangle_guard,events,start))
+                args.cross_review,args.quality_batch_size,args.rectangle_guard,
+                args.cross_full_context,args.paired_context,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -224,7 +252,7 @@ def main():
         began=last=time.monotonic();start.set()
         results=[]
         with (target/"results.jsonl").open("w") as stream:
-            while len(results)<len(cases):
+            while len(results)<expected_total:
                 try:
                     event=events.get(timeout=2)
                 except queue.Empty:
@@ -237,10 +265,10 @@ def main():
                 for row in event["rows"]:
                     results.append(row);stream.write(json.dumps(row,ensure_ascii=False)+"\n");stream.flush()
                 if time.monotonic()-last>=30:
-                    print(json.dumps({"profile":args.profile,"completed":len(results),"total":len(cases)}),flush=True)
+                    print(json.dumps({"profile":args.profile,"completed":len(results),"total":expected_total}),flush=True)
                     last=time.monotonic()
         seconds=round(time.monotonic()-began,3)
-        if len({(r["cohort"],r["file"]) for r in results})!=len(cases):
+        if len(results)!=expected_total or len({(r["cohort"],r["file"],r.get("context_variant")) for r in results})!=expected_total:
             raise RuntimeError("Repeated verifier response")
         for process in workers:
             process.join(timeout=15)
@@ -248,15 +276,24 @@ def main():
             raise RuntimeError("Source or candidate changed during the read-only benchmark")
         cohorts={}
         for cohort in sorted({c["cohort"] for c in cases}):
-            selected=[r for r in results if r["cohort"]==cohort]
-            cohorts[cohort]={"images":len(selected),"counts":dict(collections.Counter(r["quality"]["status"] for r in selected)),
-                "cross_corrected":sum(r["quality"].get("cross_review",{}).get("status")=="corrected" for r in selected)}
-            if cohort=="controls":
-                cohorts[cohort].update(
-                    clean_refused=sum(r["expected"]=="passed" and r["quality"]["status"]!="passed" for r in selected),
-                    defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected))
+            variants=("local","full") if args.paired_context else ("full" if args.cross_full_context else "local",)
+            for variant in variants:
+                selected=[r for r in results if r["cohort"]==cohort and r["context_variant"]==variant]
+                label=f"{cohort}/{variant}" if args.paired_context else cohort
+                cohorts[label]={"images":len(selected),
+                    "counts":dict(collections.Counter(r["quality"]["status"] for r in selected)),
+                    "model_seconds_sum":round(sum(r.get("variant_group_seconds",0) for r in selected),4),
+                    "cross_corrected":sum(r["quality"].get("cross_review",{}).get("status")=="corrected" for r in selected)}
+                if cohort=="controls":
+                    cohorts[label].update(
+                        clean_refused=sum(r["expected"]=="passed" and r["quality"]["status"]!="passed" for r in selected),
+                        defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected),
+                        false_accept_files=[r["file"] for r in selected if r["expected"]=="review" and r["quality"]["status"]=="passed"],
+                        false_refuse_files=[r["file"] for r in selected if r["expected"]=="passed" and r["quality"]["status"]!="passed"])
         result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
-                 "code_revision":code_revision,"images":len(cases),"rectangle_guard":args.rectangle_guard,
+                 "code_revision":code_revision,"images":len(cases),"verifications":expected_total,
+                "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
+                "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,
                 "cross_review_effective":args.cross_review and identity["relation"]=="different_weights",

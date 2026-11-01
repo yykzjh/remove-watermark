@@ -129,7 +129,7 @@ summary={"scope":"automatic independent checks, not human-labelled accuracy","jo
     "acceptance_complete":state.get("acceptance_complete",False),"optimization":health["optimization"],
     "deployment":{k:health.get(k) for k in ["worker_count","batch_size","small_batch_size","batch_window",
         "quality_backend","quality_quantization","quality_phase_offload","quality_phase_offload_above",
-        "separate_vae_decode","quality_rectangle_guard","capacity"]},
+        "separate_vae_decode","quality_rectangle_guard","quality_cross_full_context","capacity"]},
     "worker_count":health["worker_count"],"batch_size":health["batch_size"],
     "quality_weight_identity":health.get("quality_weight_identity"),
     "review_files":[r["file"] for r in rows if r.get("quality",{}).get("status")!="passed"]}

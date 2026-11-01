@@ -127,6 +127,7 @@ class DeploymentConfig(BaseModel):
     separate_vae_decode: bool = False
     quality_phase_offload: bool = False
     quality_phase_offload_above: int = Field(default=0,ge=0,le=2048,multiple_of=32)
+    quality_cross_full_context: bool = False
     quality_rectangle_guard: bool = False
     quality_backend: Literal["resident", "independent"] = "resident"
     quality_model: str = "Qwen/Qwen3-VL-4B-Instruct"

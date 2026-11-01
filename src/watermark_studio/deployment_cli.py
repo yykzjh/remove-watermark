@@ -36,6 +36,7 @@ HELP = {
     "separate_vae_decode": "Decode pipeline latents after per-call prefix KV caches are released; exact pinned decode path, offload none",
     "quality_phase_offload_above": "Swap verifier weights only above this model-input budget; 0 disables adaptive swapping",
     "quality_phase_offload": "Park independent unquantized verifier weights in host RAM during editing; restore before QA; no SSH transfer",
+    "quality_cross_full_context": "Experimental full-result context for physical-text disputes; all carrier, pixel, geometry and residual vetoes remain",
     "quality_rectangle_guard": "With quality verification, review coherent multi-side panel tone steps; CPU-only, no extra model call",
     "quality_model": "Independent quality VLM repository or local path; adds GPU memory",
     "quality_revision": "Independent quality VLM revision (master for ModelScope)",

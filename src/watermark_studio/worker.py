@@ -553,6 +553,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                      "harmonization":results[t["relative"]].get("harmonization")} for t in group],
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                     rectangle_guard=config.quality_rectangle_guard,
+                    cross_context=config.quality_cross_full_context,
                     detection_batch_size=config.detection_batch_size, feather=options.feather,
                     source_regions=[
                         detections[t["relative"]][0][0] if t["relative"] in detections

@@ -461,6 +461,7 @@ class Runtime:
                 "quality_backend": self.config.quality_backend,
                 "quality_quantization":self.config.quality_quantization,
                 "quality_rectangle_guard":self.config.quality_rectangle_guard,
+                "quality_cross_full_context":self.config.quality_cross_full_context,
                 "quality_phase_offload":self.config.quality_phase_offload,
                 "quality_phase_offload_above":self.config.quality_phase_offload_above,
                 "separate_vae_decode":self.config.separate_vae_decode,

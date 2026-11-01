@@ -711,7 +711,7 @@ def scene_review_context(scene):
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
                  cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None,
-                 weights_relation="unknown", rectangle_guard=False):
+                 weights_relation="unknown", rectangle_guard=False, cross_context=False):
     from .detection import locate_watermarks_batch, source_scene
     contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
     if len(contexts)!=len(pairs):
@@ -886,6 +886,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         for allowed,context,(before,after),verdict in zip(cross_review_allowed,contexts,pairs,verdicts):
             if allowed:
                 reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,
-                           device,resolution,max_tokens,feather,context,weights_relation=weights_relation)
-            verdict["review_version"]="2026-11-01.reference-cross-review-v9"
+                           device,resolution,max_tokens,feather,context,weights_relation=weights_relation,full_context=cross_context)
+            verdict["review_version"]=("2026-11-01.reference-cross-review-v10-full-context" if cross_context
+                                       else "2026-11-01.reference-cross-review-v9")
     return verdicts
