@@ -90,7 +90,9 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         settings.seed = (settings.seed + 104729 * (attempt - 1)) % (2**32)
         settings.resolution = options.quality_retry_resolution
         settings.quality_batch_size = 1
-        if not (options.scope == "regions" and options.preset == "custom"):
+        direct_whole=(options.scope=="full_image" and options.first_pass_mode=="whole"
+                      and not options.preserve_background)
+        if not direct_whole and not (options.scope == "regions" and options.preset == "custom"):
             settings.scope, settings.preset, settings.regions = "regions", "auto", []
         settings.extra_prompt = (
             options.extra_prompt + "\n精确清除所有数字覆盖层及淡色文字、边框和小图标。"
@@ -101,7 +103,7 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         validated = feedback_from_quality({"evidence": tasks[0].get("_retry_feedback", [])})
         guidance = "\n".join(dict.fromkeys(REPAIR_ACTIONS[item["issue"]] for item in validated))
         if guidance:
-            settings.extra_prompt += ("\n上轮检验定位的返工重点（具体位置在当前裁切图提示中给出）：\n" + guidance +
+            settings.extra_prompt += ("\n上轮检验定位的返工重点（具体位置按当前模型输入坐标说明）：\n" + guidance +
                                       "\n始终从原图重做，只修改确认的数字覆盖层；不能为通过检验删除真实内容或降低标准。")
         # A verifier error first rechecks the best candidate instead of regenerating.
         if tasks[0].get("_recheck"):

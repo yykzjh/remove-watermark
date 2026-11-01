@@ -18,7 +18,7 @@ def test_retry_keeps_better_candidate_and_always_uses_original(tmp_path):
     source.write_bytes(b"original")
     task = {"source": str(source), "destination": str(target), "relative": "a.png"}
     cfg = DeploymentConfig(state_dir=str(tmp_path/"state"), backend="mock")
-    opts = ProcessingConfig(quality_check=True, quality_auto_retry=True, quality_max_attempts=3)
+    opts = ProcessingConfig(scope="full_image",quality_check=True, quality_auto_retry=True, quality_max_attempts=3)
     seen = []
     def process(tasks, settings, *_):
         seen.append((tasks[0]["source"], settings.scope, settings.seed))
@@ -37,7 +37,7 @@ def test_retry_keeps_better_candidate_and_always_uses_original(tmp_path):
     assert len(third["attempt_history"]) == 3
     assert source.read_bytes() == b"original"
     assert all(item[0] == str(source) for item in seen)
-    assert seen[1][1] == "regions" and seen[1][2] != seen[0][2]
+    assert seen[1][1] == "full_image" and seen[1][2] != seen[0][2]
     assert not list((tmp_path/"state").rglob("best.png"))
 
 
@@ -350,3 +350,21 @@ def test_real_or_uncertain_defects_never_enter_unsupported_dispute_shortcut(chan
     assert unsupported_residual_dispute(q)
     q.update(change)
     assert not unsupported_residual_dispute(q)
+
+@pytest.mark.parametrize("custom",[False,True])
+def test_retry_preserves_whole_direct_or_explicit_custom_path(tmp_path,custom):
+    from watermark_studio.config import Region
+    source=tmp_path/"source.png";source.write_bytes(b"original")
+    task={"source":str(source),"destination":str(tmp_path/"out.png"),"relative":"a.png",
+          "_retry":True,"_attempt":2}
+    options=ProcessingConfig(scope="regions" if custom else "full_image",preset="custom" if custom else "auto",
+        regions=[Region(box=(.1,.1,.2,.2))] if custom else [],quality_check=True,quality_auto_retry=True,
+        quality_max_attempts=2)
+    def process(tasks,settings,*args):
+        assert settings.scope==options.scope and settings.first_pass_mode=="whole"
+        assert settings.regions==options.regions and not settings.preserve_background
+        assert tasks[0]["source"]==str(source)
+        Path(tasks[0]["destination"]).write_bytes(b"edited")
+        return [{"file":"a.png","ok":True,"quality":verdict("passed",removed=True)}]
+    result=process_attempts([task],options,DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state")),None,{},"job",process)[0]
+    assert result["quality"]["status"]=="passed" and source.read_bytes()==b"original"

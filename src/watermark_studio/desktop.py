@@ -345,20 +345,27 @@ class MainWindow(QMainWindow):
         form.addRow(self.output_dimensions)
         self.output_dimensions.setEnabled(False)
         self.output_mode.currentIndexChanged.connect(lambda index: self.output_dimensions.setEnabled(index == 1))
-        note = QLabel("先完成去水印与整图合成，再以 Lanczos 高质量重采样缩放。自定义宽高会精确匹配尺寸；比例不同会拉伸。此方式不是 AI 超分辨率。")
+        note = QLabel("整图模式直接输出完整编辑结果；自定义区域修补后合并回整图，再以 Lanczos 高质量重采样缩放。自定义宽高会精确匹配尺寸；比例不同会拉伸。此方式不是 AI 超分辨率。")
         note.setWordWrap(True)
         note.setObjectName("muted")
         form.addRow(note)
         self.preserve_background = QCheckBox("自动保护原图内容（减少非水印内容被重绘）")
-        self.preserve_background.setToolTip("完整图像仍送入编辑模型；自动定位水印后合成，保留其余原图内容。定位也可能出错，建议同时检验。")
+        self.preserve_background.setToolTip("历史对照参数：自动定位后裁切或合成；客户端自动模式始终整图直接处理。")
         form.addRow(self.preserve_background)
         self.first_pass_mode = QComboBox()
-        self.first_pass_mode.addItem("整图推理（原策略）","whole")
+        self.first_pass_mode.addItem("整图直接处理（无局部合成）","whole")
         self.first_pass_mode.addItem("首轮自动精细处理","focused")
         self.first_pass_mode.addItem("首轮精细处理与源图细节定位","thorough")
         self.first_pass_mode.addItem("首轮完整覆盖与细码核实","complete")
         self.first_pass_mode.setToolTip("精细策略需启用原图保护，内部自动分配模型输入预算；细小覆盖层使用可读的输入视图，无需统一框选。它可能包含多个模型调用，不等于仅调用模型一次。")
         form.addRow("首轮去水印策略",self.first_pass_mode)
+        # Retain legacy launch parsing for historical experiments, not as batch UI controls.
+        for widget in (self.preserve_background,self.first_pass_mode):
+            widget.hide()
+        form.labelForField(self.first_pass_mode).hide()
+        self.processing_note=QLabel("整张原图直接输入模型，完整结果直接输出；不裁切水印子图、不回贴原图。返工也采用整图处理。")
+        self.processing_note.setWordWrap(True)
+        form.addRow(self.processing_note)
         self.repair_blending = QComboBox()
         self.repair_blending.addItem("自动校正修补区域明暗（推荐）", "harmonic")
         self.repair_blending.addItem("仅边缘羽化（对照）", "feather")
@@ -366,7 +373,7 @@ class MainWindow(QMainWindow):
         self.repair_blending.setToolTip("从原水印以外的可见像素估计平滑色偏，减少矩形阴影；不扩大处理范围。")
         form.addRow("修补明暗衔接", self.repair_blending)
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
-        self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；建议同时启用自动保护原图内容。未通过项提供可见依据和返工建议；待复核或检验错误不算通过。")
+        self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；整图直接处理同样严格检验内容变化。未通过项提供可见依据和返工建议；待复核或检验错误不算通过。")
         form.addRow(self.quality_check)
         self.quality_cross_review = QCheckBox("编辑侧说明与独立复核（纠正实物文字误报）")
         self.quality_cross_review.setToolTip("仅对无其他缺陷的文字争议作一次原图像素对照和双模型复核；明暗/纹理/内容变化疑点不能豁免。")
@@ -452,6 +459,7 @@ class MainWindow(QMainWindow):
     def tab_changed(self):
         self.tabs.updateGeometry()
         self.start_button.setText("开始单张去除水印" if self.tabs.currentIndex() else "开始批量去除水印")
+        self.mode_changed()
 
     def mode_changed(self):
         custom = self.preset.currentData() == "custom"
@@ -460,6 +468,12 @@ class MainWindow(QMainWindow):
             if custom else "自动处理整张图像中的水印；手动框选、区域坐标和区域编辑按钮均已禁用。"
         )
         self.region_controls.setEnabled(custom)
+        if hasattr(self,"repair_blending"):
+            self.repair_blending.setEnabled(custom and self.tabs.currentIndex()==1)
+            self.processing_note.setText(
+                "自定义区域：修补所选区域后合并回整图；最终按完整图像尺寸输出。"
+                if custom and self.tabs.currentIndex()==1 else
+                "整张原图直接输入模型，完整结果直接输出；不裁切水印子图、不回贴原图。返工也采用整图处理。")
         self.canvas.set_selectable(custom and bool(self.preview_path))
 
     def boxes_changed(self, boxes):
@@ -533,9 +547,9 @@ class MainWindow(QMainWindow):
                 quality_auto_retry=self.quality_retry.isChecked(),
                 quality_max_attempts=self.quality_attempts.value(),
                 quality_retry_resolution=self.retry_resolution.currentData(),
-                preserve_background=self.preserve_background.isChecked(),
+                preserve_background=False,
                 repair_blending=self.repair_blending.currentData(),
-                first_pass_mode=self.first_pass_mode.currentData(),
+                first_pass_mode="whole",
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
                 quality_detail_patches=self.quality_details.value(),

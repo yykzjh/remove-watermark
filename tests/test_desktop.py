@@ -197,5 +197,9 @@ def test_tuned_launch_context_reaches_submission_without_adding_batch_regions():
     window.start_job()
     payload=api.calls[-1][3]
     assert payload["options"]["context"]==.45
+    assert payload["options"]["first_pass_mode"]=="whole"
+    assert payload["options"]["preserve_background"] is False
+    assert not window.preserve_background.isVisible()
+    assert not window.first_pass_mode.isVisible()
     assert payload["options"]["scope"]=="full_image" and payload["options"]["regions"]==[]
     window.close()

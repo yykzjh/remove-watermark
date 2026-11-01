@@ -345,3 +345,42 @@ def test_oversized_auxiliary_quarter_gets_context_without_redrawing_known_large_
     assert results[0][0]==[panel] and counts[0]==5
     assert audit[0][0]["scan_kind"]=="quarter"
     assert calls[1][0][0]>calls[0][1][0] and calls[1][0][1]>calls[0][1][1]
+
+
+def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositing(tmp_path,monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from watermark_studio.worker import process_batch
+
+    sources=[]
+    for name,size,color in [("wide.png",(800,600),"red"),("tall.png",(600,800),"blue")]:
+        path=tmp_path/name
+        Image.new("RGB",size,color).save(path)
+        sources.append((path,path.read_bytes(),size))
+    def forbidden(*args,**kwargs):
+        raise AssertionError("Whole-direct generation must not locate/crop/composite a watermark region")
+    for name in ("locate_watermarks_batch","blend_patch","composite_protected","context_box"):
+        monkeypatch.setattr("watermark_studio.worker."+name,forbidden)
+    monkeypatch.setattr("watermark_studio.images.protect_edge_completion_context",forbidden)
+    monkeypatch.setattr("watermark_studio.batching.dimensions",lambda image,resolution:image.size)
+    observed=[]
+    def generate(pipe,items,resolution,*args):
+        observed.extend((item["image"].size,item["image"].getpixel((0,0))) for item in items)
+        return [Image.new("RGB",(64,64),"green") for item in items]
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,
+        max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
+    pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu")
+    tasks=[{"source":str(p),"destination":str(tmp_path/("out-"+p.name)),"relative":p.name} for p,_,_ in sources]
+    rows=process_batch(tasks,ProcessingConfig(scope="full_image"),DeploymentConfig(),pipe)
+    assert len(rows)==2 and all(r["ok"] for r in rows)
+    assert sorted(observed)==sorted([((800,600),(255,0,0)),((600,800),(0,0,255))])
+    for row,(path,before,size),task in zip(rows,sources,tasks):
+        assert row["processing_path"]=="whole_direct" and row["model_inferences"]==1
+        assert row["model_reference_sizes"]==[list(size)]
+        assert not row["background_preserved"] and row["repair_regions"]==[]
+        assert Image.open(task["destination"]).size==size
+        assert Image.open(task["destination"]).getpixel((0,0))==(0,128,0)
+        assert path.read_bytes()==before

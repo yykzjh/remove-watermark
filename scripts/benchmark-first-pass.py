@@ -23,6 +23,8 @@ parser.add_argument("--seed",type=int,default=20261101)
 parser.add_argument("--exclude-benchmarks",nargs="*",default=[])
 parser.add_argument("--cross-review",action="store_true")
 parser.add_argument("--generation-only",action="store_true")
+parser.add_argument("--preserve-background",action="store_true",help="Explicit legacy whole-image composite comparison; default whole is direct")
+parser.add_argument("--concurrency",type=int,default=20)
 parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
 parser.add_argument("--files",nargs="*")
 parser.add_argument("--select-review",action="store_true",help="Frozen job: all unaccepted rows plus deterministic passed controls")
@@ -133,9 +135,10 @@ for profile in args.profiles:
     mode,context,budget=match.groups();budget=int(budget);context=float(context or .6)
     target=work/profile
     if target.exists(): raise RuntimeError("Fresh tag/output required; existing accepted outputs must not bias first-pass metrics")
+    preserve_background=mode!="whole" or args.preserve_background
     started=time.monotonic()
     job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(target),"options":{
-        "concurrency":20,"resolution":budget,"preserve_background":True,"first_pass_mode":mode,"context":context,
+        "scope":"full_image","concurrency":args.concurrency,"resolution":budget,"preserve_background":preserve_background,"first_pass_mode":mode,"context":context,
         "repair_blending":args.blending,"quality_check":not args.generation_only,"quality_batch_size":args.quality_batch_size,
         "quality_detail_patches":4,"quality_cross_review":args.cross_review,"quality_auto_retry":False,"seed":42,"overwrite":True}})["id"]
     last_progress=started
@@ -162,7 +165,12 @@ for profile in args.profiles:
     if any(r.get("quality_attempts",1)>1 for r in rows):
         raise ValueError("A generation retry cannot count as a first-pass result")
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
-    record={"benchmark_revision":benchmark_revision,"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
+    record={"processing_path":("whole_direct" if mode=="whole" and not preserve_background else "whole_composite" if mode=="whole" else "region_repair"),
+        "preserve_background":preserve_background,"scope":"full_image","concurrency":args.concurrency,
+        "deployment":{"batch_size":state.get("batch_size"),"small_batch_size":state.get("small_batch_size"),
+                      "batch_window":state.get("batch_window"),"worker_count":state.get("worker_count"),
+                      "optimization":state.get("optimization")},
+        "benchmark_revision":benchmark_revision,"profile":profile,"tag":args.tag,"subset":args.subset,"images":len(paths),"job":job,
         "blending":args.blending,"context":context,"seed":args.seed,"cross_review":args.cross_review,"code_revision":state.get("code_revision","unrecorded"),"quality_weight_identity":state.get("quality_weight_identity"),
         "quality_model":state.get("quality_model"),"quality_backend":state.get("quality_backend"),"seconds":round(elapsed,3),"source_inputs_unchanged":source_unchanged,"source_hash_audit_seconds":source_audit_seconds,
         "source_selection_sha256":selection_sha256,"sampling_seed":args.seed,"model_seed":42,"first_counts":dict(counts),

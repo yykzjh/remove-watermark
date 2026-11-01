@@ -222,6 +222,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     "action": "no_watermark_detected" if cuda else "mock_copy",
                     "first_pass_strategy_version":"2026-11-01.source-details-core-v2",
                     "first_pass_mode":options.first_pass_mode,
+                    "processing_path":"source_copy",
                     "source_detail_views":detail_counts.get(task["relative"],0),
             "source_edge_completion":edge_evidence.get(task["relative"],[]),
             "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
@@ -250,8 +251,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             stable = int.from_bytes(hashlib.sha256(task["relative"].encode()).digest()[:4], "big")
             for index, region in enumerate(regions):
                 box = pixel_box(region.box, source.size)
-                crop = context_box(box, source.size, options.context)
-                reference = source.crop(crop)
+                crop = (0,0,*source.size) if state["whole_generation"] else context_box(box, source.size, options.context)
+                reference = source if state["whole_generation"] else source.crop(crop)
                 prefilled=False
                 if config.prefill_overlays and focused_auto:
                     reference,prefilled=prefill_overlay_reference(source,box,crop,regions)
@@ -371,11 +372,14 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "background_preserved": state["protected_regions"] is not None or options.scope == "regions",
             "first_pass_strategy_version":"2026-11-01.source-details-core-v2",
             "first_pass_mode":options.first_pass_mode,
+            "processing_path":("whole_direct" if state["whole_generation"] and state["protected_regions"] is None
+                               else "whole_composite" if state["whole_generation"] else "region_repair"),
             "source_detail_views":detail_counts.get(task["relative"],0),
             "source_edge_completion":edge_evidence.get(task["relative"],[]),
             "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
+            "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
             "source_scene":state["source_scene"],
@@ -389,8 +393,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 raise RuntimeError(state["failed"])
             output = state["result"]
             from .images import protect_edge_completion_context
-            output,restored=protect_edge_completion_context(
-                state["source"],output,edge_evidence.get(task["relative"],[]))
+            restored=0
+            if result["processing_path"]!="whole_direct":
+                output,restored=protect_edge_completion_context(
+                    state["source"],output,edge_evidence.get(task["relative"],[]))
             result["edge_context_pixels_preserved"]=restored
             if output.size != state["source"].size:
                 raise RuntimeError("Output dimensions differ from original")
