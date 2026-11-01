@@ -80,3 +80,44 @@ def test_source_host_mirror_is_built_before_cuda_and_retains_original_precision(
     parameter.device = SimpleNamespace(type="cuda")
     with pytest.raises(ValueError, match="before CUDA"):
         prepare_transformer_host_mirror(model)
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_editor_generation_parking_restores_it_and_keeps_per_image_transfer_evidence(monkeypatch, failure):
+    from watermark_studio.source_residency import encoder_generation_phase
+
+    moves = []
+    class Editor:
+        device = "cuda:0"
+        def to(self, device, **kwargs):
+            self.device = device
+            moves.append(device)
+            return self
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
+        synchronize=lambda: None, empty_cache=lambda: None)))
+    editor = Editor()
+    pipe = SimpleNamespace(text_encoder=editor, _execution_device="cuda:0",
+                           _watermark_phase_offload=True)
+    items = [{"seed": 1}, {"seed": 2}]
+    def generate_and_decode():
+        with encoder_generation_phase(pipe, items):
+            assert editor.device == "cpu"
+            if failure:
+                raise RuntimeError("generation/decode failed")
+    if failure:
+        with pytest.raises(RuntimeError, match="generation/decode"):
+            generate_and_decode()
+    else:
+        generate_and_decode()
+    assert editor.device == "cuda:0" and moves == ["cpu", "cuda:0"]
+    assert all(item["_encoder_generation_log"]["enabled"] for item in items)
+    assert items[0]["_encoder_generation_log"] == items[1]["_encoder_generation_log"]
+
+
+def test_disabled_editor_parking_does_not_require_an_encoder_or_add_logs():
+    from watermark_studio.source_residency import encoder_generation_phase
+
+    items = [{}]
+    with encoder_generation_phase(SimpleNamespace(), items):
+        pass
+    assert items == [{}]

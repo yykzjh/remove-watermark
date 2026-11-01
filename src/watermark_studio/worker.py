@@ -58,6 +58,7 @@ def load_pipeline(config, model_path):
     if config.transformer_phase_offload:
         from .source_residency import prepare_transformer_host_mirror
         prepare_transformer_host_mirror(pipe.transformer)
+        prepare_transformer_host_mirror(pipe.text_encoder)
     if config.offload == "model":
         pipe.enable_model_cpu_offload(gpu_id=0)
     elif config.offload == "sequential":
@@ -91,6 +92,7 @@ def load_pipeline(config, model_path):
     if config.quantization != "none":
         from .optimizations import quantize_transformer
         quantize_transformer(pipe.transformer, config.quantization, config.float8_granularity)
+    pipe._watermark_phase_offload=config.transformer_phase_offload
     pipe._source_rim_text_detector=rim_detector
     pipe._watermark_separate_vae_decode=config.separate_vae_decode
     pipe._watermark_prompt_encoder = config.prompt_encoder
@@ -562,6 +564,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
+            "encoder_generation_transfer":[e.get("_encoder_generation_log") for e in edits if e["state"] is state],
             "whole_prompt_profile":options.whole_prompt_profile,
             "protection_detail_scan":config.protection_detail_scan,
             "protection_core_feather":config.protection_core_feather,

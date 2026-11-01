@@ -158,20 +158,22 @@ def independent_batch(pipe, items, resolution, kv_cache):
                           if context is not None else nullcontext())
 
         generators = [torch.Generator("cpu").manual_seed(item["seed"]) for item in items]
-        with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents), schedule_scope:
-            separate=getattr(pipe,"_watermark_separate_vae_decode",False)
-            output=pipe(
-                prompt=[item["prompt"] for item in items], image=items[0]["image"],
-                height=height, width=width, output_resolution=resolution,
-                true_cfg_scale=1.0, use_kv_cache=kv_cache, generator=generators,
-                output_type="latent" if separate else "pil",
-                **callback_options,
-            ).images
-        if context is not None:
-            context.finish()
-        # Returning from the pipeline releases its local prefix K/V and denoising
-        # tensors before allocating VAE activations; sampling arithmetic is unchanged.
-        return decode_latents(pipe,output,height,width) if separate else output
+        from .source_residency import encoder_generation_phase
+        with encoder_generation_phase(pipe, items):
+            with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents), schedule_scope:
+                separate=getattr(pipe,"_watermark_separate_vae_decode",False)
+                output=pipe(
+                    prompt=[item["prompt"] for item in items], image=items[0]["image"],
+                    height=height, width=width, output_resolution=resolution,
+                    true_cfg_scale=1.0, use_kv_cache=kv_cache, generator=generators,
+                    output_type="latent" if separate else "pil",
+                    **callback_options,
+                ).images
+            if context is not None:
+                context.finish()
+            # Returning from the pipeline releases its local prefix K/V and denoising
+            # tensors before allocating VAE activations; sampling arithmetic is unchanged.
+            return decode_latents(pipe,output,height,width) if separate else output
 
 
 def decode_latents(pipe,latents,height,width):

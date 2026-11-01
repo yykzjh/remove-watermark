@@ -295,3 +295,12 @@ QA阶段编辑器仍在GPU，DiT停放CPU，QA结束先停放独立检验权重�
 顺序测试覆盖两个检查阶段、两种开关组合、异常finally恢复及真实Pipeline首模块变CPU时设备保持。
 v4曾在pull未完成时启动，版本不符，已在提交图像前终止，不计为推理测试；
 现评测器在/jobs之前强制Git版本相符，且结束时检查整个测试期间checkout没有变化。
+
+
+0bac44a的v6已经消除生成后QA恢复的整窗错误；剩余0408为实际1536整图生成OOM，
+单图记录保留model_inferences=1、budget1536、generation OOM=1，不能再归因SOURCE。
+为得到有效的未量化质量对照，阶段管理继续扩展到预先完成完整图像/文本prompt编码后的GEN+VAE阶段：
+只在该段临时停放已不再使用的8B编辑编码器，已完成的每张独立embedding直接使用；
+VAE解码后finally恢复编辑编码器，再执行独立QA及可能的交叉检查。
+编码器也使用初始CPU只读pinned镜像，不添加编码、扩散前向或更改采样。
+开关仍为transformer-phase-offload、默认False，记录每张生成的encoder_generation_transfer。

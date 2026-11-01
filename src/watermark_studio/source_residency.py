@@ -53,3 +53,22 @@ def transformer_source_phase(pipe, enabled, execution_device, stats, *, before_r
         torch.cuda.synchronize()
         stats["to_device_seconds"] = round(perf_counter()-began, 5)
         stats["host_pinned_bytes"] = getattr(transformer, "_source_host_pinned_bytes", 0)
+
+
+
+@contextmanager
+def encoder_generation_phase(pipe, items):
+    """All independent text/image prompt embeddings already exist at this point."""
+    from types import SimpleNamespace
+
+    enabled = getattr(pipe, "_watermark_phase_offload", False)
+    stats = {}
+    adapter = SimpleNamespace(transformer=getattr(pipe, "text_encoder", None))
+    try:
+        with transformer_source_phase(adapter, enabled,
+                                      pipe._execution_device if enabled else None, stats):
+            yield
+    finally:
+        if enabled:
+            for item in items:
+                item["_encoder_generation_log"] = dict(stats)
