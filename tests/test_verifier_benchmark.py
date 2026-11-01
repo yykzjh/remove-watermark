@@ -96,3 +96,21 @@ def test_whole_direct_empty_repair_mask_never_hides_original_watermarks(tmp_path
     (folder/"results.jsonl").write_text(json.dumps(row)+"\n")
     with pytest.raises(ValueError,match="source-mask"):
         TOOLS["frozen_job_cases"](state,"job")
+
+
+@pytest.mark.parametrize("health,allow,match", [
+    ({"gpus": [1], "code_revision": "abc"}, False, "Stop the inference"),
+    ({"gpus": [2], "code_revision": "abc"}, True, "overlaps"),
+    ({}, True, "Cannot prove"),
+    ({"gpus": [True], "code_revision": "abc"}, True, "Cannot prove"),
+    ({"gpus": [1, 1], "code_revision": "abc"}, True, "Cannot prove"),
+])
+def test_live_server_is_never_implicitly_allowed_or_shared(health, allow, match):
+    with pytest.raises(RuntimeError, match=match):
+        TOOLS["require_disjoint_server_gpus"](health, [2, 3, 4, 5], allow)
+
+
+def test_explicit_disjoint_server_proof_records_the_actual_gpu_reservation():
+    assert TOOLS["require_disjoint_server_gpus"](
+        {"gpus": [1], "code_revision": "abc"}, [2, 3, 4, 5], True) == {
+            "active": True, "gpus": [1], "code_revision": "abc"}

@@ -213,6 +213,21 @@ def file_hashes(cases):
     return result
 
 
+
+def require_disjoint_server_gpus(health, requested, allow):
+    """Explicit test opt-in, proved against live reserved physical GPU indices."""
+    if not allow:
+        raise RuntimeError("Stop the inference server before the standalone verifier benchmark")
+    reserved = health.get("gpus")
+    if (not isinstance(reserved, list) or not reserved
+            or any(type(gpu) is not int or gpu < 0 for gpu in reserved)
+            or len(set(reserved)) != len(reserved) or not health.get("code_revision")):
+        raise RuntimeError("Cannot prove live server GPU reservation")
+    if set(reserved) & set(requested):
+        raise RuntimeError("Verifier benchmark overlaps live inference server GPUs")
+    return {"active": True, "gpus": sorted(reserved), "code_revision": health["code_revision"]}
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--source-job")
@@ -221,6 +236,8 @@ def main():
     parser.add_argument("--tag",required=True)
     parser.add_argument("--profile",choices=list(PROFILES),required=True)
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
+    parser.add_argument("--allow-disjoint-server",action="store_true",
+                        help="Allow a live server only when its reported physical GPUs are all disjoint; default refuses")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--quality-resolution",type=int,choices=[512,768,1024,1280],default=768)
     parser.add_argument("--text-free-proof-profile",choices=["primary","35-4b-bf16"],default="primary")
@@ -268,13 +285,15 @@ def main():
         parser.error("Distinct nonnegative GPU indices required")
     import urllib.error
     import urllib.request
+    server_isolation={"active":False}
     try:
-        urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2).close()
+        with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
+            server_health=json.load(response)
     except urllib.error.URLError as error:
         if getattr(error.reason,"errno",None)!=errno.ECONNREFUSED:
             raise RuntimeError("Cannot establish that the inference server is stopped") from error
     else:
-        raise RuntimeError("Stop the inference server before the standalone verifier benchmark")
+        server_isolation=require_disjoint_server_gpus(server_health,gpus,args.allow_disjoint_server)
     code_revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
     target=args.state_dir/"verifier-benchmarks"/args.tag/args.profile
     target.mkdir(parents=True,exist_ok=False)
@@ -366,7 +385,12 @@ def main():
                         defect_passed=sum(r["expected"]=="review" and r["quality"]["status"]=="passed" for r in selected),
                         false_accept_files=[r["file"] for r in selected if r["expected"]=="review" and r["quality"]["status"]=="passed"],
                         false_refuse_files=[r["file"] for r in selected if r["expected"]=="passed" and r["quality"]["status"]!="passed"])
-        result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
+        if server_isolation["active"]:
+            with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
+                latest=require_disjoint_server_gpus(json.load(response),gpus,True)
+            if latest!=server_isolation:
+                raise RuntimeError("Live server GPU reservation changed during verifier evaluation")
+        result={"server_gpu_isolation":server_isolation,"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
                  "code_revision":code_revision,"images":len(cases),"verifications":expected_total,
                 "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
                 "inspection_profile":args.inspection_profile,"first_snapshot":args.first_snapshot,

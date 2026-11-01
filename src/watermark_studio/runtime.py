@@ -448,6 +448,7 @@ class Runtime:
                 "pending_images": len(self.pending),
                 "pending_retries": len(self.retry_pending),
                 "worker_count": self.config.worker_count,
+                "gpus": list(self.config.gpus),
                 "recommended_concurrency": min(
                     self.config.capacity,
                     self.config.worker_count * max(4, self.config.batch_size * min(2, self.config.batch_window)),
