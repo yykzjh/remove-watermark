@@ -19,7 +19,7 @@ def test_explicit_history_never_drops_original_development_samples(tmp_path):
     write_sources(tmp_path,"first-pass-prior1024",["/images/other.jpg"])
     seen,automatic=exclusion_sources(tmp_path,base,["first-pass-prior1024"])
     assert seen=={"/images/old64.jpg","/images/old128.jpg","/images/other.jpg"}
-    assert automatic==["original64","first-pass-holdout-neutral-v1"]
+    assert automatic==["original64","first-pass-holdout-neutral-v1","first-pass-prior1024"]
 
 
 def test_first_evaluation_without_older_128_is_still_supported(tmp_path):
@@ -54,3 +54,26 @@ def test_whole_comparison_uses_independent_source_scan_instead_of_empty_composit
     with mock.patch.object(Path,"home",return_value=fake_home),mock.patch.object(sys,"argv",argv):
         runpy.run_path(str(script),run_name="__main__")
     assert json.loads(output.read_text())["same_source_masks"]==0
+
+
+def test_all_registered_exposures_are_automatically_excluded(tmp_path):
+    base = write_sources(tmp_path, "original64", ["/images/old64.jpg"])
+    write_sources(tmp_path, "first-pass-new1024", ["/images/heldout_then_tuned.jpg"])
+    write_sources(tmp_path, "source-analysis-only", ["/images/examined.jpg"])
+    (tmp_path/"current-empty-preparation").mkdir()
+    seen, automatic = exclusion_sources(tmp_path, base, [])
+    assert seen == {"/images/old64.jpg", "/images/heldout_then_tuned.jpg", "/images/examined.jpg"}
+    assert set(automatic) == {"original64", "first-pass-new1024", "source-analysis-only"}
+
+
+def test_broken_automatic_provenance_cannot_silently_enter_a_new_holdout(tmp_path):
+    base = write_sources(tmp_path, "original64", ["/images/old64.jpg"])
+    write_sources(tmp_path, "inspected", [{"not": "a source path"}])
+    with pytest.raises(ValueError, match="source path strings"):
+        exclusion_sources(tmp_path, base, [])
+
+
+def test_legacy_visual_review_path_records_are_excluded_too(tmp_path):
+    base = write_sources(tmp_path, "original64", ["/images/old64.jpg"])
+    write_sources(tmp_path, "sample-review", [{"path": "/images/viewed.jpg", "group": "native", "size": 2}])
+    assert exclusion_sources(tmp_path, base, [])[0] == {"/images/old64.jpg", "/images/viewed.jpg"}
