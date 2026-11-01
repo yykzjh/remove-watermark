@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from .cross_review import _classify
+from .cross_review import CLASSIFY_PROMPT
 from .detection import DETECTION_PROMPT, locate_watermarks_batch, parse_detection, source_scene
 
 SOURCE_RELOCALIZATION_PROMPT=DETECTION_PROMPT+(
@@ -77,6 +77,33 @@ def reconcile_broad(original,first,second):
     return parse_detection(raw),raw
 
 
+
+def _digital_claim(chats,encoder,processor,device):
+    """Digital identity has its own uncertainty semantics, not missing carrier proof."""
+    from .evidence import _generate_explanations
+    from .quality import _structured_vqa
+    content=chats[0][0]["content"][:-1]
+    prompt=(CLASSIFY_PROMPT.split("只返回JSON。")[0]+
+        "\n本次判断中心候选本身是数字叠加还是实物印字，不预设它属于哪一类。"
+        "object_attachment和surface_evidence仅指承载候选文字的真实实物，不是它后面的场景。"
+        "确认数字覆盖层须有可见正证据，例如悬浮叠加关系、半透明底板或不随场景透视的版式；"
+        "不能只因为没找到载体就断言数字。若数字身份已有清楚证据，缺少实物载体不等于uncertain。"
+        "只有分类看不清、证据冲突或混合实物/数字文字时uncertain=true。"
+        "目标外标牌、设备和背景不能代替候选自身的载体证据。"
+        "只返回JSON，physical_scene_text、digital_overlay、object_attachment、surface_evidence、uncertain"
+        "为布尔值，area为none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。")
+    fields=("physical_scene_text","digital_overlay","object_attachment","surface_evidence","uncertain")
+    rows,_=_structured_vqa([[{"role":"user","content":content+[{"type":"text","text":prompt}]}]],
+                           fields,encoder,processor,device,128)
+    # Flags are not supplied to the observation call; it must inspect the pixels.
+    observed=_generate_explanations([[{"role":"user","content":content+[{"type":"text","text":
+        "只用一句中文具体描述中心候选文字与真实场景的位置、边缘、表面、透视或透明叠加关系。"
+        "不预设类别，不写是否通过，不复述布尔判定，不转录姓名地址日期代码。看不清就说明。"}]}]],
+        encoder,processor,device,128,True)[0]
+    if observed.get("status")!="summary_only":
+        raise ValueError("Source digital identity lacks an observable description")
+    return rows[0]|{"evidence":observed["summary"],"evidence_origin":"independent_visible_observation"}
+
 def refine_broad_source(image,detection,editor,editor_processor,verifier,verifier_processor,device,
                         weights_relation):
     broad=broad_masks(detection)
@@ -106,7 +133,7 @@ def refine_broad_source(image,detection,editor,editor_processor,verifier,verifie
             chats[0][0]["content"][-1]["text"]+=(
                 "\n只核实标明的中心候选文字。目标外的实体牌、设备和背景，"
                 "不能代替目标本身的物理载体证据。")
-            reports=[_classify(chats,model,processor,device)[0] for model,processor in
+            reports=[_digital_claim(chats,model,processor,device) for model,processor in
                      [(editor,editor_processor),(verifier,verifier_processor)]]
             proofs.append({"box":list(region.box),"editor":reports[0],"independent":reports[1]})
             for audit in audits:audit["digital_proofs"]=list(proofs)
