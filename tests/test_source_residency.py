@@ -43,7 +43,7 @@ def test_disabled_source_transformer_staging_needs_no_torch_or_transformer():
 @pytest.mark.parametrize("options", [{"quantization": "float8"}, {"offload": "model"}])
 def test_staging_cannot_silently_move_unsupported_quantized_or_hooked_weights(options):
     with pytest.raises(ValueError, match="quantization=none"):
-        DeploymentConfig(transformer_source_offload=True, **options)
+        DeploymentConfig(transformer_phase_offload=True, **options)
 
 
 def test_pre_restore_callback_releases_unused_weights_before_any_cuda_allocation(monkeypatch):

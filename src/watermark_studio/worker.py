@@ -55,7 +55,7 @@ def load_pipeline(config, model_path):
         )
     if config.vae_slicing:
         pipe.vae.enable_slicing()
-    if config.transformer_source_offload:
+    if config.transformer_phase_offload:
         from .source_residency import prepare_transformer_host_mirror
         prepare_transformer_host_mirror(pipe.transformer)
     if config.offload == "model":
@@ -131,10 +131,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         import torch
         torch.cuda.reset_peak_memory_stats()
     quality_transfer_seconds=0.
-    phase_manage=(cuda and (config.quality_phase_offload or config.quality_phase_offload_above)
+    phase_manage=(cuda and (config.quality_phase_offload or config.quality_phase_offload_above or config.transformer_phase_offload)
                   and config.quality_backend=="independent" and config.quality_quantization=="none"
                   and hasattr(pipe,"_quality_encoder"))
-    phase_offload=(cuda and (config.quality_phase_offload or
+    phase_offload=(cuda and (config.quality_phase_offload or config.transformer_phase_offload or
                    (config.quality_phase_offload_above and options.resolution>config.quality_phase_offload_above))
                    and config.quality_backend=="independent"
                    and config.quality_quantization=="none" and hasattr(pipe,"_quality_encoder"))
@@ -159,7 +159,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
             torch.cuda.empty_cache()
             quality_transfer_seconds+=time.monotonic()-began
-    with transformer_source_phase(pipe, cuda and config.transformer_source_offload
+    with transformer_source_phase(pipe, cuda and config.transformer_phase_offload
                                   and (needs_detection or options.whole_prompt_profile=="scene"),
                                   execution_device, source_transformer_transfer,
                                   before_restore=before_transformer_restore):
@@ -173,9 +173,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     detect_tasks.append(task)
                 except (OSError, ValueError):
                     pass  # Normal per-file handling below records the decoding failure.
-            # The independent verifier is unused by the initial editor-only scan.
-            # Leaving it resident here caused SOURCE OOM before the existing
-            # generation-phase offload could run (notably unquantized deployments).
+            # The independent verifier is unused by this editor-only scan.
+            # Park it before the scan to preserve source-stage memory headroom.
             if phase_offload and detect_tasks:
                 from .quality_loading import park_quality_encoder
                 transfer_started=time.monotonic()
@@ -617,87 +616,92 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         results[task["relative"]] = result
     for task in tasks:
         results[task["relative"]].setdefault("source_rim_protection",source_rim_audits.get(task["relative"],[]))
-    if options.quality_check:
-        if phase_manage:
-            transfer_started=time.monotonic()
-            torch.cuda.empty_cache()
-            from .quality_loading import restore_quality_encoder
-            pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,execution_device)
-            quality_transfer_seconds+=time.monotonic()-transfer_started
-        from .quality import verify_batch
-        pending = []
-        for task in tasks:
-            result = results[task["relative"]]
-            if not result["ok"]:
-                result["quality"] = {"status": "skipped", "reason": "processing_failed"}
-            elif not cuda:
-                result["quality"] = {"status": "skipped", "reason": "mock_backend"}
-            else:
-                pending.append(task)
-
-        def review(group):
-            nonlocal quality_oom_splits, quality_validation_splits
-            failure, split, is_oom = "", False, False
-            try:
-                pairs = [
-                    (source_images[t["relative"]], existing_images[t["relative"]]
-                     if t["relative"] in existing_images else load_photo(t["destination"])[0])
-                    for t in group
-                ]
-                reviews = verify_batch(
-                    pairs, pipe._quality_encoder, pipe._quality_processor, execution_device,
-                    options.quality_resolution, options.quality_max_tokens,
-                    cross_review_allowed=[options.quality_cross_review and not t.get("_cross_review_used") for t in group],
-                    editor_encoder=getattr(pipe,"text_encoder",None), editor_processor=getattr(pipe,"processor",None),
-                    weights_relation=getattr(pipe,"_quality_weights_relation","unknown"),
-                    editor_context=[{"background_preserved":results[t["relative"]].get("background_preserved"),
-                                     "repair_regions":results[t["relative"]].get("repair_regions",[]),
-                                     "action":results[t["relative"]].get("action"),
-                                     "source_scene":results[t["relative"]].get("source_scene","unknown"),
-                                     "harmonization":results[t["relative"]].get("harmonization"),
-                                     "protected_core_boxes":results[t["relative"]].get("protected_core_boxes",[]),
-                                     "source_rim_protection":results[t["relative"]].get("source_rim_protection",[]),
-                                     "denoising_context":results[t["relative"]].get("denoising_context",[])} for t in group],
-                    reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
-                    rectangle_guard=config.quality_rectangle_guard,
-                    cross_context=config.quality_cross_full_context,
-                    detection_batch_size=config.detection_batch_size, feather=options.feather,
-                    source_regions=[
-                        detections[t["relative"]][0][0] if t["relative"] in detections
-                        and not isinstance(detections[t["relative"]][0], Exception)
-                        else [Region.model_validate(r) for r in t["_repair_provenance"]["regions"]] if t.get("_repair_provenance")
-                        else options.regions if options.scope == "regions" and options.preset == "custom"
-                        else None for t in group
-                    ],
-                )
-                for task, verdict, pair in zip(group, reviews, pairs):
-                    size = ([options.output_width, options.output_height] if options.output_width
-                            else list(source_images[task["relative"]].size))
-                    verdict["display_output_size"] = list(pair[1].size)
-                    verdict["dimensions_match"] = verdict["display_output_size"] == size
-                    if not verdict["dimensions_match"] and verdict["status"] != "error":
-                        verdict.update(status="review", reason=(verdict["reason"]+" 输出尺寸与所选设置不符。").strip())
-                    results[task["relative"]]["quality"] = verdict
-                return
-            except Exception as error:  # noqa: BLE001 - quality failures must never become passes
-                is_oom = isinstance(error, torch.cuda.OutOfMemoryError)
-                split = len(group) > 1
-                failure = f"{type(error).__name__}: {error}"[:400]
-            # Leave the exception handler before retrying: traceback frames can own GPU tensors.
-            if is_oom:
+    quality_transformer_transfer={}
+    with transformer_source_phase(pipe, cuda and config.transformer_phase_offload
+                                  and options.quality_check,
+                                  execution_device, quality_transformer_transfer,
+                                  before_restore=before_transformer_restore):
+        if options.quality_check:
+            if phase_manage:
+                transfer_started=time.monotonic()
                 torch.cuda.empty_cache()
-            if split:
-                quality_oom_splits += int(is_oom)
-                quality_validation_splits += int(not is_oom)
-                mid = len(group)//2
-                review(group[:mid])
-                review(group[mid:])
-            else:
-                for task in group:
-                    results[task["relative"]]["quality"] = {"status":"error","reason":failure}
+                from .quality_loading import restore_quality_encoder
+                pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,execution_device)
+                quality_transfer_seconds+=time.monotonic()-transfer_started
+            from .quality import verify_batch
+            pending = []
+            for task in tasks:
+                result = results[task["relative"]]
+                if not result["ok"]:
+                    result["quality"] = {"status": "skipped", "reason": "processing_failed"}
+                elif not cuda:
+                    result["quality"] = {"status": "skipped", "reason": "mock_backend"}
+                else:
+                    pending.append(task)
 
-        for offset in range(0, len(pending), options.quality_batch_size):
-            review(pending[offset:offset + options.quality_batch_size])
+            def review(group):
+                nonlocal quality_oom_splits, quality_validation_splits
+                failure, split, is_oom = "", False, False
+                try:
+                    pairs = [
+                        (source_images[t["relative"]], existing_images[t["relative"]]
+                         if t["relative"] in existing_images else load_photo(t["destination"])[0])
+                        for t in group
+                    ]
+                    reviews = verify_batch(
+                        pairs, pipe._quality_encoder, pipe._quality_processor, execution_device,
+                        options.quality_resolution, options.quality_max_tokens,
+                        cross_review_allowed=[options.quality_cross_review and not t.get("_cross_review_used") for t in group],
+                        editor_encoder=getattr(pipe,"text_encoder",None), editor_processor=getattr(pipe,"processor",None),
+                        weights_relation=getattr(pipe,"_quality_weights_relation","unknown"),
+                        editor_context=[{"background_preserved":results[t["relative"]].get("background_preserved"),
+                                         "repair_regions":results[t["relative"]].get("repair_regions",[]),
+                                         "action":results[t["relative"]].get("action"),
+                                         "source_scene":results[t["relative"]].get("source_scene","unknown"),
+                                         "harmonization":results[t["relative"]].get("harmonization"),
+                                         "protected_core_boxes":results[t["relative"]].get("protected_core_boxes",[]),
+                                         "source_rim_protection":results[t["relative"]].get("source_rim_protection",[]),
+                                         "denoising_context":results[t["relative"]].get("denoising_context",[])} for t in group],
+                        reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
+                        rectangle_guard=config.quality_rectangle_guard,
+                        cross_context=config.quality_cross_full_context,
+                        detection_batch_size=config.detection_batch_size, feather=options.feather,
+                        source_regions=[
+                            detections[t["relative"]][0][0] if t["relative"] in detections
+                            and not isinstance(detections[t["relative"]][0], Exception)
+                            else [Region.model_validate(r) for r in t["_repair_provenance"]["regions"]] if t.get("_repair_provenance")
+                            else options.regions if options.scope == "regions" and options.preset == "custom"
+                            else None for t in group
+                        ],
+                    )
+                    for task, verdict, pair in zip(group, reviews, pairs):
+                        size = ([options.output_width, options.output_height] if options.output_width
+                                else list(source_images[task["relative"]].size))
+                        verdict["display_output_size"] = list(pair[1].size)
+                        verdict["dimensions_match"] = verdict["display_output_size"] == size
+                        if not verdict["dimensions_match"] and verdict["status"] != "error":
+                            verdict.update(status="review", reason=(verdict["reason"]+" 输出尺寸与所选设置不符。").strip())
+                        results[task["relative"]]["quality"] = verdict
+                    return
+                except Exception as error:  # noqa: BLE001 - quality failures must never become passes
+                    is_oom = isinstance(error, torch.cuda.OutOfMemoryError)
+                    split = len(group) > 1
+                    failure = f"{type(error).__name__}: {error}"[:400]
+                # Leave the exception handler before retrying: traceback frames can own GPU tensors.
+                if is_oom:
+                    torch.cuda.empty_cache()
+                if split:
+                    quality_oom_splits += int(is_oom)
+                    quality_validation_splits += int(not is_oom)
+                    mid = len(group)//2
+                    review(group[:mid])
+                    review(group[mid:])
+                else:
+                    for task in group:
+                        results[task["relative"]]["quality"] = {"status":"error","reason":failure}
+
+            for offset in range(0, len(pending), options.quality_batch_size):
+                review(pending[offset:offset + options.quality_batch_size])
     for task in tasks:
         result=results[task["relative"]]
         disputed=[v for v in physical_audits.get(task["relative"],[]) if v.get("requires_review")]
@@ -727,6 +731,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         "quality_phase_offload":phase_offload,
         "quality_host_pinned_bytes":getattr(getattr(pipe,"_quality_encoder",None),"_quality_host_pinned_bytes",0),
         "source_transformer_transfer":dict(source_transformer_transfer),
+        "quality_transformer_transfer":dict(quality_transformer_transfer),
         "quality_weight_transfer_seconds":round(quality_transfer_seconds/max(1,len(tasks)),4),
         "window_seconds": round(time.monotonic() - start, 3), "window_images": len(tasks),
         "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,

@@ -181,6 +181,7 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
         tmp_path, monkeypatch, offload, dit_offload):
     from watermark_studio.worker import process_batch
 
+    active = offload or dit_offload
     source, target = tmp_path/"source.png", tmp_path/"out.png"
     Image.new("RGB", (80, 60), "gray").save(source)
     raw = json.dumps({"watermarks": [{"kind": "panel", "box": [10, 600, 400, 980]}]})
@@ -196,7 +197,7 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
     class Transformer:
         device = "cuda:0"
         def to(self, device, **kwargs):
-            if device == "cuda:0" and offload:
+            if device == "cuda:0" and active:
                 assert encoder.device == "cpu", "Verifier must be parked before DiT restoration"
             self.device = device
             dit_moves.append(device)
@@ -215,7 +216,7 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
         assert args[3] == "cuda:0"
         assert pipe._execution_device == ("cpu" if dit_offload else "cuda:0")
         assert pipe.transformer.device == ("cpu" if dit_offload else "cuda:0")
-        assert encoder.device == ("cpu" if offload else "cuda:0")
+        assert encoder.device == ("cpu" if active else "cuda:0")
         return [(parse_detection(raw), raw)]
     def vet(images, found, *args):
         events.append("vet")
@@ -224,7 +225,7 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
     def generate(pipe, items, *args):
         events.append("generate")
         assert pipe.transformer.device == "cuda:0"
-        assert encoder.device == ("cpu" if offload else "cuda:0")
+        assert encoder.device == ("cpu" if active else "cuda:0")
         return [Image.new("RGB", (80, 60), "silver") for _ in items]
     def verify(pairs, *args, **kwargs):
         events.append("verify")
@@ -244,9 +245,13 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
         ProcessingConfig(scope="full_image", preserve_background=True, quality_check=True),
         DeploymentConfig(quality_verifier=True, quality_backend="independent",
             protection_physical_vet=True, quality_phase_offload=offload,
-            transformer_source_offload=dit_offload), pipe)[0]
+            transformer_phase_offload=dit_offload), pipe)[0]
     assert row["ok"] and row["quality"]["status"] == "passed" and row["model_inferences"] == 1
-    assert events == (["park", "detect", "restore", "vet", "park", "generate", "restore", "verify"]
-                      if offload else ["detect", "vet", "generate", "verify"])
-    assert dit_moves == (["cpu", "cuda:0"] if dit_offload else [])
+    expected = (["park", "detect", "restore", "vet", "park", "generate", "restore", "verify"]
+                if active else ["detect", "vet", "generate", "verify"])
+    if dit_offload:
+        expected.append("park")
+    assert events == expected
+    assert dit_moves == (["cpu", "cuda:0", "cpu", "cuda:0"] if dit_offload else [])
+    assert row["quality_transformer_transfer"]["enabled"] is dit_offload
     assert row["source_transformer_transfer"]["enabled"] is dit_offload

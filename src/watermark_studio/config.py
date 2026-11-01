@@ -114,7 +114,7 @@ class DeploymentConfig(BaseModel):
     prefill_original_semantics: bool = False
     protect_denoising_context: bool = False
     protect_source_rims: bool = False
-    transformer_source_offload: bool = False
+    transformer_phase_offload: bool = False
     batch_window: int = Field(default=4, ge=1, le=8)
     batch_bucketing: bool = False
     adaptive_dispatch: bool = False
@@ -170,7 +170,7 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
-        if self.transformer_source_offload and (self.quantization!="none" or self.offload!="none"):
+        if self.transformer_phase_offload and (self.quantization!="none" or self.offload!="none"):
             raise ValueError("源图阶段停放扩散模型目前仅支持quantization=none、offload=none")
         if self.protect_source_rims and (not self.quality_verifier or self.quality_backend!="independent"):
             raise ValueError("原图边沿保护需要quality-verifier和独立检验模型")
@@ -192,7 +192,7 @@ class DeploymentConfig(BaseModel):
             raise ValueError("当前固定依赖的 Flex 实测 Inductor 编译失败，请使用 sdpa")
         if self.separate_vae_decode and self.offload!="none":
             raise ValueError("分离VAE解码目前需要offload=none")
-        if (self.quality_phase_offload or self.quality_phase_offload_above) and self.quality_backend=="independent" and self.quality_quantization!="none":
+        if (self.quality_phase_offload or self.quality_phase_offload_above or self.transformer_phase_offload) and self.quality_backend=="independent" and self.quality_quantization!="none":
             raise ValueError("阶段权重卸载只支持未量化的独立检验器")
         if self.offload != "none" and (self.quantization != "none" or self.prompt_encoder == "lean" or self.fuse_qkv):
             raise ValueError("CPU offload 尚未验证量化、lean 编码或 QKV 融合组合，请使用 stock/none 且关闭 fuse-qkv")

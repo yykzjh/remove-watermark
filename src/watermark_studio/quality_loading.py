@@ -58,7 +58,7 @@ def load_quality_encoder(path, config, device):
                       device_map={"":str(device)})
     encoder=factory.from_pretrained(path,**kwargs)
     if config.quality_quantization=="none":
-        phase_enabled=config.quality_phase_offload or config.quality_phase_offload_above>0
+        phase_enabled=config.quality_phase_offload or config.quality_phase_offload_above>0 or config.transformer_phase_offload
         if phase_enabled:
             encoder.requires_grad_(False)
             mirror={}
