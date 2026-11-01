@@ -29,6 +29,9 @@ def test_every_gray_footer_has_two_source_proofs_and_native_fingerprint(monkeypa
     called=[]
     def classify(chats,model,*args):
         called.append(model)
+        from watermark_studio.source_digital_proof import SOURCE_DIGITAL_PROMPT
+        assert chats[0][0]["content"][-1]["text"]==SOURCE_DIGITAL_PROMPT
+        assert "必须uncertain" in SOURCE_DIGITAL_PROMPT and "正面证据" in SOURCE_DIGITAL_PROMPT
         return [report()]
     monkeypatch.setattr("watermark_studio.source_digital_proof._classify",classify)
     proofs=certify_gray_regions(image,[region],cores,[],editor,None,verifier,None,"cpu","different_weights")
