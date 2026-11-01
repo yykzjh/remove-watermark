@@ -194,15 +194,14 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 and options.first_pass_mode=="whole" and config.quality_backend=="independent"
                 and hasattr(pipe,"_quality_encoder")):
             from .quality_loading import restore_quality_encoder
-            from .source_vetting import vet_small_panels
+            from .source_vetting import vet_sources
             if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):
                 pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,pipe._execution_device)
-            for index,task in enumerate(detect_tasks):
-                if not isinstance(found[index],Exception):
-                    found[index],physical_audits[task["relative"]]=vet_small_panels(
-                        decoded[task["relative"]][0],found[index],pipe.text_encoder,pipe.processor,
-                        pipe._quality_encoder,pipe._quality_processor,pipe._execution_device,
-                        getattr(pipe,"_quality_weights_relation","unknown"))
+            found,vet_audits=vet_sources(
+                [decoded[t["relative"]][0] for t in detect_tasks],found,pipe.text_encoder,pipe.processor,
+                pipe._quality_encoder,pipe._quality_processor,pipe._execution_device,
+                getattr(pipe,"_quality_weights_relation","unknown"),config.source_vet_batch_size)
+            physical_audits={t["relative"]:vet_audits.get(index,[]) for index,t in enumerate(detect_tasks)}
         elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
         detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
     source_briefs={}

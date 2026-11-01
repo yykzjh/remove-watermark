@@ -28,7 +28,7 @@ def source_carrier_chats(image,box):
 
 
 def vet_small_panels(image, detection, editor, editor_processor, verifier, verifier_processor, device,
-                     weights_relation):
+                     weights_relation, first_reports=None):
     regions,raw=detection
     audit=[]
     if weights_relation!="different_weights":
@@ -40,7 +40,13 @@ def vet_small_panels(image, detection, editor, editor_processor, verifier, verif
         record={"box":list(region.box),"status":"retained_for_edit","version":"source-carrier-global-context-v3"}
         try:
             chats=source_carrier_chats(image,region.box)
-            first=_classify(chats,editor,editor_processor,device)[0]
+            if first_reports is None:
+                first=_classify(chats,editor,editor_processor,device)[0]
+                record["primary_batch_size"]=1
+            else:
+                first,record["primary_batch_size"]=first_reports[tuple(region.box)]
+                if isinstance(first,Exception):
+                    raise first
             record["editor"]=first
             if physical(first) or first.get("object_attachment") or first.get("physical_scene_text"):
                 second=_classify(chats,verifier,verifier_processor,device)[0]
@@ -56,3 +62,55 @@ def vet_small_panels(image, detection, editor, editor_processor, verifier, verif
             record["error"]=f"{type(error).__name__}: {error}"[:300]
         audit.append(record)
     return (kept,raw),audit
+
+
+def vet_sources(images,detections,editor,editor_processor,verifier,verifier_processor,device,
+                weights_relation,batch_size=1):
+    """Batch only independent editor-side source claims; keep per-image carrier proofs."""
+    if len(images)!=len(detections):
+        raise ValueError("Source vet image/detection counts differ")
+    cache=[{} for _ in images]
+    jobs=[]
+    if batch_size>1 and weights_relation=="different_weights":
+        for index,(image,detection) in enumerate(zip(images,detections)):
+            if isinstance(detection,Exception):
+                continue
+            candidates=[r for r in detection[0] if r.kind=="panel"
+                        and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])<.035]
+            for region in candidates[:4]:
+                jobs.append((index,region.box,source_carrier_chats(image,region.box)[0]))
+        def run(group):
+            failure=None
+            try:
+                reports=_classify([j[2] for j in group],editor,editor_processor,device)
+                if len(reports)!=len(group):
+                    raise ValueError("Source carrier classification count mismatch")
+                for (index,box,_),report in zip(group,reports):
+                    cache[index][tuple(box)]=(report,len(group))
+                return
+            except Exception as error:  # noqa: BLE001 - split before retaining an explicit per-candidate error
+                failure=f"{type(error).__name__}: {error}"[:300]
+            if "out of memory" in failure.lower():
+                try:
+                    import torch
+                    torch.cuda.empty_cache()
+                except ImportError:
+                    pass
+            if len(group)>1:
+                middle=len(group)//2
+                run(group[:middle]);run(group[middle:])
+            else:
+                index,box,_=group[0]
+                cache[index][tuple(box)]=(RuntimeError(failure),1)
+        for start in range(0,len(jobs),batch_size):
+            run(jobs[start:start+batch_size])
+    output=[];audits={}
+    for index,(image,detection) in enumerate(zip(images,detections)):
+        if isinstance(detection,Exception):
+            output.append(detection)
+            continue
+        result,audit=vet_small_panels(image,detection,editor,editor_processor,verifier,
+            verifier_processor,device,weights_relation,cache[index] if batch_size>1 and
+            weights_relation=="different_weights" else None)
+        output.append(result);audits[index]=audit
+    return output,audits

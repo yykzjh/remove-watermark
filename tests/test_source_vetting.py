@@ -65,3 +65,40 @@ def test_source_carrier_classifier_receives_global_context_and_native_detail():
     assert len(views)==2 and views[0].size==(640,480)
     assert max(views[1].size)<=640 and views[1].size!=views[0].size
     assert "不要把别处水印" in chat[0]["text"]
+
+def test_batched_source_claims_never_cross_photos_with_identical_boxes(monkeypatch):
+    from watermark_studio.source_vetting import vet_sources
+    images=[Image.new("RGB",(800,600),"red"),Image.new("RGB",(800,600),"blue")]
+    region=Region(kind="panel",box=(.4,.4,.5,.5))
+    def classify(chats,encoder,*args):
+        colors=[next(c["image"] for c in chat[0]["content"] if c["type"]=="image").getpixel((0,0))
+                for chat in chats]
+        if encoder=="editor":
+            assert colors==[(255,0,0),(0,0,255)]
+            return [verdict(),verdict(physical_scene_text=False,digital_overlay=True,
+                                    object_attachment=False,surface_evidence=False)]
+        assert colors==[(255,0,0)]
+        return [verdict()]
+    monkeypatch.setattr("watermark_studio.source_vetting._classify",classify)
+    output,audits=vet_sources(images,[([region],"red"),([region],"blue")],
+        "editor",None,"verifier",None,"cuda","different_weights",2)
+    assert output[0][0]==[] and output[1][0]==[region]
+    assert audits[0][0]["status"]=="protected_physical_text"
+    assert audits[1][0]["status"]=="retained_for_edit"
+    assert all(a[0]["primary_batch_size"]==2 for a in audits.values())
+
+def test_source_batch_protocol_failure_splits_without_guessing_classifications(monkeypatch):
+    from watermark_studio.source_vetting import vet_sources
+    region=Region(kind="panel",box=(.4,.4,.5,.5))
+    sizes=[]
+    def classify(chats,*args):
+        sizes.append(len(chats))
+        if len(chats)>1:raise ValueError("protocol count")
+        return [verdict(physical_scene_text=False,digital_overlay=True,object_attachment=False,
+                        surface_evidence=False)]
+    monkeypatch.setattr("watermark_studio.source_vetting._classify",classify)
+    output,audits=vet_sources([Image.new("RGB",(800,600))]*2,[([region],"raw")]*2,
+        None,None,None,None,"cuda","different_weights",4)
+    assert sizes==[2,1,1]
+    assert all(d[0]==[region] for d in output)
+    assert all(a[0]["primary_batch_size"]==1 for a in audits.values())

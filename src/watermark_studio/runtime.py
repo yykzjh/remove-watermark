@@ -481,6 +481,7 @@ class Runtime:
                     "retain_rejected_first":self.config.retain_rejected_first,
                     "protection_detail_scan":self.config.protection_detail_scan,
                     "protection_physical_vet":self.config.protection_physical_vet,
+                    "source_vet_batch_size":self.config.source_vet_batch_size,
                     "protection_core_feather":self.config.protection_core_feather,
                     "cudnn_benchmark": self.config.cudnn_benchmark,
                     "vae_channels_last": self.config.vae_channels_last,

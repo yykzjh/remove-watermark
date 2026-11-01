@@ -120,6 +120,7 @@ class DeploymentConfig(BaseModel):
     quality_verifier: bool = False
     protected_document_resolution: Literal[0,1024,1280,1536,2048] = 0
     retain_rejected_first: bool = False
+    source_vet_batch_size: int = Field(default=1,ge=1,le=4)
     protection_physical_vet: bool = False
     protection_detail_scan: bool = False
     protection_core_feather: bool = False
