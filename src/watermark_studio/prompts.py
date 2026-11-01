@@ -70,7 +70,7 @@ def build_prompt(
 
 def build_full_prompt(extra="", profile="baseline"):
     if profile!="baseline":
-        prompt=WHOLE_PROMPTS[profile]
+        prompt=WHOLE_PROMPTS["fidelity" if profile=="scene" else profile]
         return prompt+("\nAdditional scene instruction: "+extra.strip() if extra.strip() else "")
     targets = TARGETS["panel"] + "; " + TARGETS["logo"]
     prompt = BASE_PROMPT.format(

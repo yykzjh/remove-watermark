@@ -33,7 +33,7 @@ parser.add_argument("--select-review",action="store_true",help="Frozen job: all 
 parser.add_argument("--review-controls",type=int,default=32)
 parser.add_argument("--source-job",help="Completed job ID for a frozen source replay; requires --files")
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
-parser.add_argument("--whole-prompt-profiles",nargs="+",choices=["baseline","fidelity","minimal"],default=["baseline"])
+parser.add_argument("--whole-prompt-profiles",nargs="+",choices=["baseline","fidelity","minimal","scene"],default=["baseline"])
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
 benchmark_revision=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()
@@ -201,6 +201,8 @@ for profile,whole_prompt_profile in itertools.product(args.profiles,args.whole_p
         "residual_geometry_requeries":sum(r.get("quality",{}).get("residual_scan_requery",{}).get("attempts",0) for r in rows),
         "generation_retries":sum(max(0,r.get("quality_attempts",1)-1) for r in rows),
         "input_budgets":dict(collections.Counter(str(n) for r in rows for n in r.get("model_input_budgets",[]))),
+        "source_brief_errors":sum((r.get("source_brief") or {}).get("status")=="error" for r in rows),
+        "source_brief_seconds_sum":round(sum((r.get("source_brief") or {}).get("seconds",0) for r in rows),4),
         "source_detail_views":sum(r.get("source_detail_views",0) for r in rows),
         "bad_sizes":sum(Image.open(inputs/r["file"]).size!=Image.open(target/r["file"]).size for r in rows if r["ok"]),
         "quality_errors":sum(r.get("quality",{}).get("status")=="error" for r in rows),

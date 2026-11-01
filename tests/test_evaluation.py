@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -26,3 +27,30 @@ def test_first_evaluation_without_older_128_is_still_supported(tmp_path):
     assert exclusion_sources(tmp_path,base,[])[0]=={"/images/old64.jpg"}
     with pytest.raises(ValueError,match="Invalid excluded"):
         exclusion_sources(tmp_path,base,["../outside"])
+
+
+def test_whole_comparison_uses_independent_source_scan_instead_of_empty_compositing_mask(tmp_path):
+    import runpy
+    import sys
+    from unittest import mock
+
+    script=Path(__file__).resolve().parents[1]/"scripts/compare-first-pass.py"
+    work=tmp_path/"work";work.mkdir()
+    fake_home=tmp_path/"home"
+    records=[]
+    for i,profile in enumerate(["baseline","candidate"]):
+        job=f"{i+1:032x}"
+        state=fake_home/".local/state/watermark-studio"/job;state.mkdir(parents=True)
+        row={"file":"a.png","processing_path":"whole_direct","repair_regions":[],
+             "quality":{"status":"review","model_status":"passed",
+                        "source_regions":[{"kind":"logo","box":[.1+i*.1,.1,.3,.3]}]}}
+        (state/"results.jsonl").write_text(json.dumps(row)+"\n")
+        (work/profile).mkdir();(work/profile/"a.png").write_bytes(b"same frozen output")
+        records.append({"profile":profile,"job":job,"images":1,"source_selection_sha256":"frozen",
+                        "source_inputs_unchanged":True,"code_revision":"same","seconds":1})
+    (work/"results.jsonl").write_text("".join(json.dumps(r)+"\n" for r in records))
+    output=work/"comparison.json"
+    argv=[str(script),"--work",str(work),"--baseline","baseline","--candidate","candidate","--output",str(output)]
+    with mock.patch.object(Path,"home",return_value=fake_home),mock.patch.object(sys,"argv",argv):
+        runpy.run_path(str(script),run_name="__main__")
+    assert json.loads(output.read_text())["same_source_masks"]==0

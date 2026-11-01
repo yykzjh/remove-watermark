@@ -347,7 +347,7 @@ def test_oversized_auxiliary_quarter_gets_context_without_redrawing_known_large_
     assert calls[1][0][0]>calls[0][1][0] and calls[1][0][1]>calls[0][1][1]
 
 
-@pytest.mark.parametrize("profile",["baseline","fidelity","minimal"])
+@pytest.mark.parametrize("profile",["baseline","fidelity","minimal","scene"])
 def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositing(tmp_path,monkeypatch,profile):
     import sys
     from types import SimpleNamespace
@@ -367,6 +367,12 @@ def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositi
     monkeypatch.setattr("watermark_studio.batching.dimensions",lambda image,resolution:image.size)
     observed=[]
     prompts=[]
+    brief={"status":"ok","paper":True,"mineral":True,"vegetation":False,"people":False,"uncertain":False}
+    brief_inputs=[]
+    def inspect(images,*args):
+        brief_inputs.extend(image.size for image in images)
+        return [brief]*len(images)
+    monkeypatch.setattr("watermark_studio.source_brief.inspect_sources",inspect)
     def generate(pipe,items,resolution,*args):
         prompts.extend(item["prompt"] for item in items)
         observed.extend((item["image"].size,item["image"].getpixel((0,0))) for item in items)
@@ -379,7 +385,10 @@ def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositi
     tasks=[{"source":str(p),"destination":str(tmp_path/("out-"+p.name)),"relative":p.name} for p,_,_ in sources]
     rows=process_batch(tasks,ProcessingConfig(scope="full_image",whole_prompt_profile=profile),DeploymentConfig(),pipe)
     from watermark_studio.prompts import build_full_prompt
-    assert prompts==[build_full_prompt(profile=profile)]*2
+    from watermark_studio.source_brief import guidance
+    extra=guidance(brief) if profile=="scene" else ""
+    assert prompts==[build_full_prompt(extra,profile=profile)]*2
+    assert brief_inputs==([(800,600),(600,800)] if profile=="scene" else [])
     assert len(rows)==2 and all(r["ok"] for r in rows)
     assert sorted(observed)==sorted([((800,600),(255,0,0)),((600,800),(0,0,255))])
     for row,(path,before,size),task in zip(rows,sources,tasks):

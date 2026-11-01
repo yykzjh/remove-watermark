@@ -34,11 +34,17 @@ for name in sorted(before):
     old,new=before[name],after[name]
     x,y=old.get("quality",{}).get("status"),new.get("quality",{}).get("status")
     transitions[str(x)+"->"+str(y)]+=1
-    same_masks=old.get("repair_regions")==new.get("repair_regions")
+    def source_mask(row):
+        return (row.get("quality",{}).get("source_regions") if row.get("processing_path")=="whole_direct"
+                else row.get("repair_regions"))
+    first_mask,second_mask=source_mask(old),source_mask(new)
+    same_masks=isinstance(first_mask,list) and isinstance(second_mask,list) and first_mask==second_mask
     paths=[(a.work/profile/name).resolve() for profile in (a.baseline,a.candidate)]
     assert all(path.is_relative_to(a.work.resolve()) for path in paths)
     hashes=[hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None for path in paths]
-    details.append({"file":name,"before":x,"after":y,"same_source_masks":same_masks,
+    details.append({"file":name,"before":x,"after":y,
+                    "model_before":old.get("quality",{}).get("model_status"),
+                    "model_after":new.get("quality",{}).get("model_status"),"same_source_masks":same_masks,
                     "same_output":hashes[0] is not None and hashes[0]==hashes[1]})
 summary={"scope":"acceptance transitions, not ground-truth accuracy",
          "runtime":left["code_revision"],"images":len(before),
@@ -48,6 +54,8 @@ summary={"scope":"acceptance transitions, not ground-truth accuracy",
          "gained":[r["file"] for r in details if r["before"]!="passed" and r["after"]=="passed"],
          "lost":[r["file"] for r in details if r["before"]=="passed" and r["after"]!="passed"],
          "same_source_masks":sum(r["same_source_masks"] for r in details),
+         "model_gained":[r["file"] for r in details if r["model_before"]!="passed" and r["model_after"]=="passed"],
+         "model_lost":[r["file"] for r in details if r["model_before"]=="passed" and r["model_after"]!="passed"],
          "same_output_verdict_changed":[r["file"] for r in details if r["same_output"] and r["before"]!=r["after"]]}
 a.output.write_text(json.dumps(summary|{"pairs":details},indent=2))
 print(json.dumps(summary),flush=True)

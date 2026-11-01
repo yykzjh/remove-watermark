@@ -165,6 +165,22 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     found[index] = error
         elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
         detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
+    source_briefs={}
+    if cuda and options.scope=="full_image" and options.first_pass_mode=="whole" and options.whole_prompt_profile=="scene":
+        from .source_brief import inspect_sources
+        brief_tasks=[]
+        for task in tasks:
+            if task.get("reuse_existing"):
+                continue
+            try:
+                if task["relative"] not in decoded:
+                    decoded[task["relative"]]=load_photo(task["source"])
+                brief_tasks.append(task)
+            except (OSError,ValueError):
+                pass
+        briefs=inspect_sources([decoded[t["relative"]][0] for t in brief_tasks],
+            pipe.text_encoder,pipe.processor,pipe._execution_device,config.detection_batch_size)
+        source_briefs={t["relative"]:brief for t,brief in zip(brief_tasks,briefs)}
     for task in tasks:
         state = None
         try:
@@ -257,6 +273,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 if config.prefill_overlays and focused_auto:
                     reference,prefilled=prefill_overlay_reference(source,box,crop,regions)
                 extra_prompt = options.extra_prompt
+                if state["whole_generation"] and options.whole_prompt_profile=="scene":
+                    from .source_brief import guidance
+                    extra_prompt+=guidance(source_briefs.get(task["relative"]))
                 if task.get("_retry_feedback"):
                     from .evidence import local_retry_guidance
                     local_guidance = local_retry_guidance(task["_retry_feedback"], crop, source.size)
@@ -380,6 +399,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
             "whole_prompt_profile":options.whole_prompt_profile,
+            "source_brief":source_briefs.get(task["relative"]),
             "edit_prompt_sha256":[hashlib.sha256(e["prompt"].encode()).hexdigest() for e in edits if e["state"] is state],
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],

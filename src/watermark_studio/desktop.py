@@ -550,6 +550,7 @@ class MainWindow(QMainWindow):
                 preserve_background=False,
                 repair_blending=self.repair_blending.currentData(),
                 first_pass_mode="whole",
+                whole_prompt_profile=getattr(self,"processing_whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default),
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
                 quality_detail_patches=self.quality_details.value(),
@@ -702,6 +703,7 @@ def default_ssh_program():
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     window.processing_context=getattr(args,"context",.6)
+    window.processing_whole_prompt_profile=getattr(args,"whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default)
     if getattr(args,"first_pass_mode","whole")!="whole" or args.preserve_background:
         print("Desktop automatic mode now uses whole-image direct output; legacy crop/composite options apply only to CLI/API comparisons.",file=sys.stderr)
     window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData("whole"))
@@ -741,6 +743,7 @@ def main():
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
+    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","minimal","scene"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default)
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")

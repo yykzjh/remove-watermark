@@ -188,7 +188,7 @@ def test_tuned_launch_context_reaches_submission_without_adding_batch_regions():
     _app=QApplication.instance() or QApplication([])
     api=FakeApi()
     window=MainWindow(api,{"capacity":20,"roots":["/home/zjh"],"backend":"mock","stage":"ready","job":None})
-    args=SimpleNamespace(context=.45,first_pass_mode="complete",input_resolution=1024,
+    args=SimpleNamespace(context=.45,first_pass_mode="complete",whole_prompt_profile="fidelity",input_resolution=1024,
         repair_blending="harmonic",preserve_background=True,quality_check=False,
         quality_auto_retry=False,quality_batch_size=2,input_dir="/home/zjh/input",
         output_dir="/home/zjh/output")
@@ -198,6 +198,7 @@ def test_tuned_launch_context_reaches_submission_without_adding_batch_regions():
     payload=api.calls[-1][3]
     assert payload["options"]["context"]==.45
     assert payload["options"]["first_pass_mode"]=="whole"
+    assert payload["options"]["whole_prompt_profile"]=="fidelity"
     assert payload["options"]["preserve_background"] is False
     assert not window.preserve_background.isVisible()
     assert not window.first_pass_mode.isVisible()

@@ -35,7 +35,7 @@ def main():
     parser.add_argument("--preserve-background", action="store_true", help="Legacy crop/composite experiment; omit for direct whole-image processing")
     parser.add_argument("--context",type=float,default=.6,help="Reconstruction context factor, 0.1..2")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
-    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","minimal"],default="baseline")
+    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","minimal","scene"],default="baseline")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
