@@ -24,6 +24,8 @@ parser.add_argument("--cross-review",action="store_true")
 parser.add_argument("--generation-only",action="store_true")
 parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
 parser.add_argument("--files",nargs="*")
+parser.add_argument("--select-review",action="store_true",help="Frozen job: all unaccepted rows plus deterministic passed controls")
+parser.add_argument("--review-controls",type=int,default=32)
 parser.add_argument("--source-job",help="Completed job ID for a frozen source replay; requires --files")
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
@@ -51,14 +53,21 @@ elif args.subset=="replay":
     names=hard+sorted(bad)+controls
     paths=[base/"input"/name for name in hard]+[old/"input"/name for name in sorted(bad)+controls]
 elif args.subset=="frozen":
-    if not args.source_job or not re.fullmatch(r"[a-f0-9]{32}",args.source_job) or not args.files:
-        parser.error("Frozen replay requires a completed --source-job and explicit --files")
+    if not args.source_job or not re.fullmatch(r"[a-f0-9]{32}",args.source_job) or (not args.files and not args.select_review):
+        parser.error("Frozen replay requires a completed --source-job and explicit --files or --select-review")
     folder=Path.home()/".local/state/watermark-studio"/args.source_job
     snapshot=json.loads((folder/"summary.json").read_text())
     if snapshot["state"]!="completed":
         parser.error("Source job must be completed")
     frozen=Path(snapshot["input_dir"]).resolve()
     records=[json.loads(line) for line in (folder/"results.jsonl").read_text().splitlines()]
+    if args.select_review:
+        if args.files or not 0<=args.review_controls<=1024:
+            parser.error("Review selection excludes --files and requires 0..1024 controls")
+        rejected=sorted(r["file"] for r in records if r.get("quality",{}).get("status")!="passed")
+        controls=sorted(r["file"] for r in records if r.get("quality",{}).get("status")=="passed")
+        controls=random.Random(args.seed).sample(controls,min(args.review_controls,len(controls)))
+        args.files=rejected+sorted(controls)
     available={r["file"] for r in records}
     if not set(args.files).issubset(available) or len(set(args.files))!=len(args.files):
         parser.error("Frozen source names must exist and be unique")
