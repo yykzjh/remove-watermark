@@ -153,6 +153,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     source_geometry_requeries = {}
     physical_audits = {}
     source_rim_audits = {}
+    gray_certificates = {}
     needs_detection = cuda and (
         (options.scope == "full_image" and options.preserve_background)
         or (options.scope == "regions" and options.preset == "auto")
@@ -273,6 +274,24 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                 "reason":"Source digital identity was not established; preserve original pixels"})
                     if blocked:
                         found[index]=([r for r in detection[0] if tuple(r.box) not in blocked],detection[1])
+            if (config.prefill_overlays and config.prefill_style=="gray"
+                    and options.scope=="full_image" and options.preserve_background and options.first_pass_mode=="whole"):
+                from .source_digital_proof import certify_gray_regions, gray_source_cores
+                for index,task in enumerate(detect_tasks):
+                    detection=found[index]
+                    if isinstance(detection,Exception):
+                        continue
+                    audit=certify_gray_regions(decoded[task["relative"]][0],detection[0],
+                        gray_source_cores(detection[1]),source_rim_audits.get(task["relative"],[]),
+                        pipe.text_encoder,pipe.processor,pipe._quality_encoder,pipe._quality_processor,
+                        execution_device,pipe._quality_weights_relation)
+                    gray_certificates[task["relative"]]=audit
+                    blocked={tuple(item["mask"]) for item in audit if item.get("approved") is not True}
+                    if blocked:
+                        found[index]=([r for r in detection[0] if tuple(r.box) not in blocked],detection[1])
+                        physical_audits.setdefault(task["relative"],[]).extend(
+                            item|{"box":item["mask"],"status":"uncertain_gray_source_overlay"}
+                            for item in audit if item.get("requires_review"))
             elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
             detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
         source_briefs={}
@@ -422,8 +441,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     from .images import prefill_whole_reference
                     if config.prefill_style=="gray":
                         from .gray_conditioning import gray_whole_reference
+                        from .source_digital_proof import gray_source_cores
                         reference,prefilled=gray_whole_reference(source,state["protected_regions"],
-                            state["protection_cores"],source_rim_audits.get(task["relative"],[]))
+                            gray_source_cores(detections[task["relative"]][0][1]),source_rim_audits.get(task["relative"],[]),
+                            gray_certificates.get(task["relative"],[]))
                     else:
                         reference,prefilled=prefill_whole_reference(
                             source,state["protected_regions"],state["protection_cores"])
@@ -603,6 +624,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "model_prefill_batch_sizes":[e.get("_prefill_batch_size",0) for e in edits if e["state"] is state],
             "window_prefill_stats":prefill_stats,
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
+            "gray_conditioning":[e["image"].info["gray_conditioning"] for e in edits if e["state"] is state
+                                 and "gray_conditioning" in e["image"].info],
             "prefill_style":config.prefill_style,
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
             "translucent_hint":[r for e in edits if e["state"] is state for r in e.get("translucent_hint",[])],
@@ -750,10 +773,13 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             verdict["guard_codes"]=list(dict.fromkeys(verdict.get("guard_codes",[])+["source_physical_ambiguity"]))
             broad_dispute=any(v.get("version")=="source-broad-consensus-v1" for v in disputed)
             rim_dispute=any(v.get("version")=="source-rim-identity-v1" for v in disputed)
+            gray_dispute=any(v.get("version")=="gray-source-digital-v1" for v in disputed)
             explanation=(" 原图检测范围过大，双模型未达成一致的位置或数字覆盖层证明；已保留未确认范围的原像素，需复核，不能盲目重绘。"
                          if broad_dispute else
                          " 原图信息卡候选的数字身份存在分类分歧；已保留该处原像素，需要复核，不能盲目擦除。"
                          if rim_dispute else
+                         " 灰初始化候选缺少双模型完整数字身份源证明；已保留原图，需要复核，不能盲目重绘。"
+                         if gray_dispute else
                          " 原图小块文字存在实物载体证据，但双模型未达成完整分类证明；保留该处原图，需复核，不能盲目擦除。")
             verdict["reason"]=(verdict.get("reason","")+explanation).strip()
             verdict["source_carrier_evidence"]=disputed
@@ -777,7 +803,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         "oom_retries": oom_retries, "quality_oom_splits": quality_oom_splits,
         "quality_validation_splits":quality_validation_splits,
     }
-    return [results[task["relative"]] | metrics | {"source_physical_vetting":physical_audits.get(task["relative"],[])} for task in tasks]
+    return [results[task["relative"]] | metrics | {"source_physical_vetting":physical_audits.get(task["relative"],[]),
+             "gray_source_certificates":gray_certificates.get(task["relative"],[])} for task in tasks]
 
 
 def process_image(task, options, config, pipe):

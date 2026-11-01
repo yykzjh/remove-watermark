@@ -30,6 +30,7 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--all-controls",action="store_true")
+    p.add_argument("--source-reference",action="store_true",help="Original crop provides source overlay geometry only; not output evidence")
     a=p.parse_args()
     if a.gpu<0 or a.output.exists():
         p.error("Explicit nonnegative GPU and fresh output required")
@@ -85,6 +86,15 @@ def main():
                 {"type":"text","text":"图3：固定光照诊断图，外框不是水印"},
                 {"type":"image","image":lighting_view(local)},
                 {"type":"text","text":PROMPT}]}])
+            if a.source_reference:
+                original=load_photo(case["source"])[0]
+                chats[-1][0]["content"][-1:-1]=[
+                    {"type":"text","text":"图4仅为原图位置参考，数字卡片本身不是结果图缺陷。"},
+                    {"type":"image","image":preview(original.crop(native),512)}]
+                chats[-1][0]["content"][-1]["text"]+=(
+                    "\n用图4确认原数字覆盖层的范围和几何，只在真实结果图1/图2中核实"
+                    "是否仍有同位置、多边吻合的矩形明暗或拼接痕迹。不要把原图水印计为结果残留，"
+                    "也不能因给出原位置就认定结果存在异常。")
         checks,seconds=_structured_vqa(chats,("rectangle_artifact","uncertain"),encoder,processor,"cuda:0",128)
         for case,check,location in zip(group,checks,locations,strict=True):
             reports.append({"file":case["file"],"kind":case["kind"],"expected":case["expected"],
@@ -105,7 +115,7 @@ def main():
             "flagged":sum(r["check"]["rectangle_artifact"] and not r["check"]["uncertain"] for r in chosen),
             "uncertain":sum(r["check"]["uncertain"] for r in chosen)}
     result={"scope":"development lighting-view probe only; no quality approval, changes or generation",
-            "code_revision":revision,"profile":"4b-bf16","baseline":str(a.baseline),"cases":len(reports),"seconds":round(time.monotonic()-began,3),
+            "code_revision":revision,"source_reference":a.source_reference,"profile":"4b-bf16","baseline":str(a.baseline),"cases":len(reports),"seconds":round(time.monotonic()-began,3),
             "load_seconds":round(load_seconds,3),"files_unchanged":True,"server_isolation":server,
             "categories":categories,"kinds":dict(collections.Counter(r["kind"] for r in reports)),"rows":reports}
     a.output.write_text(json.dumps(result,indent=2))
