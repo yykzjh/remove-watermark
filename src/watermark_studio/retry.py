@@ -19,6 +19,7 @@ def quality_rank(result):
         q.get("content_preserved") is True,
         "outside_repair_change" not in q.get("guard_codes", []),
         "new_flat_fill" not in q.get("guard_codes", []),
+        "generation_reference_drift" not in q.get("guard_codes", []),
         "repair_boundary_step" not in q.get("guard_codes", []),
         "repair_texture_collapse" not in q.get("guard_codes", []),
         q.get("watermark_removed") is True,

@@ -753,7 +753,7 @@ def main():
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
-    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","minimal"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="fidelity: default; baseline: historical comparison; scene/located: experimental source facts/location guidance")
+    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="fidelity: default; baseline: historical comparison; scene/located: experimental source facts/location guidance")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")

@@ -418,11 +418,11 @@ def test_raw_generation_drift_cannot_pass_after_plausible_colour_composition(mon
     assert q["generation_reference_drift"]["correction_withheld"] is True
 
 
-def test_minimal_whole_prompt_is_neutral_and_still_constrains_visible_content():
+def test_concise_whole_prompt_is_neutral_and_still_constrains_visible_content():
     from watermark_studio.config import ProcessingConfig
     from watermark_studio.prompts import build_full_prompt
-    assert ProcessingConfig(whole_prompt_profile="minimal").whole_prompt_profile=="minimal"
-    prompt=build_full_prompt(profile="minimal")
+    assert ProcessingConfig(whole_prompt_profile="concise").whole_prompt_profile=="concise"
+    prompt=build_full_prompt(profile="concise")
     assert "信息卡底板" in prompt and "真实物体上的文字不变" in prompt
     assert "草地" not in prompt and "树木" not in prompt
     assert len(prompt)<150
