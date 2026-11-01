@@ -101,7 +101,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -135,7 +135,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                 try:
                     pairs=[(load_photo(c["source"])[0],load_photo(c["output"])[0]) for c in group]
                     began=time.monotonic()
-                    values=verify_batch(pairs,encoder,processor,"cuda:0",resolution=768,
+                    values=verify_batch(pairs,encoder,processor,"cuda:0",resolution=resolution,
                         detail_patches=4,detection_batch_size=2,
                         source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
                         editor_context=[{"source_scene":c["scene"],"protected_core_boxes":c.get("source_cores",[])} for c in group],
@@ -191,6 +191,7 @@ def main():
     parser.add_argument("--profile",choices=list(PROFILES),required=True)
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
+    parser.add_argument("--quality-resolution",type=int,choices=[512,768,1024,1280],default=768)
     parser.add_argument("--cross-review",action="store_true")
     parser.add_argument("--rectangle-guard",action="store_true")
     parser.add_argument("--cross-full-context",action="store_true")
@@ -242,7 +243,7 @@ def main():
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
                 args.cross_review,args.quality_batch_size,args.rectangle_guard,
-                args.cross_full_context,args.paired_context,events,start))
+                args.cross_full_context,args.paired_context,args.quality_resolution,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -295,6 +296,7 @@ def main():
         result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
                  "code_revision":code_revision,"images":len(cases),"verifications":expected_total,
                 "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
+                "quality_resolution":args.quality_resolution,
                 "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,

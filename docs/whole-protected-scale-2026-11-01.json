@@ -2784,5 +2784,189 @@
       "previous_seconds": 375.775,
       "seconds_change_percent": 2.137
     }
+  },
+  "final_neutral_holdout1024": {
+    "scope": "automatic independent checks, not human-labelled accuracy",
+    "job": "c41021ef92804176a5081863f0769b2e",
+    "code_revision": "58f9be7",
+    "benchmark_revision": "58f9be7",
+    "options": {
+      "scope": "full_image",
+      "preset": "auto",
+      "preserve_background": true,
+      "first_pass_mode": "whole",
+      "whole_prompt_profile": "neutral",
+      "resolution": 1024,
+      "concurrency": 20,
+      "extra_prompt": "",
+      "quality_check": true,
+      "quality_batch_size": 2,
+      "quality_detail_patches": 4,
+      "quality_cross_review": true,
+      "quality_auto_retry": true,
+      "quality_max_attempts": 3,
+      "quality_retry_resolution": 1536,
+      "overwrite": true,
+      "seed": 42
+    },
+    "images": 1024,
+    "state": "completed",
+    "processing_failed": 0,
+    "seconds": 4324.338,
+    "images_per_minute": 14.208,
+    "first_completed_seconds": 3345.13,
+    "first_counts": {
+      "passed": 844,
+      "review": 180
+    },
+    "first_total": 1024,
+    "final_counts": {
+      "passed": 905,
+      "review": 119
+    },
+    "final_guard_counts": {
+      "identical": 44,
+      "source_physical_ambiguity": 18,
+      "repair_texture_collapse": 15,
+      "repair_boundary_step": 5,
+      "repair_rectangle_phase": 4
+    },
+    "first_checker_before_cross_counts": {
+      "passed": 842,
+      "review": 182
+    },
+    "source_vetting_protected_first": 0,
+    "first_source_scene_counts": {
+      "outdoor": 968,
+      "null": 44,
+      "document": 11,
+      "indoor": 1
+    },
+    "first_guard_counts": {
+      "identical": 44,
+      "source_physical_ambiguity": 18,
+      "repair_texture_collapse": 38,
+      "repair_boundary_step": 12,
+      "repair_rectangle_phase": 16
+    },
+    "outside_change_attempts": 0,
+    "first_cross_review_corrected": 3,
+    "first_model_input_budgets": {
+      "1024": 969,
+      "1536": 11
+    },
+    "total_model_input_budgets": {
+      "1024": 969,
+      "1536": 125
+    },
+    "successful_diffusion_forwards": 628.0,
+    "generation_attempt_counts": {
+      "1": 898,
+      "0": 44,
+      "2": 50,
+      "3": 32
+    },
+    "final_passed_by_generation_attempts": {
+      "1": 810,
+      "0": 40,
+      "2": 47,
+      "3": 8
+    },
+    "first_rejected_later_accepted_unchanged": 6,
+    "best_attempt_counts": {
+      "1": 958,
+      "2": 56,
+      "3": 10
+    },
+    "attempt_counts": {
+      "1": 862,
+      "2": 125,
+      "3": 37
+    },
+    "generation_attempt_errors": 0,
+    "attempt_oom_retries": 0,
+    "peak_allocated_mib": 39856,
+    "quality_attempt_errors": 0,
+    "retained_first_rejected": 180,
+    "retained_first_unchanged": true,
+    "source_inputs_unchanged": true,
+    "unique_sources": 1024,
+    "bad_sizes": [],
+    "acceptance_complete": false,
+    "optimization": {
+      "dtype": "bfloat16",
+      "quantization": "float8",
+      "compile": true,
+      "compile_scope": "projections",
+      "compile_dynamic": true,
+      "attention_backend": "native",
+      "float8_granularity": "tensor",
+      "prefill_overlays": false,
+      "encoder_batch_size": 4,
+      "detection_batch_size": 4,
+      "protected_document_resolution": 1536,
+      "large_batch_size": 1,
+      "retain_rejected_first": true,
+      "protection_detail_scan": true,
+      "protection_physical_vet": true,
+      "source_vet_batch_size": 1,
+      "protection_core_feather": true,
+      "cudnn_benchmark": false,
+      "vae_channels_last": false
+    },
+    "deployment": {
+      "worker_count": 5,
+      "batch_size": 2,
+      "small_batch_size": 2,
+      "batch_window": 4,
+      "quality_backend": "independent",
+      "quality_quantization": "none",
+      "quality_phase_offload": false,
+      "quality_phase_offload_above": 1024,
+      "separate_vae_decode": true,
+      "quality_rectangle_guard": true,
+      "quality_cross_full_context": false,
+      "capacity": 40
+    },
+    "worker_count": 5,
+    "batch_size": 2,
+    "quality_weight_identity": {
+      "relation": "different_weights",
+      "method": "canonical_tensor_sha256_v1",
+      "editor_sha256": "29048a3475264273945b3c44c3a61410f596a95909882fec3a81adf3456ea650",
+      "verifier_sha256": "7a3df8dda193313991aae478bda674cebce809936bae286b8c0f047976b3561f",
+      "editor_tensors": 750,
+      "verifier_tensors": 713
+    },
+    "selection_sha256": "90dd7040c43b6377675f826634d037d501664f2cd3b262e4c4318b075b14a235",
+    "prior_sha256_overlap": 0,
+    "sampling_seed": 202611061,
+    "excluded_prior_selections": 46,
+    "human_labelled_accuracy_measured": false,
+    "acceptance_qualified": false,
+    "native_risk_audit": {
+      "sampled": 4,
+      "first_pass_accepted_pool_with_masks": 804,
+      "selection": "large offsets, large area, combined risk, native pixels",
+      "clear_green_purple_material_substitution_seen": 0,
+      "limits": "Some native reconstruction remains visible. Four risk-selected previews are not a human-labelled accuracy estimate."
+    }
+  },
+  "final_neutral_first_diagnostics": {
+    "images": 1024,
+    "reviews": 180,
+    "guard_counts": {
+      "source_physical_ambiguity": 18,
+      "repair_texture_collapse": 38,
+      "repair_boundary_step": 12,
+      "identical": 4,
+      "repair_rectangle_phase": 16
+    },
+    "false_fields": {
+      "watermark_removed": 115,
+      "natural": 67,
+      "content_preserved": 0
+    },
+    "evidence_conflicts": 162
   }
 }
