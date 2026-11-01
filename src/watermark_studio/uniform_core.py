@@ -40,11 +40,13 @@ def uniform_core_fill(after, regions, cores, resolution=1024):
             outside=(rgb[lo:hi,first:last] if vertical else rgb[first:last,lo:hi]).reshape(-1,3)
             texture=float(np.mean(np.std(outside,axis=0)))
             difference=float(np.mean(np.abs(outside-colour)))
-            if texture>=8 and difference>=8:
+            if difference>=8:
                 sides.append({"side":side,"outside_spread":round(texture,3),
+                              "textured_exterior":texture>=8,
                               "outside_colour_difference":round(difference,3)})
         names={v["side"] for v in sides}
-        if names&{"left","right"} and names&{"top","bottom"}:
+        if (names&{"left","right"} and names&{"top","bottom"}
+                and sum(v["textured_exterior"] for v in sides)>=2):
             findings.append({"box":list(core),"colour":colour.tolist(),"uniform_fraction":uniform,
                              "spread":spread.tolist(),"adjacent_exterior_evidence":sides})
     return {"method":"new_uniform_neutral_core_v1","count":len(findings),"findings":findings}

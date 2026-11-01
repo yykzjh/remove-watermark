@@ -2,6 +2,7 @@
 import argparse
 import json
 import runpy
+import subprocess
 import time
 from pathlib import Path
 
@@ -30,7 +31,7 @@ for c in cases:
             else rectangle_phase(*arguments))
     rows.append({"file":c["file"],"expected":c["expected"],"baseline":baseline[c["file"]],"phase":result})
 assert hashes==helper["file_hashes"](cases)
-report={"images":len(cases),"sources_and_outputs_unchanged":True,"seconds":round(time.monotonic()-started,3),
+report={"code_revision":subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip(),"images":len(cases),"sources_and_outputs_unchanged":True,"seconds":round(time.monotonic()-started,3),
         "clean_warned":[r["file"] for r in rows if r["expected"]=="passed" and r["phase"]["count"]],
         "newly_caught_defects":[r["file"] for r in rows if r["expected"]=="review" and r["baseline"]=="passed" and r["phase"]["count"]],
         "all_defects_warned":sum(r["expected"]=="review" and bool(r["phase"]["count"]) for r in rows),

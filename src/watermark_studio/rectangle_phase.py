@@ -5,11 +5,11 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 
-def _prepare_phase(before, after, resolution):
+def _prepare_phase(before, after, resolution, blur_radius=1.2):
     scale=min(1,resolution/max(after.size))
     size=(max(32,round(after.width*scale)),max(32,round(after.height*scale)))
     photos=[image.convert("RGB").resize(size,Image.Resampling.LANCZOS).filter(
-        ImageFilter.GaussianBlur(1.2)) for image in (before,after)]
+        ImageFilter.GaussianBlur(blur_radius)) for image in (before,after)]
     source,rgb=[np.asarray(image,dtype=np.float32) for image in photos]
     y=np.log(16+rgb@np.array([.2126,.7152,.0722],dtype=np.float32))
     return source,rgb,y,size
@@ -155,9 +155,16 @@ def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024):
     baseline = rectangle_phase(before,after,regions,resolution,_prepared=prepared)
     findings = {tuple(item["box"]): item for item in baseline["findings"]}
     if mapping:
+        # Additional evidence needs stronger side-to-side consistency. The
+        # original v2 vetoes retain their exact thresholds and original pixels.
+        core_prepared=_prepare_phase(before,after,resolution,blur_radius=3.)
         for sign in (-1,1):
-            result = _single_phase(before,after,regions,resolution,sign,mapping,prepared)
+            result = _single_phase(before,after,regions,resolution,sign,mapping,core_prepared)
             for item in result["findings"]:
-                findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"source_core_search":True})
+                steps=[abs(v["log_tone_step"]) for v in item["side_evidence"].values()]
+                if max(steps)>2*min(steps):
+                    continue
+                findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"source_core_search":True,
+                    "core_blur_radius":3.,"maximum_side_ratio":2.})
     return baseline|{"method":"source_panel_phase_v3_core_experiment",
                      "findings":list(findings.values()),"count":len(findings)}

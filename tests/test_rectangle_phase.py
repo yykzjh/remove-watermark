@@ -72,15 +72,15 @@ def test_core_search_only_adds_vetoes_with_valid_source_provenance():
     assert rectangle_phase_core(source,dark,regions,[{"core":[float("nan"),0,1,1]}])["findings"]==base["findings"]
 
 
-def test_all_sign_and_core_searches_share_one_immutable_pixel_preparation(monkeypatch):
+def test_sign_searches_share_immutable_pixel_preparation_per_scale(monkeypatch):
     import watermark_studio.rectangle_phase as phase
     _clean,source,dark,regions=fixture((.2,.2,.7,.8))
     original=phase._prepare_phase
     calls=[]
-    def prepare(*args):
+    def prepare(*args,**kwargs):
         calls.append(1)
-        return original(*args)
+        return original(*args,**kwargs)
     monkeypatch.setattr(phase,"_prepare_phase",prepare)
     core={"mask":list(regions[0].box),"core":[.2,.2,.7,.8]}
     assert phase.rectangle_phase_core(source,dark,regions,[core])["count"]==1
-    assert len(calls)==1
+    assert len(calls)==2

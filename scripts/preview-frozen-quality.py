@@ -12,6 +12,7 @@ from watermark_studio.images import context_box, load_photo, pixel_box
 
 p=argparse.ArgumentParser()
 p.add_argument("--job",required=True)
+p.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
 p.add_argument("--files",nargs="+",required=True)
 p.add_argument("--output",type=Path,required=True)
 p.add_argument("--native",action="store_true",help="480px source/outputs at native scale near largest overlay boundary; <=256KiB")
@@ -21,8 +22,8 @@ a=p.parse_args()
 if not 1<=len(a.files)<=6 or a.output.exists() or (a.native and (a.full or len(a.files)>3)):
     p.error("One to six cases and a fresh preview file required")
 helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
-cases=helper["frozen_job_cases"](Path.home()/".local/state/watermark-studio",a.job,a.files)
-other=helper["frozen_job_cases"](Path.home()/".local/state/watermark-studio",a.compare_job,a.files) if a.compare_job else []
+cases=helper["frozen_job_cases"](a.state_dir,a.job,a.files)
+other=helper["frozen_job_cases"](a.state_dir,a.compare_job,a.files) if a.compare_job else []
 comparison={c["file"]:c for c in other}
 hashes=helper["file_hashes"](cases+other)
 row_height=512 if a.native else 320
@@ -42,6 +43,11 @@ for index,c in enumerate(cases):
             edge=min(480,*source.size)
             cx=(raw[0]+raw[2])*source.width/2
             cy=raw[1]*source.height
+            suspects=c.get("frozen_quality",{}).get("repair_texture",{}).get("suspect_segments",[])
+            if suspects:
+                suspect=suspects[0]["box"]
+                cx=(suspect[0]+suspect[2])*source.width/2
+                cy=(suspect[1]+suspect[3])*source.height/2
             x=max(0,min(source.width-edge,round(cx-edge/2)))
             y=max(0,min(source.height-edge,round(cy-edge/2)))
             box=(x,y,x+edge,y+edge)

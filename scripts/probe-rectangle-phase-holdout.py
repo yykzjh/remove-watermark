@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import random
+import subprocess
 import time
 from pathlib import Path
 
@@ -17,6 +18,7 @@ p=argparse.ArgumentParser()
 p.add_argument("--source-job",required=True)
 p.add_argument("--images",type=int,default=64)
 p.add_argument("--seed",type=int,default=202611022)
+p.add_argument("--cue",choices=["phase","uniform"],default="phase")
 p.add_argument("--core-boundaries",action="store_true")
 p.add_argument("--output",type=Path,required=True)
 a=p.parse_args()
@@ -64,28 +66,35 @@ for row in rows:
     draw=ImageDraw.Draw(source)
     draw.rectangle(native,fill=(220,220,220))
     draw.rectangle((native[0],native[1],native[2],native[1]+(native[3]-native[1])//3),fill=(30,100,220))
-    for kind in ("exact","jpeg","shadow_18","shadow_32","shadow_48"):
+    kinds=("exact","jpeg","flat_fill") if a.cue=="uniform" else ("exact","jpeg","shadow_18","shadow_32","shadow_48")
+    for kind in kinds:
         target=base.copy()
         if kind=="jpeg":
             stream=io.BytesIO();target.save(stream,format="JPEG",quality=90,subsampling=0)
             target=Image.open(io.BytesIO(stream.getvalue())).convert("RGB")
+        elif kind=="flat_fill":
+            ImageDraw.Draw(target).rectangle(native,fill=(128,128,128))
         elif kind.startswith("shadow_"):
             layer=Image.new("RGBA",base.size,(0,0,0,0))
             ImageDraw.Draw(layer).rectangle(native,fill=(0,0,0,int(kind.split("_")[1])))
             target=Image.alpha_composite(base.convert("RGBA"),layer).convert("RGB")
         core=[native[0]/base.width,native[1]/base.height,
               min(1,(native[2]+1)/base.width),min(1,(native[3]+1)/base.height)]
-        result=(rectangle_phase_core(source,target,regions,[{"mask":regions[0].box,"core":core}])
-                if a.core_boundaries else rectangle_phase(source,target,regions))
+        if a.cue=="uniform":
+            from watermark_studio.uniform_core import uniform_core_fill
+            result=uniform_core_fill(target,regions,[{"mask":regions[0].box,"core":core}])
+        else:
+            result=(rectangle_phase_core(source,target,regions,[{"mask":regions[0].box,"core":core}])
+                    if a.core_boundaries else rectangle_phase(source,target,regions))
         records.append({"file":row["file"],"source_sha256":digest,"kind":kind,
-                        "artifact_added":kind.startswith("shadow_"),"cue":result})
+                        "artifact_added":kind.startswith("shadow_") or kind=="flat_fill","cue":result})
 assert len(used)==a.images
 assert all(hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest for path,digest in fingerprints.items())
 by_kind={kind:{"total":sum(r["kind"]==kind for r in records),
                "warned":sum(r["kind"]==kind and bool(r["cue"]["count"]) for r in records)}
          for kind in sorted({r["kind"] for r in records})}
-report={"scope":"randomized new artifact-only controls, not complete watermark-removal truth",
-        "core_boundaries":a.core_boundaries,
+report={"code_revision":subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip(),"scope":"randomized new artifact-only controls, not complete watermark-removal truth",
+        "cue":a.cue,"core_boundaries":a.core_boundaries,
         "seed":a.seed,"backgrounds":len(used),"cases":len(records),
         "seconds":round(time.monotonic()-started,3),"source_inputs_unchanged":True,
         "by_kind":by_kind,"clean_warned":[r["file"]+":"+r["kind"] for r in records if not r["artifact_added"] and r["cue"]["count"]],
