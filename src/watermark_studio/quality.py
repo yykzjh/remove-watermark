@@ -588,7 +588,19 @@ natural也为布尔值，只验收结果修补自然度：原覆盖层周围的�
 只返回JSON及area（none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right），不要解释。"""
 
 
-def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
+def _verdict_json(text, fields):
+    text=text.strip()
+    if text.startswith(chr(96)*3):
+        text=text.split("\n",1)[1].rsplit(chr(96)*3,1)[0].strip()
+    row=json.loads(text)
+    if (not isinstance(row,dict) or any(type(row.get(field)) is not bool for field in fields)
+            or row.get("area") not in {"none","top_left","top","top_right","left","center",
+                                      "right","bottom_left","bottom","bottom_right"}):
+        raise ValueError("Invalid structured verification output")
+    return row
+
+
+def _structured_vqa(chats, fields, encoder, processor, device, max_tokens, native=False):
     import torch
 
     started = time.monotonic()
@@ -617,11 +629,11 @@ def _structured_vqa(chats, fields, encoder, processor, device, max_tokens):
         with torch.inference_mode():
             generated = encoder.generate(
                 **inputs, do_sample=False, use_cache=True, max_new_tokens=max_tokens,
-                prefix_allowed_tokens_fn=allowed,
+                **({} if native else {"prefix_allowed_tokens_fn":allowed}),
             )
         texts = processor.batch_decode(generated[:, width:], skip_special_tokens=True,
                                        clean_up_tokenization_spaces=False)
-        rows = [json.loads(text) for text in texts]
+        rows = [_verdict_json(text,fields) for text in texts]
         if len(rows) != len(chats) or any(
             type(row.get(field)) is not bool for row in rows for field in fields
         ):
@@ -707,7 +719,7 @@ def scene_review_context(scene):
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
                  cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None,
-                 weights_relation="unknown", boundary_views=False):
+                 weights_relation="unknown", boundary_views=False, native_verdicts=False):
     from .detection import locate_watermarks_batch, source_scene
 
     contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
@@ -751,11 +763,11 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         boxes_list.append(boxes)
     inspected, output_seconds = _structured_vqa(
         output_chats, ("watermark_removed", "natural", "uncertain"),
-        encoder, processor, device, max_tokens,
+        encoder, processor, device, max_tokens, **({"native":True} if native_verdicts else {}),
     )
     compared, content_seconds = _structured_vqa(
         content_chats, ("content_preserved", "natural", "uncertain"),
-        encoder, processor, device, max_tokens,
+        encoder, processor, device, max_tokens, **({"native":True} if native_verdicts else {}),
     )
     verdicts, residual_candidates = [], []
     for index, (check, comparison, (before, after), boxes) in enumerate(zip(inspected, compared, pairs, boxes_list)):
@@ -829,6 +841,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         verdict["seconds"] = round(verdict["seconds"]+verdict["source_scan_seconds"], 3)
         verdict["scene_context"]=contexts[index].get("source_scene","unknown")
         verdict["boundary_views"]=boundary_views
+        verdict["native_verdicts"]=native_verdicts
         verdict["review_version"] = "2026-11-01.reference-natural-v9"
         candidate = verdict["status"] != "error" and (
             verdict["status"] == "passed" or verdict.get("watermark_removed") is False or (

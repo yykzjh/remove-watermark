@@ -332,3 +332,15 @@ def test_oversized_residual_uses_one_fresh_full_image_without_clamping_or_implic
     assert photo.tobytes()==original
     assert retry_oversized_residual(photo,RuntimeError("GPU failure"),None,None,"cpu",768)[1] is None
     assert len(calls)==1
+
+
+def test_native_verdict_json_has_the_same_strict_boolean_and_location_contract():
+    from watermark_studio.quality import _verdict_json
+    fields=("watermark_removed","natural","uncertain")
+    valid='{"watermark_removed":true,"natural":true,"uncertain":false,"area":"none"}'
+    assert _verdict_json(valid,fields)["natural"] is True
+    assert _verdict_json(chr(96)*3+"json\n"+valid+"\n"+chr(96)*3,fields)==json.loads(valid)
+    for text in ('{}','null',valid.replace('true','"true"',1),
+                 valid.replace('"none"','"upper-left"'),valid.replace(',"uncertain":false','')):
+        with pytest.raises((ValueError,TypeError)):
+            _verdict_json(text,fields)
