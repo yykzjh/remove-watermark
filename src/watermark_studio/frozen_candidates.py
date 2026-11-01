@@ -140,3 +140,26 @@ def validate_first_snapshot(root, identity):
             if digest(bounded(Path(directory), row["file"])) != item[key]:
                 raise ValueError("Frozen source or first-candidate pixels changed")
     return summary
+
+
+def validate_fresh_inspection(root, identity):
+    """Re-inspect immutable pixels with a new independent checkpoint, never cached flags.
+
+    Cached adjudication must still use validate_first_snapshot with the current
+    identity. This separate path only attests original input/record integrity;
+    the caller must compute all new model judgments from pixels.
+    """
+    root = Path(root)
+    summary = json.loads((root/"summary.json").read_text())
+    previous = summary.get("quality_weight_identity") or {}
+    if (identity.get("relation") != "different_weights"
+            or not identity.get("verifier_sha256")
+            or identity.get("editor_sha256") != previous.get("editor_sha256")
+            or identity.get("verifier_sha256") == identity.get("editor_sha256")):
+        raise ValueError("Fresh inspection needs the same editor and independent verifier weights")
+    validate_first_snapshot(root, previous)
+    return {"cached_verdicts_reused": False,
+            "original_verifier_sha256": previous["verifier_sha256"],
+            "fresh_verifier_sha256": identity["verifier_sha256"],
+            "original_editor_sha256": previous["editor_sha256"],
+            "source_candidate_and_record_integrity": True}

@@ -245,8 +245,8 @@ def main():
         parser.error("The optional uniform-core veto requires text-free consensus")
     if args.frozen_disputes and args.inspection_profile!="legacy":
         parser.error("Cached first verdicts cannot be relabelled with a fresh inspection protocol")
-    if args.first_snapshot and (args.frozen_disputes or args.controls_only or args.profile!="4b-bf16"):
-        parser.error("--first-snapshot requires a canonical4b source snapshot; no cached disputes/controls-only")
+    if args.first_snapshot and (args.frozen_disputes or args.controls_only or args.profile not in {"4b-bf16","35-4b-bf16","35-9b-bf16"}):
+        parser.error("--first-snapshot requires fresh independent unquantized inspection; no cached disputes/controls-only")
     if args.text_free_consensus and not args.cross_review:
         parser.error("--text-free-consensus requires --cross-review")
     if args.frozen_disputes and (not args.text_free_consensus or args.controls or args.controls_only or args.paired_context or args.profile!="4b-bf16"):
@@ -291,9 +291,13 @@ def main():
         base_proof=compare_model_weights(model,proof_path)
         if proof_identity["relation"]!="different_weights" or base_proof["relation"]!="different_weights":
             raise ValueError("Additional proof must differ canonically from editor and primary verifier")
-    if args.frozen_disputes or args.first_snapshot:
+    snapshot_validation=None
+    if args.frozen_disputes:
         from watermark_studio.frozen_candidates import validate_first_snapshot
         validate_first_snapshot(args.state_dir/args.source_job,identity)
+    elif args.first_snapshot:
+        from watermark_studio.frozen_candidates import validate_fresh_inspection
+        snapshot_validation=validate_fresh_inspection(args.state_dir/args.source_job,identity)
     ctx=mp.get_context("spawn")
     events,start=ctx.Queue(),ctx.Event()
     workers=[]
@@ -361,6 +365,7 @@ def main():
                  "code_revision":code_revision,"images":len(cases),"verifications":expected_total,
                 "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
                 "inspection_profile":args.inspection_profile,"first_snapshot":args.first_snapshot,
+                "fresh_snapshot_validation":snapshot_validation,
                 "text_free_proof_profile":args.text_free_proof_profile,"proof_identity":proof_identity,
                 "text_free_uniform_guard":args.text_free_uniform_guard,"text_free_ocr_guard":args.text_free_ocr_guard,
                 "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,"text_free_scope":args.text_free_scope,

@@ -135,3 +135,29 @@ def test_cached_adjudication_cannot_silently_accept_modified_inputs(tmp_path,cha
         p.write_text("".join(json.dumps(r)+"\n" for r in rows))
     with pytest.raises(ValueError,match="changed"):
         validate_first_snapshot(root,identity())
+
+
+def test_new_verifier_fresh_inspection_never_reuses_cached_judgments(tmp_path):
+    from watermark_studio.frozen_candidates import (
+        validate_first_snapshot,
+        validate_fresh_inspection,
+    )
+    root,*_=validated_fixture(tmp_path)
+    other=identity()|{"verifier_sha256":"c"*64}
+    report=validate_fresh_inspection(root,other)
+    assert report["cached_verdicts_reused"] is False
+    assert report["original_verifier_sha256"]=="b"*64
+    assert report["fresh_verifier_sha256"]=="c"*64
+    with pytest.raises(ValueError,match="canonical primary"):
+        validate_first_snapshot(root,other)
+    with pytest.raises(ValueError,match="same editor"):
+        validate_fresh_inspection(root,other|{"editor_sha256":"d"*64})
+    with pytest.raises(ValueError,match="independent"):
+        validate_fresh_inspection(root,identity()|{"verifier_sha256":"a"*64})
+    # A new checkpoint never grants permission to rewrite the old rejected label.
+    record=root/"results.jsonl"
+    rows=[json.loads(line) for line in record.read_text().splitlines()]
+    rows[1]["quality"]={"status":"passed"}
+    record.write_text("".join(json.dumps(row)+"\n" for row in rows))
+    with pytest.raises(ValueError,match="changed"):
+        validate_fresh_inspection(root,other)
