@@ -16,6 +16,7 @@ def main():
     p.add_argument("--physical-from",type=Path,nargs="+",default=[])
     p.add_argument("--physical-fixtures",type=Path,help="Explicit source-native visually reviewed coordinates; never output-localized guesses")
     p.add_argument("--gpu",type=int,required=True)
+    p.add_argument("--editor-profile",choices=["editor","35-4b-bf16","35-9b-bf16"],default="editor",help="Offline independent source-proof primary weights; does not change service")
     p.add_argument("--output",type=Path,required=True)
     a=p.parse_args()
     if a.gpu<0 or a.output.exists():
@@ -68,7 +69,8 @@ def main():
     from watermark_studio.source_digital_proof import certify_gray_regions
     torch.set_num_threads(1)
     root=Path.home()/".cache/watermark-models/models"
-    editor_path=root/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master/text_encoder"
+    editor_path=(root/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master/text_encoder" if a.editor_profile=="editor" else
+        root/("Qwen--Qwen3.5-4B" if a.editor_profile=="35-4b-bf16" else "Qwen--Qwen3.5-9B")/"snapshots/master")
     verifier_path=root/"Qwen--Qwen3-VL-4B-Instruct/snapshots/master"
     identity=compare_model_weights(editor_path,verifier_path)
     if identity["relation"]!="different_weights":
@@ -76,7 +78,8 @@ def main():
     cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent",quality_quantization="none")
     start=time.monotonic()
     editor=load_quality_encoder(editor_path,cfg,"cuda:0")
-    ep=Qwen3VLProcessor.from_pretrained(editor_path.parent/"processor",local_files_only=True)
+    ep=(Qwen3VLProcessor.from_pretrained(editor_path.parent/"processor",local_files_only=True)
+        if a.editor_profile=="editor" else load_quality_processor(editor_path))
     verifier=load_quality_encoder(verifier_path,cfg,"cuda:0");vp=load_quality_processor(verifier_path)
     load_seconds=time.monotonic()-start
     start=time.monotonic();rows=[]
@@ -90,7 +93,7 @@ def main():
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
         assert server==helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
     summary={"scope":"Source identity development calibration; native negative candidates are reviewed references, not blind labels",
-        "code_revision":revision,"weight_identity":identity,"server_isolation":server,
+        "code_revision":revision,"editor_profile":a.editor_profile,"weight_identity":identity,"server_isolation":server,
         "seconds":round(time.monotonic()-start,3),"load_seconds":round(load_seconds,3),"source_files_unchanged":True,
         "planted_digital_count":sum(c["expected_digital"] for c in rows),
         "planted_digital_approved":sum(c["expected_digital"] and c["proof"]["approved"] for c in rows),
