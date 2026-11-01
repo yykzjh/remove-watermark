@@ -420,19 +420,23 @@ def test_readonly_recheck_reuses_actual_repair_masks_only_for_unchanged_source(t
     source=tmp_path/"source.png";source.write_bytes(b"source")
     task={"source":str(source),"destination":str(tmp_path/"out.png"),"relative":"a.png"}
     masks=[{"kind":"logo","box":[.8,.8,1.,1.]}]
+    harmonization={"correction_withheld":False,"reference_over_64_fraction":.003}
     cfg=DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state"))
     options=ProcessingConfig(scope="full_image",preserve_background=True,quality_check=True,quality_auto_retry=True)
     def first(tasks,*_):
         Path(tasks[0]["destination"]).write_bytes(b"edited")
         return [{"file":"a.png","ok":True,"quality":verdict(),
-                 "background_preserved":True,"repair_regions":masks,"source_scene":"outdoor"}]
+                 "background_preserved":True,"repair_regions":masks,"source_scene":"outdoor",
+                 "harmonization":harmonization}]
     row=process_attempts([task],options,cfg,None,{},"job",first)[0]
     retry=row["_retry_task"]|{"_recheck":True}
     if changed:source.write_bytes(b"changed-source")
     def check(tasks,*_):
         assert tasks[0]["reuse_existing"]
         assert bool(tasks[0].get("_repair_provenance")) is (not changed)
-        if not changed:assert tasks[0]["_repair_provenance"]["regions"]==masks
+        if not changed:
+            assert tasks[0]["_repair_provenance"]["regions"]==masks
+            assert tasks[0]["_repair_provenance"]["harmonization"]==harmonization
         return [{"file":"a.png","ok":True,"quality":verdict("passed",removed=True)}]
     final=process_attempts([retry],options,cfg,None,{},"job",check)[0]
     assert final["quality"]["status"]=="passed"

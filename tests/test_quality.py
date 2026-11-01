@@ -448,3 +448,34 @@ def test_generation_drift_produces_specific_trusted_material_feedback():
     findings=feedback_from_quality(q)
     assert findings==[{"issue":"material_mismatch","box":[0,.6,.4,1]}]
     assert "材质类别" in retry_guidance(findings)
+
+
+def test_readonly_worker_cannot_forget_raw_drift_when_vlm_accepts(monkeypatch,tmp_path):
+    import sys
+    from types import SimpleNamespace
+
+    from watermark_studio.config import DeploymentConfig, ProcessingConfig
+    from watermark_studio.worker import process_batch
+    source=tmp_path/"source.png";output=tmp_path/"output.png"
+    Image.new("RGB",(200,160),"gray").save(source)
+    Image.new("RGB",(200,160),"gray").save(output)
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,
+        max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
+    def inspect(chats,fields,*args):
+        return [{**{k:k!="uncertain" for k in fields},"area":"none"} for _ in chats],0
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",inspect)
+    monkeypatch.setattr("watermark_studio.evidence.attach_evidence",lambda *a,**kw:None)
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",
+        lambda images,*a,**kw:[([],"{}") for _ in images])
+    drift={"correction_withheld":True,"reference_over_64_fraction":.95}
+    task={"source":str(source),"destination":str(output),"relative":"source.png",
+          "reuse_existing":True,"_repair_provenance":{"regions":[{"kind":"panel","box":[0,.6,.4,1]}],
+          "scene":"outdoor","harmonization":drift}}
+    pipe=SimpleNamespace(_quality_encoder=None,_quality_processor=None,_execution_device="cpu",
+                         text_encoder=None,processor=None)
+    result=process_batch([task],ProcessingConfig(quality_check=True,scope="full_image",
+        preserve_background=True),DeploymentConfig(),pipe)[0]
+    assert result["harmonization"]==drift
+    assert result["quality"]["status"]=="review"
+    assert "generation_reference_drift" in result["quality"]["guard_codes"]

@@ -238,7 +238,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     "regions": [], "detection_seconds": 0, "output_size": stored_size,
                     **({"background_preserved":True,
                         "repair_regions":task["_repair_provenance"]["regions"],
-                        "source_scene":task["_repair_provenance"].get("scene","unknown")}
+                        "source_scene":task["_repair_provenance"].get("scene","unknown"),
+                        "harmonization":task["_repair_provenance"].get("harmonization")}
                        if task.get("_repair_provenance") else {}),
                 }
                 continue

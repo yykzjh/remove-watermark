@@ -125,7 +125,8 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                     records[0][2].get("source_signature")==source_signature(tasks[0]["source"])):
                 prepared[0]["_repair_provenance"]={
                     "regions":best_saved.get("repair_regions",[]),
-                    "scene":best_saved.get("source_scene","unknown")}
+                    "scene":best_saved.get("source_scene","unknown"),
+                    "harmonization":best_saved.get("harmonization")}
 
     results = process(prepared, settings, config, pipe, batch_limits)
     for (task, paths, saved), result in zip(records, results):
