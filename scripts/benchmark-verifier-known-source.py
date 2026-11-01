@@ -103,7 +103,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -156,7 +156,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                             pair_index=group.index(case)
                             reconsider_text_free(*pairs[pair_index],value,editor,ep,encoder,processor,
                                 "cuda:0",{"background_preserved":case.get("preserved",False),
-                                "source_scene":case["scene"]},relation,resolution)
+                                "source_scene":case["scene"]},relation,resolution,proof_scope=text_free_scope)
                         if case.get("frozen_vetoes"):
                             if value["status"]!="error":
                                 value["status"]="review"
@@ -204,6 +204,7 @@ def main():
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--quality-resolution",type=int,choices=[512,768,1024,1280],default=768)
+    parser.add_argument("--text-free-scope",choices=["global","targets"],default="global")
     parser.add_argument("--frozen-disputes",action="store_true",help="Only adjudicate SHA-validated immutable first verdicts; do not rerun first VQA")
     parser.add_argument("--text-free-consensus",action="store_true",help="Experimental evidence-based adjudication; cannot override frozen vetoes")
     parser.add_argument("--cross-review",action="store_true")
@@ -264,7 +265,7 @@ def main():
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
                 args.cross_review,args.quality_batch_size,args.rectangle_guard,
-                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,events,start))
+                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -317,7 +318,7 @@ def main():
         result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
                  "code_revision":code_revision,"images":len(cases),"verifications":expected_total,
                 "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
-                "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,
+                "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,"text_free_scope":args.text_free_scope,
                 "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,

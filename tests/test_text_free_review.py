@@ -114,3 +114,44 @@ def test_explanation_refresh_failure_cannot_leave_a_passed_verdict(monkeypatch):
     run(f)
     assert f[2]["status"] == previous["status"] == "review"
     assert f[2]["text_free_review"]["status"] == "error"
+
+
+def test_target_scope_covers_original_overlays_and_primary_dispute_without_source_pixels(monkeypatch):
+    f=fixture(monkeypatch);f[2]["area"]="bottom_left"
+    source,output,q,context,editor,validator,calls,_=f
+    reconsider_text_free(source,output,q,editor,None,validator,None,"cpu",context,
+                         "different_weights",proof_scope="targets")
+    assert q["status"]=="passed"
+    log=q["text_free_review"]
+    assert log["effective_scope"]=="targets"
+    assert [0,.7,.4,1] in log["target_boxes"] and len(log["target_boxes"])>=2
+    for chats,_,_ in calls[:2]:
+        photos=[item["image"] for item in chats[0][0]["content"] if item["type"]=="image"]
+        assert all(photo.getpixel((0,0))==(0,128,0) for photo in photos)
+    assert "完整输出无任何文字" not in q["model_explanation"]["summary"]
+
+
+def test_unknown_primary_location_cannot_silently_limit_the_proof_to_known_masks(monkeypatch):
+    f=fixture(monkeypatch);f[2]["area"]="none"
+    reconsider_text_free(f[0],f[1],f[2],f[4],None,f[5],None,"cpu",f[3],
+                         "different_weights",proof_scope="targets")
+    assert f[2]["text_free_review"]["effective_scope"]=="global"
+
+
+@pytest.mark.parametrize("second_area",["none","bottom_left"])
+def test_location_contradiction_gets_only_one_same_model_consistency_check(monkeypatch,second_area):
+    from watermark_studio import quality
+    from watermark_studio.text_free_review import confirmed, inspect_consistently
+    flags={"watermark_removed":True,"natural":True,"text_free":True,"uncertain":False}
+    responses=iter([flags|{"area":"bottom_left"},flags|{"area":second_area}])
+    calls=[]
+    def vqa(chats,fields,model,*args):
+        calls.append((chats,model));return [next(responses)],.1
+    monkeypatch.setattr(quality,"_structured_vqa",vqa)
+    model=object();log={}
+    chats=[[{"role":"user","content":[{"type":"text","text":"Inspect the actual output"}]}]]
+    result=inspect_consistently(chats,tuple(flags),model,None,"cpu",128,log,"own",True)
+    assert len(calls)==2 and all(c[1] is model for c in calls)
+    assert confirmed(result) is (second_area=="none")
+    assert log["own"]["area"]=="bottom_left" and "own_consistency" in log
+    assert chats[0][0]["content"]==[{"type":"text","text":"Inspect the actual output"}]
