@@ -25,6 +25,7 @@ def main():
     p.add_argument("--scale",type=float,default=1.)
     p.add_argument("--cfg-scale",type=float,default=1.,help="Experimental paired CFG; 1 keeps the distilled single-forward recipe")
     p.add_argument("--caption-style",choices=["scene","material-first"],default="scene")
+    p.add_argument("--source-flow-context",action="store_true",help="Preserve source outside full-frame inpaint trajectory; at most one extra VAE encode, no extra generation")
     p.add_argument("--texture-prompt",action="store_true",help="Experimental source-matched roughness/detail wording; never add artificial noise")
     p.add_argument("--caption-words",type=int,choices=range(40,121),default=80)
     p.add_argument("--resolution",type=int,choices=[1024,1536],default=1024)
@@ -40,6 +41,8 @@ def main():
         p.error("CFG scale must be finite in 1..3")
     if not math.isfinite(a.scale) or not 0<=a.scale<=2:
         p.error("Control scale must be finite in 0..2")
+    if a.source_flow_context and a.reference_image=="masked":
+        p.error("Source flow context requires original source evidence, not a masked visual prefix")
     if a.gpu<0 or not 0<=a.shard_index<a.shards or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
         p.error("Explicit GPU and simple new tag required")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
@@ -87,6 +90,7 @@ def main():
         control_forward,
         load_branch,
         packed_inpaint_context,
+        source_flow_context,
     )
     from watermark_studio.images import (
         atomic_copy,
@@ -132,6 +136,7 @@ def main():
         caption=None
         caption_audit={}
         phases={}
+        flow_audit={}
         def stamp():
             torch.cuda.synchronize()
             return time.monotonic()
@@ -185,13 +190,13 @@ def main():
                 elif a.reference_image=="source":
                     reference=source.convert("RGB").copy()
                     prompt="Remove only digitally overlaid watermark cards, logos, dates and camera codes from this original photograph; keep actual physical objects and printed labels. Reconstruct the covered scene without changing visible content. "+prompt
-                with control_forward(pipe.transformer,branch,context,a.scale):
+                with source_flow_context(pipe,source,scoped,width,height,a.source_flow_context) as (callbacks,flow_audit), control_forward(pipe.transformer,branch,context,a.scale):
                     latent=pipe(prompt=prompt,image=reference,width=width,height=height,output_resolution=a.resolution,
                         true_cfg_scale=a.cfg_scale,negative_prompt=(
                             "Digitally superimposed watermarks, camera information cards, date and location overlays, logos or anti-counterfeit codes; "
                             "rectangular shadows or bright panels, repeated flat textures, blurry plastic ground, broken straight edges, "
                             "distorted anatomy, altered clothing colors, invented objects." if a.cfg_scale>1 else None),use_kv_cache=False,generator=torch.Generator("cpu").manual_seed(seed),
-                        output_type="latent").images
+                        output_type="latent",**callbacks).images
                 phases["sampling_and_text_encoding_seconds"]=round(stamp()-phase_start,4)
                 phase_start=stamp()
                 if len(pipe.scheduler.timesteps)!=8:
@@ -230,14 +235,14 @@ def main():
         result={k:row[k] for k in source_fields if k in row}
         result["repair_regions"]=[r.model_dump() for r in regions]
         result["harmonization"]=generated.info.get("harmonization")
-        result["denoising_context"]=[]
+        result["denoising_context"]=[flow_audit] if flow_audit else []
         result["source_rim_composition"]={"regions":[r.model_dump() for r in scoped],"cores":mapped}
         result.update(ok=True,quality={},quality_attempts=1,model_inferences=int(bool(regions)),
             processing_path="whole_composite" if regions else "source_copy",
             action="restored" if regions else "no_watermark_detected",output_size=size,controlnet_probe={"weights":identity,
             "scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"decode_encoder_offload":a.decode_encoder_offload,"model_input_size":[width,height] if regions else None,
             "denoising_steps":8 if regions else 0,"dit_forwards":(16 if a.cfg_scale>1 else 8) if regions else 0,
-            "source_caption":caption,"caption_style":a.caption_style,"texture_prompt":a.texture_prompt,"caption_audit":caption_audit,"phase_seconds":phases,"source_masks_frozen":True,"whole_frame":True,
+            "source_caption":caption,"caption_style":a.caption_style,"texture_prompt":a.texture_prompt,"source_flow_context":a.source_flow_context,"caption_audit":caption_audit,"phase_seconds":phases,"source_masks_frozen":True,"whole_frame":True,
             "kv_cache":False,"seconds":round(time.monotonic()-start,3),
             "peak_allocated_mib":round(torch.cuda.max_memory_allocated()/2**20)})
         results.append(result)
@@ -256,7 +261,7 @@ def main():
         "options":options.model_dump(),"seconds":round(time.monotonic()-began,3),
         "load_seconds":round(load_seconds,3),"sources_sha256":hashes,"quality_evaluated":False,
         "controlnet":identity,"controlnet_settings":{"scale":a.scale,"cfg_scale":a.cfg_scale,"resolution":a.resolution,"reference_image":a.reference_image,"decode_encoder_offload":a.decode_encoder_offload,"capture_raw":a.capture_raw,"kv_cache":False,
-            "caption_words":a.caption_words,"caption_style":a.caption_style,"texture_prompt":a.texture_prompt,"caption_max_tokens":128,"quantization_device":"cuda"},
+            "caption_words":a.caption_words,"caption_style":a.caption_style,"texture_prompt":a.texture_prompt,"source_flow_context":a.source_flow_context,"caption_max_tokens":128,"quantization_device":"cuda"},
         "server_isolation":server}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))

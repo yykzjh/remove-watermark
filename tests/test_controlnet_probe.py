@@ -107,3 +107,43 @@ def test_caption_conditioning_keeps_complete_observations_without_inventing_a_sc
     for value in ("", "An unfinished phrase"):
         with pytest.raises(ValueError):
             bounded_caption(value,reached_limit=True)
+
+
+@pytest.mark.parametrize("reuse_prefix",[False,True])
+def test_control_source_flow_anchors_only_unmasked_target_without_inserting_a_prefix(reuse_prefix):
+    torch=pytest.importorskip("torch")
+    pytest.importorskip("diffusers")
+    from diffusers import FlowMatchEulerDiscreteScheduler
+    from PIL import Image
+
+    from watermark_studio.config import Region
+    from watermark_studio.controlnet_probe import source_flow_context
+    reference=torch.full((1,64,64),.4);seen=[]
+    class Pipe:
+        vae_scale_factor=16
+        scheduler=FlowMatchEulerDiscreteScheduler()
+        image_processor=SimpleNamespace(preprocess=lambda *a,**kw:torch.zeros(1,3,128,128))
+        def prepare_latents(self,images):
+            return torch.full((1,64,64),.7),reference if reuse_prefix else None
+        def _encode_vae_image(self,rgba,generator=None):
+            assert rgba.shape==(1,4,1,128,128) and torch.all(rgba[:,3]==1)
+            seen.append(True)
+            return torch.full((1,64,1,8,8),.4)
+        def _pack_latents(self,t,b,c,h,w):
+            return t.reshape(b,c,h*w).transpose(1,2)
+    pipe=Pipe();original=pipe.prepare_latents.__func__
+    with source_flow_context(pipe,Image.new("RGB",(128,128)),[Region(box=(.4,.4,.6,.6))],128,128,True) as (callbacks,audit):
+        noise,prefix=pipe.prepare_latents(None)
+        assert (prefix is reference) if reuse_prefix else prefix is None
+        pipe.scheduler.set_timesteps(sigmas=[1.,.5],device="cpu")
+        for i in range(2):
+            pipe.scheduler._step_index=i+1
+            result=callbacks["callback_on_step_end"](pipe,i,None,{"latents":torch.full_like(noise,7.)})["latents"]
+        assert result[0,0,0]==reference[0,0,0] and result[0,27,0]==7
+    assert audit["steps"]==2 and audit["extra_diffusion_forwards"]==0
+    assert audit["extra_vae_encodes"]==int(not reuse_prefix) and len(seen)==int(not reuse_prefix)
+    assert torch.all(reference==.4) and pipe.prepare_latents.__func__ is original
+    assert "prepare_latents" not in pipe.__dict__ and "set_timesteps" not in pipe.scheduler.__dict__
+    with pytest.raises(RuntimeError,match="interrupted"), source_flow_context(pipe,Image.new("RGB",(128,128)),[],128,128,True):
+        raise RuntimeError("interrupted")
+    assert "prepare_latents" not in pipe.__dict__ and "set_timesteps" not in pipe.scheduler.__dict__

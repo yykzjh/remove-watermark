@@ -165,3 +165,47 @@ def packed_inpaint_context(pipe, image, mask, width, height):
     keep=F.interpolate(1-edit,size=latent.shape[-2:],mode="nearest").unsqueeze(2)
     combined=torch.cat([torch.zeros_like(latent),keep,latent],dim=1)
     return pipe._pack_latents(combined,1,129,*latent.shape[-2:])
+
+
+@contextmanager
+def source_flow_context(pipe,source,regions,width,height,enabled=False):
+    """Anchor the unmasked target trajectory without adding a generation pass.
+
+    Pure ControlNet has no original-image prefix to reuse. It therefore needs
+    one explicitly recorded full-source VAE encode; an original-image prefix
+    can be reused when present. Never return that extra reference as a new
+    prefix, or alter the frozen Turbo sigma schedule.
+    """
+    if not enabled:
+        yield {},{}
+        return
+    import torch
+
+    from .batching import override_methods
+    from .denoising_context import DenoisingContext
+    if type(pipe.scheduler).__name__!="FlowMatchEulerDiscreteScheduler" or getattr(pipe.scheduler.config,"stochastic_sampling",False):
+        raise ValueError("Deterministic flow scheduler required")
+    item={"_denoising_context_regions":[r.model_dump() for r in regions]}
+    ctx=DenoisingContext([item],width,height,pipe.vae_scale_factor)
+    original_prepare=pipe.prepare_latents;original_schedule=pipe.scheduler.set_timesteps
+    audit={"enabled":True,"extra_vae_encodes":0,"extra_diffusion_forwards":0}
+    def prepare(images,*args,**kwargs):
+        noise,prefix=original_prepare(images,*args,**kwargs)
+        reference=prefix
+        if reference is None:
+            pixels=pipe.image_processor.preprocess(source.convert("RGB"),height=height,width=width).to(noise.device,noise.dtype)
+            rgba=torch.cat([pixels,torch.ones_like(pixels[:,:1])],dim=1).unsqueeze(2)
+            reference=pipe._encode_vae_image(rgba,generator=None)
+            reference=pipe._pack_latents(reference,1,64,*reference.shape[-2:]).to(noise.device,noise.dtype)
+            audit["extra_vae_encodes"]=1
+        ctx.capture(noise,reference)
+        return noise,prefix
+    def schedule(*args,**kwargs):
+        result=original_schedule(*args,**kwargs)
+        ctx.schedule(pipe.scheduler.sigmas)
+        return result
+    with override_methods(pipe,prepare_latents=prepare),override_methods(pipe.scheduler,set_timesteps=schedule):
+        yield {"callback_on_step_end":ctx.after_step,"callback_on_step_end_tensor_inputs":["latents"]},audit
+        ctx.finish()
+        item["_denoising_context_log"]["extra_vae_encodes"]=audit["extra_vae_encodes"]
+        audit.update(item["_denoising_context_log"])
