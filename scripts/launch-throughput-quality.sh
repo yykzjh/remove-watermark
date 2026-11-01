@@ -16,7 +16,7 @@ exec bash scripts/start-server.sh \
   --parallelism data \
   --gpus 0,1,2,3,4,5,6,7 \
   --batch-size 1 \
-  --small-batch-size 0 \
+  --small-batch-size 2 \
   --batch-window 4 \
   --adaptive-dispatch \
   --detection-batch-size 2 \
