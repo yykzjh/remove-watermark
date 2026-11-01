@@ -12,6 +12,7 @@ from PIL import Image
 
 from watermark_studio.cli import request
 
+benchmark_revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
 p=argparse.ArgumentParser()
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--url",default="http://127.0.0.1:8765")
@@ -46,6 +47,8 @@ assert audit_sources(),"Source differs from prepared selection"
 while request(a.url,"/health")["stage"]!="ready":
     time.sleep(2)
 health=request(a.url,"/health")
+if health.get("code_revision")!=benchmark_revision:
+    raise RuntimeError("Server and benchmark Git revisions differ; no job submitted")
 assert health["job"] is None or health["job"]["state"] in {"completed","failed","cancelled"}
 if a.auto_retry:
     assert health["optimization"].get("retain_rejected_first"),"Retain rejected first candidates for first/final audit"
@@ -100,11 +103,12 @@ assert state.get("first_pass_total",0)==len(hashes),"Incomplete first-pass accou
 def generation_attempts(row):
     return sum(h.get("model_inferences",0)>0 for h in (row.get("attempt_history") or [row]))
 
+assert subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()==benchmark_revision, \
+    "Benchmark checkout changed during execution"
 summary={"scope":("reused-source development; not holdout qualification" if a.development else
                    "automatic independent checks, not human-labelled accuracy"),
     "development_reuse":a.development,"job":job,
-    "code_revision":health["code_revision"],"benchmark_revision":subprocess.check_output(
-        ["git","rev-parse","--short","HEAD"],text=True).strip(),"options":options,
+    "code_revision":health["code_revision"],"benchmark_revision":benchmark_revision,"options":options,
     "selection":{k:v for k,v in selection.items() if k not in {"source_sha256","sources"}},
     "images":len(hashes),"state":state["state"],"processing_failed":state["failed"],
     "seconds":round(elapsed,3),"images_per_minute":round(len(hashes)*60/elapsed,4),

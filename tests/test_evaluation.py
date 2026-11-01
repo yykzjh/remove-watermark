@@ -77,3 +77,29 @@ def test_legacy_visual_review_path_records_are_excluded_too(tmp_path):
     base = write_sources(tmp_path, "original64", ["/images/old64.jpg"])
     write_sources(tmp_path, "sample-review", [{"path": "/images/viewed.jpg", "group": "native", "size": 2}])
     assert exclusion_sources(tmp_path, base, [])[0] == {"/images/old64.jpg", "/images/viewed.jpg"}
+
+
+def test_benchmark_refuses_a_stale_service_before_submitting_any_images(tmp_path, monkeypatch):
+    import hashlib
+    import runpy
+    import sys
+
+    work = tmp_path/"prepared"
+    (work/"input").mkdir(parents=True)
+    photo = work/"input"/"a.png"
+    photo.write_bytes(b"immutable test image source")
+    (work/"source-selection.json").write_text(json.dumps({
+        "images": 1, "unique_sha256": 1, "prior_sha256_overlap": 0,
+        "source_sha256": {"a.png": hashlib.sha256(photo.read_bytes()).hexdigest()}}))
+    calls = []
+    def request(url, endpoint, *args):
+        calls.append(endpoint)
+        assert endpoint == "/health"
+        return {"stage": "ready", "code_revision": "old", "job": None}
+    monkeypatch.setattr("watermark_studio.cli.request", request)
+    monkeypatch.setattr("subprocess.check_output", lambda *a, **k: "new\n")
+    script = Path(__file__).resolve().parents[1]/"scripts/benchmark-protected-e2e.py"
+    monkeypatch.setattr(sys, "argv", [str(script), "--work", str(work), "--run-tag", "fresh"])
+    with pytest.raises(RuntimeError, match="no job submitted"):
+        runpy.run_path(str(script), run_name="__main__")
+    assert calls and all(endpoint == "/health" for endpoint in calls)
