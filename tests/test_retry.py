@@ -368,3 +368,9 @@ def test_retry_preserves_whole_direct_or_explicit_custom_path(tmp_path,custom):
         return [{"file":"a.png","ok":True,"quality":verdict("passed",removed=True)}]
     result=process_attempts([task],options,DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state")),None,{},"job",process)[0]
     assert result["quality"]["status"]=="passed" and source.read_bytes()==b"original"
+
+
+def test_whole_image_retry_default_does_not_reduce_the_default_input_budget():
+    options=ProcessingConfig(scope="full_image",quality_check=True,quality_auto_retry=True)
+    assert options.resolution==options.quality_retry_resolution==1024
+    assert options.whole_prompt_profile=="fidelity"

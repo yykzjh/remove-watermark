@@ -33,7 +33,7 @@ parser.add_argument("--select-review",action="store_true",help="Frozen job: all 
 parser.add_argument("--review-controls",type=int,default=32)
 parser.add_argument("--source-job",help="Completed job ID for a frozen source replay; requires --files")
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
-parser.add_argument("--whole-prompt-profiles",nargs="+",choices=["baseline","fidelity","minimal","scene"],default=["baseline"])
+parser.add_argument("--whole-prompt-profiles",nargs="+",choices=["baseline","fidelity","scene"],default=["baseline"])
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
 benchmark_revision=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()

@@ -347,7 +347,7 @@ def test_oversized_auxiliary_quarter_gets_context_without_redrawing_known_large_
     assert calls[1][0][0]>calls[0][1][0] and calls[1][0][1]>calls[0][1][1]
 
 
-@pytest.mark.parametrize("profile",["baseline","fidelity","minimal","scene"])
+@pytest.mark.parametrize("profile",["baseline","fidelity","scene"])
 def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositing(tmp_path,monkeypatch,profile):
     import sys
     from types import SimpleNamespace
@@ -400,11 +400,11 @@ def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositi
         assert path.read_bytes()==before
 
 
-@pytest.mark.parametrize("profile,word",[("fidelity","白平衡"),("minimal","white balance")])
+@pytest.mark.parametrize("profile,word",[("fidelity","白平衡")])
 def test_whole_fidelity_prompts_preserve_capture_and_physical_text_without_fixed_regions(profile,word):
     from watermark_studio.prompts import build_full_prompt
     prompt=build_full_prompt("keep sensor grain",profile)
     assert word in prompt and "今日水印" in prompt and "防伪码" in prompt
     assert "keep sensor grain" in prompt and "x=" not in prompt and "y=" not in prompt
-    assert len(prompt)<len(build_full_prompt())
+    assert len(prompt)<len(build_full_prompt(profile="baseline"))
     assert ProcessingConfig(whole_prompt_profile=profile).whole_prompt_profile==profile

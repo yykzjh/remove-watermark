@@ -71,6 +71,7 @@ def test_navigation_and_multi_region_selection(tmp_path):
     app.processEvents()
     assert window.preset.count() == 2
     assert not window.region_controls.isEnabled()
+    assert not window.repair_blending.isVisible()
     assert not window.canvas.selectable
     window.input_file.setText("/home/zjh/image.png")
     window.preview_path = "/home/zjh/image.png"
@@ -81,6 +82,7 @@ def test_navigation_and_multi_region_selection(tmp_path):
     window.preset.setCurrentIndex(1)
     app.processEvents()
     assert window.canvas.selectable
+    assert window.repair_blending.isVisible()
     rect = window.canvas.image_rect()
     for left in [.1, .6]:
         start = QPoint(int(rect.x() + left * rect.width()), int(rect.y() + .2 * rect.height()))

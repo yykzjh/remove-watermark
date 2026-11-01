@@ -43,13 +43,13 @@ class ProcessingConfig(BaseModel):
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
     preserve_background: bool = False
     first_pass_mode: Literal["whole", "focused", "thorough", "complete"] = "whole"
-    whole_prompt_profile: Literal["baseline","fidelity","minimal","scene"] = "baseline"
+    whole_prompt_profile: Literal["baseline","fidelity","scene"] = "fidelity"
     repair_blending: Literal["feather", "harmonic", "harmonic-fine"] = "harmonic"
     quality_check: bool = False
     quality_cross_review: bool = False
     quality_auto_retry: bool = False
     quality_max_attempts: int = Field(default=3, ge=0, le=20)
-    quality_retry_resolution: Literal[512, 768, 1024, 1280, 1536, 2048] = 768
+    quality_retry_resolution: Literal[512, 768, 1024, 1280, 1536, 2048] = 1024
     quality_resolution: int = Field(default=768, ge=384, le=1280, multiple_of=32)
     quality_batch_size: int = Field(default=1, ge=1, le=4)
     quality_max_tokens: int = Field(default=128, ge=64, le=256)

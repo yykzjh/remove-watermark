@@ -372,6 +372,7 @@ class MainWindow(QMainWindow):
         self.repair_blending.addItem("1024参考网格衔接（实验，额外CPU开销）","harmonic-fine")
         self.repair_blending.setToolTip("从原水印以外的可见像素估计平滑色偏，减少矩形阴影；不扩大处理范围。")
         form.addRow("修补明暗衔接", self.repair_blending)
+        self.blending_label=form.labelForField(self.repair_blending)
         self.quality_check = QCheckBox("去水印后检验残留、自然度及内容一致性")
         self.quality_check.setToolTip("对照原图与最终输出，并检查水印外的局部变化；整图直接处理同样严格检验内容变化。未通过项提供可见依据和返工建议；待复核或检验错误不算通过。")
         form.addRow(self.quality_check)
@@ -415,7 +416,7 @@ class MainWindow(QMainWindow):
         self.retry_resolution = QComboBox()
         for size in (512, 768, 1024, 1280, 1536, 2048):
             self.retry_resolution.addItem(str(size), size)
-        self.retry_resolution.setCurrentIndex(1)
+        self.retry_resolution.setCurrentIndex(2)
         self.retry_resolution.setEnabled(False)
         self.quality_retry.toggled.connect(self.retry_resolution.setEnabled)
         form.addRow("返工模型输入分辨率", self.retry_resolution)
@@ -469,7 +470,10 @@ class MainWindow(QMainWindow):
         )
         self.region_controls.setEnabled(custom)
         if hasattr(self,"repair_blending"):
-            self.repair_blending.setEnabled(custom and self.tabs.currentIndex()==1)
+            show_blending=custom and self.tabs.currentIndex()==1
+            self.repair_blending.setVisible(show_blending)
+            self.blending_label.setVisible(show_blending)
+            self.repair_blending.setEnabled(show_blending)
             self.processing_note.setText(
                 "自定义区域：修补所选区域后合并回整图；最终按完整图像尺寸输出。"
                 if custom and self.tabs.currentIndex()==1 else
@@ -743,7 +747,7 @@ def main():
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
-    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","minimal","scene"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default)
+    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="fidelity: default; baseline: historical comparison; scene: experimental source-facts guidance")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")

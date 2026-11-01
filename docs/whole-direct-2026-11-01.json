@@ -1,0 +1,166 @@
+[
+  {
+    "processing_path": "whole_direct",
+    "preserve_background": false,
+    "scope": "full_image",
+    "concurrency": 20,
+    "deployment": {
+      "batch_size": 2,
+      "small_batch_size": 2,
+      "batch_window": 4,
+      "worker_count": 5,
+      "optimization": {
+        "dtype": "bfloat16",
+        "quantization": "float8",
+        "compile": true,
+        "compile_scope": "projections",
+        "compile_dynamic": true,
+        "attention_backend": "native",
+        "float8_granularity": "tensor",
+        "prefill_overlays": false,
+        "cudnn_benchmark": false,
+        "vae_channels_last": false
+      }
+    },
+    "benchmark_revision": "3b794af",
+    "profile": "whole-1024",
+    "tag": "whole-direct-89-b2-v1",
+    "subset": "frozen",
+    "images": 89,
+    "job": "06196e3e474e40afb11468d9ed7c7801",
+    "blending": "harmonic",
+    "context": 0.6,
+    "seed": 20261101,
+    "cross_review": false,
+    "code_revision": "3b794af",
+    "quality_model": "/mnt/ssd1/home/zjh/.cache/watermark-models/models/Qwen--Qwen3-VL-4B-Instruct/snapshots/master",
+    "quality_backend": "independent",
+    "seconds": 260.285,
+    "source_inputs_unchanged": true,
+    "source_hash_audit_seconds": 0.191,
+    "source_selection_sha256": "998a0a6b30865085dcb4ad51ed8d2e0e8bbe455b2e8b2a06989842b7052a4099",
+    "sampling_seed": 20261101,
+    "model_seed": 42,
+    "first_counts": {
+      "review": 89
+    },
+    "first_pass_rate": 0.0,
+    "generation_only": false,
+    "quality_batch_size": 2,
+    "processing_failed": 0,
+    "model_inferences": 89,
+    "prefilled_model_inputs": 0,
+    "prefill_overlays": false,
+    "edit_batch_participation": {
+      "1": 89
+    },
+    "successful_diffusion_forwards": 89.0,
+    "small_batch_size": 2,
+    "quality_rectangle_guard": true,
+    "rectangle_guard_reviews": 1,
+    "rectangle_guard_cpu_seconds_sum": 18.730794,
+    "residual_geometry_requeries": 0,
+    "generation_retries": 0,
+    "input_budgets": {
+      "1024": 89
+    },
+    "source_detail_views": 0,
+    "bad_sizes": 0,
+    "quality_errors": 0,
+    "peak_allocated_mib": 44080,
+    "guard_counts": {
+      "outside_repair_change": 89,
+      "repair_boundary_step": 11,
+      "repair_texture_collapse": 8,
+      "repair_rectangle_phase": 1
+    },
+    "model_status_counts": {
+      "passed": 71,
+      "review": 18
+    },
+    "rows_with_oom_recovery": 40
+  },
+  {
+    "processing_path": "region_repair",
+    "preserve_background": true,
+    "scope": "full_image",
+    "concurrency": 20,
+    "deployment": {
+      "batch_size": 2,
+      "small_batch_size": 2,
+      "batch_window": 4,
+      "worker_count": 5,
+      "optimization": {
+        "dtype": "bfloat16",
+        "quantization": "float8",
+        "compile": true,
+        "compile_scope": "projections",
+        "compile_dynamic": true,
+        "attention_backend": "native",
+        "float8_granularity": "tensor",
+        "prefill_overlays": false,
+        "cudnn_benchmark": false,
+        "vae_channels_last": false
+      }
+    },
+    "benchmark_revision": "3b794af",
+    "profile": "complete@0.45-1024",
+    "tag": "whole-direct-89-b2-v1",
+    "subset": "frozen",
+    "images": 89,
+    "job": "0b79534558d84b7cbae97391b20537eb",
+    "blending": "harmonic",
+    "context": 0.45,
+    "seed": 20261101,
+    "cross_review": false,
+    "code_revision": "3b794af",
+    "quality_model": "/mnt/ssd1/home/zjh/.cache/watermark-models/models/Qwen--Qwen3-VL-4B-Instruct/snapshots/master",
+    "quality_backend": "independent",
+    "seconds": 299.106,
+    "source_inputs_unchanged": true,
+    "source_hash_audit_seconds": 0.265,
+    "source_selection_sha256": "998a0a6b30865085dcb4ad51ed8d2e0e8bbe455b2e8b2a06989842b7052a4099",
+    "sampling_seed": 20261101,
+    "model_seed": 42,
+    "first_counts": {
+      "review": 41,
+      "passed": 48
+    },
+    "first_pass_rate": 0.53933,
+    "generation_only": false,
+    "quality_batch_size": 2,
+    "processing_failed": 0,
+    "model_inferences": 167,
+    "prefilled_model_inputs": 0,
+    "prefill_overlays": false,
+    "edit_batch_participation": {
+      "2": 50,
+      "1": 117
+    },
+    "successful_diffusion_forwards": 142.0,
+    "small_batch_size": 2,
+    "quality_rectangle_guard": true,
+    "rectangle_guard_reviews": 0,
+    "rectangle_guard_cpu_seconds_sum": 19.400255,
+    "residual_geometry_requeries": 1,
+    "generation_retries": 0,
+    "input_budgets": {
+      "1024": 82,
+      "512": 85
+    },
+    "source_detail_views": 171,
+    "bad_sizes": 0,
+    "quality_errors": 0,
+    "peak_allocated_mib": 44227,
+    "guard_counts": {
+      "repair_texture_collapse": 14,
+      "repair_boundary_step": 5,
+      "identical": 3
+    },
+    "model_status_counts": {
+      "passed": 70,
+      "review": 19
+    },
+    "rows_with_oom_recovery": 0
+  }
+]

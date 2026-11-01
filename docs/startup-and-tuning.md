@@ -137,9 +137,11 @@ API 请求还需 input_dir、output_dir，均为开发机目录，不能相同�
 | preset | auto / custom 为当前 UI 两种模式；gray/blue 仅旧 API 兼容，不用于批量 |
 | regions | custom 必填，最多 8 个；kind=panel/logo/custom，box 为 0..1 坐标；批量不用 |
 | detection_resolution / remove_logo | 旧区域检测 API 参数；当前整图提示词总包含左右两类水印，批量不依赖这两个字段 |
+| whole_prompt_profile | 默认fidelity中文保真；scene增加受限原图事实并只对纸张/无植被土石场景补充约束；baseline为历史对照。检验不变，见[提示词实测](whole-prompt-tuning-2026-11-01.md)。 |
+| quality_retry_resolution | 默认1024；整图默认返工不降至768。可显式选择其它预算。 |
 | resolution | 默认 1024；UI 为 512/768/1024/1280/1536/2048 面积预算档位，API 允许 256–2048 的 32 倍数 |
 | output_width / output_height | 同为 0 保留每张原图尺寸；否则两者都填，调整完整输出画布；最多 6400 万像素 |
-| context | 默认0.6，0.1–2；精细首轮或单张重建的上下文系数。Linux桌面/批处理CLI可显式传`--context`；不在批量页面提供统一水印区域。第二轮采用0.45，见最新实测与限制。 |
+| context | 默认0.6，0.1–2；精细首轮或单张重建的上下文系数。Linux桌面/批处理CLI可显式传`--context`；不在批量页面提供统一水印区域。历史裁切第二轮采用0.45；整图直接路径不裁切，因此该值不改变整图编辑范围。 |
 | feather | 12，0–64；仅自定义区域合成过渡宽度 |
 | seed | 42；结合相对路径与区域序号；不同精度、编译或批大小仍可能有数值差异 |
 | overwrite | false；不开启时跳过已存在输出 |

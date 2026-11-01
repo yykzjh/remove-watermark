@@ -22,25 +22,25 @@ bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
 
 ~~~bash
 uv run --no-sync watermark-studio --ssh-host cdu_dev \
-  --preserve-background --first-pass-mode thorough --input-resolution 1024 \
+  --first-pass-mode whole --whole-prompt-profile fidelity --input-resolution 1024 \
   --quality-check --quality-auto-retry --quality-cross-review --quality-batch-size 2
 ~~~
 
-客户端可手工勾选检验、自动返工、原图保护；以上启动命令显式预选，并选择首轮精细处理与源图细节定位，不会自动提交。首轮策略的成对测试与代价见[首轮质量报告](first-pass-quality-2026-11-01.md)。
+客户端可手工勾选检验、自动返工；自动模式固定整图直接处理，不展示历史原图局部合成或裁切策略。以上命令预选整图保真提示词，不会自动提交。首轮策略的成对测试与代价见[首轮质量报告](first-pass-quality-2026-11-01.md)。
 不传这些开关时默认均关闭，遵守布尔开关约定。
 本次交付只部署服务，由用户在客户端提交全量任务。
 
 ~~~bash
 uv run --no-sync watermark-batch /mnt/sdb/zjh/input /mnt/sdb/zjh/output \
   --concurrency 20 --input-resolution 1024 \
-  --preserve-background --first-pass-mode thorough --quality-check --quality-resolution 768 \
+  --first-pass-mode whole --whole-prompt-profile fidelity --quality-check --quality-resolution 768 \
   --quality-batch-size 2 --quality-detail-patches 4 \
-  --quality-auto-retry --quality-max-attempts 3 --quality-retry-resolution 768
+  --quality-auto-retry --quality-max-attempts 3 --quality-retry-resolution 1024
 ~~~
 
 ## 检验流程
 
-先获得原图数字覆盖层位置；原图保护阶段已有的定位会直接复用。
+整图模式由独立检验器定位原图数字覆盖层，仅供检验对照，不用于编辑裁切或按框回贴。scene提示词另用编辑侧识别原图受限材质事实，该信息不能代替独立检验或豁免疑点。历史原图保护阶段已有的定位可以复用。
 再对水印以外位置进行局部差异检查，容忍高质量JPEG编码噪声和所选输出缩放，
 把细微模糊、错位、替换或新增淡字等疑点保守标成待复核，而不是让VLM的通过判断覆盖它。
 无法完成原图定位时记检验错误；误定位、重新编码和极小细节仍可能造成误报或漏报。
@@ -112,16 +112,16 @@ explanation_seconds单独计时，并计入quality_total_seconds与端到端wall
 
 quality.cross_review保存编辑侧说明、独立侧依据、原图像素比较、整图重检、最终扫描和耗时；改判时pre_cross_review保存原判定与原依据。相同模型不能充当两个独立意见。桌面有“编辑侧说明与独立复核”选项，显示争议复核、已纠正误报与错误次数；计数按实际尝试，不重复计入被沿用的最佳候选。CLI/桌面启动都支持 --quality-cross-review。
 
-## 原图保护与返工
+## 整图返工与历史局部策略
 
-preserve_background在whole策略下将完整图像送入编辑模型；focused/thorough自动从原图逐组编辑，thorough有条件补充源图细节定位，见[首轮质量对照](first-pass-quality-2026-11-01.md)。自动定位所有数字覆盖层后，
+以下局部合成仅供历史CLI/API对照，客户端自动模式不使用：preserve_background在whole策略下将完整图像送入编辑模型后按检测框合成；focused/thorough自动从原图逐组编辑，thorough有条件补充源图细节定位，见[首轮质量对照](first-pass-quality-2026-11-01.md)。自动定位所有数字覆盖层后，
 只把对应区域及羽化边缘合成回原图。默认 repair_blending=harmonic：只用所有水印外的原图/生成图颜色差，做多尺度调和延拓，校正修补区域的低频明暗和颜色；最后羽化衔接。水印内像素不作校正参考，不改变几何坐标。feather 保留为仅羽化的对照模式。桌面可选择“修补明暗衔接”，CLI 使用 --repair-blending harmonic|feather。工作图像中其余像素保留；JPEG重新编码会有量化差异。
 无检测区域时复制原文件或按指定输出尺寸缩放。定位错误仍可能漏水印或包含真实物体，需结合检验。
 
 quality_auto_retry启用后：
 - 每张图第一轮正常凑批；不合格项进入独立FIFO返工队列，首轮队列优先。
-- 从输入原图重新进行自动局部编辑，包含所有检测出的原始水印；不对已生成结果累积修补。
-- 将检验发现的残留位置回传，先在原图局部确认，再与原图自动检测的所有水印区域合并，避免重复漏掉同一块。
+- 当前整图模式从完整输入原图重新编辑，仍完整输出，不切换到局部裁切；自定义区域和历史局部策略按其原有约束返工。不对已生成结果累积修补。
+- 将检验发现的残留位置与依据回传为原图坐标下的提示词。仅历史局部策略会先在原图局部确认，再合并检测框；整图模式不靠它们裁切或回贴。
   原图中未确认有数字水印的位置不会因为输出提示而直接扩大重画范围。
   对已拒绝但尚无坐标的残留图额外做一次定位；该定位不会把拒绝改成通过。
 - 将选中的最佳候选的问题类型和完整原图坐标带入下一轮提示词，针对性约束明暗、纹理、结构和真实文字保护；每张返工独立传递，不混用其他图像的依据。送入局部模型时，将完整原图坐标换算为当前裁切图坐标，忽略不与该裁切相交的诊断，避免坐标系混淆。
