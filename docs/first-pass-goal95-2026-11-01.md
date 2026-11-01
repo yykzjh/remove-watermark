@@ -492,3 +492,23 @@ shadow18/32/48分别15/64、35/64、46/64被检出；淡阴影仍大量漏检。
 小标识保留独立的原始初始化核心，不改变其输出合成仍使用完整不透明扩展掩码的规则。
 原图只用于最终合成/QA，扩散仍输入完整图、每图一次；新增源核实耗时必须计入实测。
 该分支仍仅为显式gray实验，默认配方关闭，不将训练选项未回复视为批准自训练。
+
+
+完整已知109份对照goal95-output-only-controls109-v1完成117.854秒、加载21.629秒：
+27正确中3误拒（旧4），81缺陷中12漏检（旧12），真实改字反例仍复核；
+该微调仅改正一项误拒，不能宣称解决淡阴影，亦不自动替换默认legacy协议。
+本地灰脚注证据实现全回归536通过、5缺Torch跳过，ruff通过。
+
+另准备独立离线ControlNet补全试验，无自训练、未接服务默认配置。
+[官方模型](https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union)
+固定8a4702014d4dabb5f896fcba917e2ee0a961465f，7550979904字节，
+SHA65d6b66d734da9e7ff5ef04e7db3a133553a52a3f29a7fcb3e9cce8fa21dcfcd。
+[VideoX-Fun参考](https://github.com/aigc-apps/VideoX-Fun/blob/e8c314fbfa494d0429bbef605c9f6112b79a7ead/videox_fun/models/qwenimage21_transformer2d_control.py)
+与[Turbo八步兼容说明](https://github.com/mflux-community/mflux/pull/859)提供结构依据，不能代替本项目数据验证。
+16控制块在32主块隔层注入，129通道次序严格为控制64（无控制时0）、保留mask1、遮盖图VAE64。
+白mask表示重绘，但latent掩码取反为1=保留；RGBA alpha保持不透明。原图整幅编码，不裁切扩散输入。
+控制链按依赖顺序流式求值，避免堆叠全部16个hint；需用真实Torch小矩阵验证与完整hint公式逐位一致。
+控制会改变text前缀，禁用前缀KV cache，不能错误复用普通编辑缓存以追求速度。
+所有180个权重键/形状严格加载并核验SHA/有限值；只读冻结开发mask，另行完整严格QA，不计作新验收。
+下载器默认仍1GiB预算，大分支必须显式--max-bytes且固定字节/SHA；由开发机直接HTTP下载。
+目前只完成离线代码准备，尚未下载完整权重或实测效果。

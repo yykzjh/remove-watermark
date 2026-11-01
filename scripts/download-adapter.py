@@ -18,11 +18,13 @@ def main():
     p.add_argument("--filename",default="qwen-image-2.1-consistency.safetensors")
     p.add_argument("--sha256",default="4f44ada1be2189cc23b3d010f9603543403f48454e2f76842a3d30109b20bd63")
     p.add_argument("--size",type=int,default=159436496)
+    p.add_argument("--max-bytes",type=int,default=1024**3,help="Explicit download budget; maximum 16 GiB, default 1 GiB")
     p.add_argument("--endpoint",choices=["https://huggingface.co","https://hf-mirror.com"],default="https://hf-mirror.com")
     a=p.parse_args()
     if (not re.fullmatch(r"[\w.-]+/[\w.-]+",a.repo) or not re.fullmatch(r"[0-9a-f]{40}",a.revision)
             or Path(a.filename).name!=a.filename or not a.filename.endswith(".safetensors")
-            or not re.fullmatch(r"[0-9a-f]{64}",a.sha256) or not 0<a.size<=1024**3):
+            or not re.fullmatch(r"[0-9a-f]{64}",a.sha256)
+            or not 0<a.size<=a.max_bytes<=16*1024**3):
         p.error("Pinned repository revision, basename, SHA and bounded byte count required")
     root=Path.home()/".cache/watermark-models/adapters"/a.repo.replace("/","--")/a.revision
     root.mkdir(parents=True,exist_ok=True)
