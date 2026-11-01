@@ -143,3 +143,49 @@ def test_small_input_batch_cap_never_increases_large_input_batch_or_leaks_images
         with Image.open(task["destination"]) as output, Image.open(task["source"]) as source:
             assert output.size == source.size
             assert output.getpixel((450,50)) == source.getpixel((450,50))
+
+
+def test_window_prefill_keeps_independent_images_and_prompts_with_diffusion_b1(monkeypatch):
+    from contextlib import nullcontext
+
+    from watermark_studio.batching import preencode_window
+    class OOM(RuntimeError):
+        pass
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(inference_mode=nullcontext,
+        cuda=SimpleNamespace(OutOfMemoryError=OOM,empty_cache=lambda:None)))
+    pipe=SimpleNamespace(image_processor=SimpleNamespace(resize=lambda image,width,height:image.resize((width,height))))
+    items=[{"image":Image.new("RGB",(400,300),"red"),"size":(128,96),"prompt":"first"},
+           {"image":Image.new("RGB",(300,400),"blue"),"size":(96,128),"prompt":"second"}]
+    calls=[]
+    def encode(pipe,prepared):
+        calls.append([(x["prompt"],x["image"].size) for x in prepared])
+        return [(x["prompt"],x["image"].getpixel((0,0)),x["image"].size) for x in prepared]
+    stats=preencode_window(pipe,items,4,encode)
+    assert calls==[[("first",(128,96)),("second",(96,128))]]
+    assert stats["cached_images"]==2 and stats["fallback_images"]==0
+    assert items[0]["_encoded_prompt"][0]=="first" and items[0]["_encoded_prompt"][1][:3]==(255,0,0)
+    assert items[1]["_encoded_prompt"][0]=="second" and items[1]["_encoded_prompt"][1][:3]==(0,0,255)
+    assert [x["image"].size for x in items]==[(400,300),(300,400)]
+    assert [x["_prefill_batch_size"] for x in items]==[2,2]
+
+
+def test_window_prefill_oom_splits_and_single_failure_falls_back_without_cross_image_cache(monkeypatch):
+    from contextlib import nullcontext
+
+    from watermark_studio.batching import preencode_window
+    class OOM(RuntimeError):
+        pass
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(inference_mode=nullcontext,
+        cuda=SimpleNamespace(OutOfMemoryError=OOM,empty_cache=lambda:None)))
+    pipe=SimpleNamespace(image_processor=SimpleNamespace(resize=lambda image,**kwargs:image.copy()))
+    items=[{"image":Image.new("RGB",(32,32)),"size":(32,32),"prompt":text} for text in ("valid","bad")]
+    def encode(pipe,prepared):
+        if len(prepared)>1:
+            raise OOM("split")
+        if prepared[0]["prompt"]=="bad":
+            raise ValueError("bad encoding")
+        return [("own-vector","own-mask","own-layout")]
+    stats=preencode_window(pipe,items,2,encode)
+    assert stats=={"cached_images":1,"oom_splits":1,"fallback_images":1}
+    assert items[0]["_encoded_prompt"][0]=="own-vector"
+    assert "_encoded_prompt" not in items[1]

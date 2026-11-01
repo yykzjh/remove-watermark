@@ -461,6 +461,7 @@ class Runtime:
                 "quality_backend": self.config.quality_backend,
                 "quality_quantization":self.config.quality_quantization,
                 "quality_rectangle_guard":self.config.quality_rectangle_guard,
+                "quality_phase_offload":self.config.quality_phase_offload,
                 "cross_review_supported":bool(self.config.quality_verifier
                     and self.config.quality_backend=="independent"
                     and self.quality_identity.get("relation")=="different_weights"),
@@ -471,6 +472,8 @@ class Runtime:
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
                     "prefill_overlays": self.config.prefill_overlays,
+                    "encoder_batch_size":self.config.encoder_batch_size,
+                    "detection_batch_size":self.config.detection_batch_size,
                     "protection_detail_scan":self.config.protection_detail_scan,
                     "protection_core_feather":self.config.protection_core_feather,
                     "cudnn_benchmark": self.config.cudnn_benchmark,

@@ -119,6 +119,7 @@ class DeploymentConfig(BaseModel):
     quality_verifier: bool = False
     protection_detail_scan: bool = False
     protection_core_feather: bool = False
+    quality_phase_offload: bool = False
     quality_rectangle_guard: bool = False
     quality_backend: Literal["resident", "independent"] = "resident"
     quality_model: str = "Qwen/Qwen3-VL-4B-Instruct"
@@ -171,6 +172,8 @@ class DeploymentConfig(BaseModel):
             raise ValueError("当前固定依赖的 reduce-overhead/max-autotune 实测 CUDA Graph 错误，请使用 default")
         if self.attention == "flex" and self.compile:
             raise ValueError("当前固定依赖的 Flex 实测 Inductor 编译失败，请使用 sdpa")
+        if self.quality_phase_offload and self.quality_backend=="independent" and self.quality_quantization!="none":
+            raise ValueError("阶段权重卸载只支持未量化的独立检验器")
         if self.offload != "none" and (self.quantization != "none" or self.prompt_encoder == "lean" or self.fuse_qkv):
             raise ValueError("CPU offload 尚未验证量化、lean 编码或 QKV 融合组合，请使用 stock/none 且关闭 fuse-qkv")
         if self.compile and self.offload != "none":

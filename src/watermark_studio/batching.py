@@ -24,6 +24,42 @@ def override_methods(pipe, **methods):
                 delattr(pipe, name)
 
 
+
+def preencode_window(pipe, items, limit, encode=None):
+    """Batch independent VLM prefill across a window, even when diffusion uses B1."""
+    import torch
+
+    if encode is None:
+        from .optimizations import lean_encode
+        encode=lean_encode
+    stats={"cached_images":0,"oom_splits":0,"fallback_images":0}
+    def run(group):
+        failure=None
+        try:
+            prepared=[{"prompt":item["prompt"],"image":pipe.image_processor.resize(
+                item["image"].convert("RGBA"),width=item["size"][0],height=item["size"][1])} for item in group]
+            with torch.inference_mode():
+                rows=encode(pipe,prepared)
+            if len(rows)!=len(group) or any(not isinstance(row,tuple) or len(row)!=3 for row in rows):
+                raise ValueError("Prefill count/protocol differs from independent inputs")
+            for item,row in zip(group,rows):
+                item["_encoded_prompt"]=row
+                item["_prefill_batch_size"]=len(group)
+            stats["cached_images"]+=len(group)
+            return
+        except Exception as error:  # noqa: BLE001 - split before falling back to normal per-image encoding
+            failure=isinstance(error,torch.cuda.OutOfMemoryError)
+        torch.cuda.empty_cache()
+        if len(group)>1:
+            stats["oom_splits"]+=int(failure)
+            middle=len(group)//2
+            run(group[:middle]);run(group[middle:])
+        else:
+            stats["fallback_images"]+=1
+    for offset in range(0,len(items),limit):
+        run(items[offset:offset+limit])
+    return stats
+
 def independent_batch(pipe, items, resolution, kv_cache):
     """Each item has its own image, prompt and seed. A worker calls this serially."""
     import torch
@@ -34,22 +70,32 @@ def independent_batch(pipe, items, resolution, kv_cache):
         raise ValueError("Independent editing batch requires identical inference dimensions")
     width, height = sizes[0]
     original_prepare = pipe.prepare_latents
-    encoded, vae_images, prepared = [], [], []
+    encoded = [item.get("_encoded_prompt") for item in items]
+    vae_images, prepared = [], []
     with torch.inference_mode():
-        for item in items:
+        for index,item in enumerate(items):
             image = item["image"].convert("RGBA")
-            resized = pipe.image_processor.resize(image, width=width, height=height)
-            prepared.append({"prompt": item["prompt"], "image": resized})
-            if getattr(pipe, "_watermark_prompt_encoder", "stock") == "stock":
-                encoded.append(pipe.encode_prompt(prompt=item["prompt"], image=[resized]))
+            resized = (pipe.image_processor.resize(image,width=width,height=height)
+                       if encoded[index] is None else None)
+            prepared.append({"prompt":item["prompt"],"image":resized})
+            if encoded[index] is None and getattr(pipe,"_watermark_prompt_encoder","stock")=="stock":
+                encoded[index]=pipe.encode_prompt(prompt=item["prompt"],image=[resized])
+                item["_prefill_batch_size"]=1
             vae_images.append(
                 pipe.image_processor.preprocess(image, width=width, height=height).unsqueeze(2)
             )
         if getattr(pipe, "_watermark_prompt_encoder", "stock") == "lean":
             from .optimizations import lean_encode
             chunk = getattr(pipe, "_watermark_encoder_batch_size", 1)
-            for offset in range(0, len(prepared), chunk):
-                encoded.extend(lean_encode(pipe, prepared[offset:offset + chunk]))
+            missing=[i for i,row in enumerate(encoded) if row is None]
+            for offset in range(0,len(missing),chunk):
+                indices=missing[offset:offset+chunk]
+                rows=lean_encode(pipe,[prepared[i] for i in indices])
+                if len(rows)!=len(indices):
+                    raise ValueError("Lean encoder returned wrong independent prefill count")
+                for index,row in zip(indices,rows):
+                    encoded[index]=row
+                    items[index]["_prefill_batch_size"]=len(indices)
         max_length = max(row[0].shape[1] for row in encoded)
         embeddings, masks, image_masks = [], [], []
         for embedding, mask, image_mask in encoded:

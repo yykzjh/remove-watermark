@@ -118,6 +118,14 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     if cuda:
         import torch
         torch.cuda.reset_peak_memory_stats()
+    quality_transfer_seconds=0.
+    phase_offload=(cuda and config.quality_phase_offload and config.quality_backend=="independent"
+                   and config.quality_quantization=="none" and hasattr(pipe,"_quality_encoder"))
+    if phase_offload and any(not t.get("reuse_existing") for t in tasks):
+        transfer_started=time.monotonic()
+        pipe._quality_encoder=pipe._quality_encoder.to("cpu")
+        torch.cuda.empty_cache()
+        quality_transfer_seconds+=time.monotonic()-transfer_started
     detections, decoded = {}, {}
     detail_counts = {}
     edge_evidence = {}
@@ -347,6 +355,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         previous = edit["size"]
         key = (edit["resolution"],edit["size"]) if config.batch_bucketing else (run,edit["resolution"],edit["size"])
         buckets[key].append(edit)
+    prefill_stats={"cached_images":0,"oom_splits":0,"fallback_images":0}
+    if cuda and config.prompt_encoder=="lean" and config.encoder_batch_size>1 and edits:
+        from .batching import preencode_window
+        prefill_stats=preencode_window(pipe,[e for e in edits if not e["state"]["failed"]],config.encoder_batch_size)
     oom_retries = 0
     quality_oom_splits = 0
     quality_validation_splits = 0
@@ -361,6 +373,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             for edit, patch in zip(group, patches):
                 # Store patches; apply in detection order even when buckets reorder edits.
                 edit["patch"] = patch
+                edit.pop("_encoded_prompt",None)
                 edit["state"]["batches"].append(len(group))
             return
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
@@ -390,6 +403,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             execute(bucket[offset:offset + size])
             offset += size
     for edit in edits:
+        edit.pop("_encoded_prompt",None)
         state = edit["state"]
         if not state["failed"]:
             if state["whole_generation"]:
@@ -431,6 +445,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "source_geometry_requery":source_geometry_requeries.get(task["relative"]),
             "source_brief":source_briefs.get(task["relative"]),
             "edit_prompt_sha256":[hashlib.sha256(e["prompt"].encode()).hexdigest() for e in edits if e["state"] is state],
+            "model_prefill_batch_sizes":[e.get("_prefill_batch_size",0) for e in edits if e["state"] is state],
+            "window_prefill_stats":prefill_stats,
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
@@ -461,6 +477,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
         results[task["relative"]] = result
     if options.quality_check:
+        if phase_offload:
+            transfer_started=time.monotonic()
+            torch.cuda.empty_cache()
+            pipe._quality_encoder=pipe._quality_encoder.to(pipe._execution_device)
+            quality_transfer_seconds+=time.monotonic()-transfer_started
         from .quality import verify_batch
         pending = []
         for task in tasks:
@@ -533,6 +554,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     if cuda:
         torch.cuda.synchronize()
     metrics = {
+        "quality_phase_offload":phase_offload,
+        "quality_weight_transfer_seconds":round(quality_transfer_seconds/max(1,len(tasks)),4),
         "window_seconds": round(time.monotonic() - start, 3), "window_images": len(tasks),
         "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,
         "peak_reserved_mib": round(torch.cuda.max_memory_reserved()/2**20) if cuda else 0,

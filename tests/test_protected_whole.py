@@ -72,3 +72,38 @@ def test_protected_complete_scan_still_sends_one_full_photo_to_diffusion(tmp_pat
     if oversized:
         assert row["source_geometry_requery"]["same_area_limit"] is True
     assert Image.open(target).size==(800,600) and source.read_bytes()==before
+
+
+@pytest.mark.parametrize("reuse",[False,True])
+def test_quality_weight_swap_finishes_before_verification_and_skips_readonly_edit_phase(tmp_path,monkeypatch,reuse):
+    from watermark_studio.worker import process_batch
+    source=tmp_path/"source.png";target=tmp_path/"out.png"
+    Image.new("RGB",(64,64),"gray").save(source)
+    if reuse:
+        target.write_bytes(source.read_bytes())
+    moves=[]
+    class Encoder:
+        device="cuda:0"
+        def to(self,device):
+            self.device=str(device);moves.append(self.device)
+            return self
+    encoder=Encoder()
+    pipe=SimpleNamespace(_quality_encoder=encoder,_quality_processor=None,_execution_device="cuda:0",
+                         text_encoder=None,processor=None)
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,empty_cache=lambda:None,
+        max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
+    monkeypatch.setattr("watermark_studio.batching.dimensions",lambda *args:(64,64))
+    def generate(pipe,items,*args):
+        assert encoder.device=="cpu"
+        return [Image.new("RGB",(64,64),"gray") for _ in items]
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
+    def verify(pairs,model,*args,**kwargs):
+        assert model is encoder and encoder.device=="cuda:0"
+        return [{"status":"passed","reason":""} for _ in pairs]
+    monkeypatch.setattr("watermark_studio.quality.verify_batch",verify)
+    row=process_batch([{"source":str(source),"destination":str(target),"relative":"a.png","reuse_existing":reuse}],
+        ProcessingConfig(scope="full_image",quality_check=True),
+        DeploymentConfig(quality_verifier=True,quality_backend="independent",quality_phase_offload=True),pipe)[0]
+    assert row["ok"] and row["quality"]["status"]=="passed" and row["quality_phase_offload"]
+    assert moves==(["cuda:0"] if reuse else ["cpu","cuda:0"])

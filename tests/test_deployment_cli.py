@@ -68,3 +68,10 @@ def test_convolution_and_fp8_options_are_serialized(tmp_path):
     assert restored.float8_granularity == "row"
     assert restored.cudnn_benchmark and restored.vae_channels_last
     assert restored.quantization == "float8"
+
+
+def test_phase_offload_rejects_quantized_independent_verifier(tmp_path):
+    config=tmp_path/"base.toml";config.write_text("")
+    with pytest.raises(SystemExit):
+        parse_deployment(["--config",str(config),"--quality-phase-offload",
+                          "--quality-backend","independent","--quality-quantization","nf4"])
