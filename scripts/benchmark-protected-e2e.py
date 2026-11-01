@@ -16,6 +16,8 @@ p=argparse.ArgumentParser()
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--concurrency",type=int,default=20)
+p.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
+p.add_argument("--extra-prompt",default="",help="Explicit paired prompt suffix; recorded with frozen processing options")
 p.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise"],default="fidelity")
 p.add_argument("--run-tag",default="protected-e2e",help="Fresh output name inside the immutable selection; lets paired runs retain identical paths/seeds")
 p.add_argument("--auto-retry",action="store_true")
@@ -43,7 +45,8 @@ assert health["job"] is None or health["job"]["state"] in {"completed","failed",
 if a.auto_retry:
     assert health["optimization"].get("retain_rejected_first"),"Retain rejected first candidates for first/final audit"
 options={"scope":"full_image","preset":"auto","preserve_background":True,"first_pass_mode":"whole",
-         "whole_prompt_profile":a.whole_prompt_profile,"resolution":1024,"concurrency":a.concurrency,
+         "whole_prompt_profile":a.whole_prompt_profile,"resolution":a.input_resolution,"concurrency":a.concurrency,
+         "extra_prompt":a.extra_prompt,
          "quality_check":True,"quality_batch_size":2,"quality_detail_patches":4,
          "quality_cross_review":a.cross_review,"quality_auto_retry":a.auto_retry,
          "quality_max_attempts":a.attempts,"quality_retry_resolution":a.retry_resolution,
