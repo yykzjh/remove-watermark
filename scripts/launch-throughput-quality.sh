@@ -25,6 +25,7 @@ exec bash scripts/start-server.sh \
   --replicas-per-gpu 1 \
   --load-parallelism 8 \
   --quality-verifier \
+  --quality-rectangle-guard \
   --quality-backend independent \
   --quality-model "$HOME/.cache/watermark-models/models/Qwen--Qwen3-VL-4B-Instruct/snapshots/master" \
   --quality-revision master \
