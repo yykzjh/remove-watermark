@@ -440,3 +440,10 @@ def test_readonly_recheck_reuses_actual_repair_masks_only_for_unchanged_source(t
 def test_ambiguous_source_carrier_cannot_be_blindly_regenerated_or_approved():
     options=ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_max_attempts=0)
     assert not retry_allowed({"quality":{"status":"review","guard_codes":["source_physical_ambiguity"]}},options,1)
+
+
+def test_drift_candidates_rank_below_otherwise_equal_review_and_can_retry():
+    plain={"ok":True,"quality":verdict(content=True,removed=True)}
+    drift={"ok":True,"quality":dict(plain["quality"],guard_codes=["generation_reference_drift"])}
+    assert quality_rank(plain)>quality_rank(drift)
+    assert retry_allowed(drift,ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_max_attempts=3),1)

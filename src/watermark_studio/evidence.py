@@ -13,6 +13,7 @@ REPAIR_ACTIONS = {
     "residual_background": "完整移除数字面板的半透明底色、边框、阴影和图标，按邻近原场景重建整个覆盖范围。",
     "rectangular_shadow": "消除修补区域矩形轮廓的明暗和色温台阶，依据水印外邻域匹配局部光照，保留真实物体阴影，不全局提亮或调色。",
     "blur_smear": "仅在原水印遮挡区自然延续周围材质的清晰度和细节，避免模糊涂抹、平色填补或全图锐化。",
+    "material_mismatch": "仅依据原水印边缘紧邻的真实材质重建遮挡处，保持原材质类别、颜色、颗粒和结构；不沿用上一轮错误材质，不用调色掩盖场景替换。",
     "repeated_texture": "消除修补区不自然的重复纹理，延续同材质的随机细节与透视，不替换原来可见背景。",
     "geometry_break": "让遮挡处的原有道路、栏杆和工程线条按可见边缘连续衔接，不移动原来可见构件。",
     "anatomy_change": "保留原图可见人物的身份、姿态和轮廓，仅依照可见身体补全被遮挡部分，避免多余肢体与服装变形。",
@@ -33,7 +34,7 @@ EXPLANATION_PROMPT = """给出去水印验收的可见依据，供人工追查�
 {"summary":"一句简短可见依据，最多40字","assessment":"defect_visible|uncertain|no_clear_defect",
 "findings":[{"issue":"问题类型","box":[x0,y0,x1,y1],"observation":"具体可见现象，最多40字"}]}
 最多2个findings。issue只能为residual_text/residual_background/rectangular_shadow/blur_smear/
-repeated_texture/geometry_break/anatomy_change/visible_content_change/physical_text/uncertain_detail。
+repeated_texture/material_mismatch/geometry_break/anatomy_change/visible_content_change/physical_text/uncertain_detail。
 box是完整照片0..1000整数坐标，不能用局部裁切坐标；无法可靠定位则null，不能猜位置。
 no_clear_defect时findings可空。uncertain必须说明看不清或缺少哪类证据。
 """
@@ -119,7 +120,7 @@ def local_findings(verdict):
             add("rectangular_shadow" if cue.get("numeric_seam_segments") else "blur_smear",box,"检测框内侧的明暗/纹理候选经正常局部与明暗诊断图复核，需检查修补衔接。")
     if "generation_reference_drift" in verdict.get("guard_codes",[]):
         for region in verdict.get("source_regions",[])[:2]:
-            add("blur_smear",region["box"],"融合前生成结果与原图非水印区大幅偏离；不能用明暗融合掩盖错误材质或色偏，须按邻近真实材质重新生成。")
+            add("material_mismatch",region["box"],"融合前生成结果与原图非水印区大幅偏离；不能用明暗融合掩盖错误材质或色偏，须按邻近真实材质重新生成。")
     if "new_flat_fill" in verdict.get("guard_codes", []):
         add("blur_smear",None,"结果新增大面积近乎纯色的区域，需检查填块或纹理丢失。")
     return records[:8]

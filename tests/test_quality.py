@@ -439,3 +439,12 @@ def test_reference_native_pair_retains_original_pixel_scale_and_context():
     assert len(native)==2
     assert native[0].getpixel((0,0))==(130,110,90)
     assert any("原始像素尺度" in c.get("text","") for c in chat)
+
+
+def test_generation_drift_produces_specific_trusted_material_feedback():
+    from watermark_studio.evidence import feedback_from_quality, retry_guidance
+    q={"guard_codes":["generation_reference_drift"],
+       "source_regions":[{"kind":"panel","box":[0,.6,.4,1]}]}
+    findings=feedback_from_quality(q)
+    assert findings==[{"issue":"material_mismatch","box":[0,.6,.4,1]}]
+    assert "材质类别" in retry_guidance(findings)
