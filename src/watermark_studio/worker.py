@@ -120,7 +120,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         import torch
         torch.cuda.reset_peak_memory_stats()
     quality_transfer_seconds=0.
-    phase_offload=(cuda and config.quality_phase_offload and config.quality_backend=="independent"
+    phase_manage=(cuda and (config.quality_phase_offload or config.quality_phase_offload_above)
+                  and config.quality_backend=="independent" and config.quality_quantization=="none"
+                  and hasattr(pipe,"_quality_encoder"))
+    phase_offload=(cuda and (config.quality_phase_offload or
+                   (config.quality_phase_offload_above and options.resolution>config.quality_phase_offload_above))
+                   and config.quality_backend=="independent"
                    and config.quality_quantization=="none" and hasattr(pipe,"_quality_encoder"))
     if phase_offload and any(not t.get("reuse_existing") for t in tasks):
         transfer_started=time.monotonic()
@@ -151,7 +156,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         found = locate_watermarks_batch(
             [decoded[t["relative"]][0] for t in detect_tasks],
             pipe.text_encoder, pipe.processor, pipe._execution_device,
-            options.detection_resolution,config.detection_batch_size,options.first_pass_mode!="whole",
+            options.detection_resolution,config.detection_batch_size,True,
         )
         protected_details=(config.protection_detail_scan and options.scope=="full_image"
                            and options.preserve_background and options.first_pass_mode=="whole")
@@ -283,9 +288,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             states.append(state)
             core_regions=[]
             scene="unknown"
-            if focused_auto:
-                from .detection import parse_detection, source_scene
+            if task["relative"] in detections and not isinstance(detections[task["relative"]][0],Exception):
+                from .detection import source_scene
                 scene=source_scene(detections[task["relative"]][0][1])
+            if focused_auto:
+                from .detection import parse_detection
                 try:
                     core_regions=parse_detection(detections[task["relative"]][0][1],relative_padding=0)
                 except (ValueError,TypeError,KeyError):
@@ -318,6 +325,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 focused = focused_auto
                 small = focused and (region.box[2]-region.box[0])*(region.box[3]-region.box[1])<.035
                 budget = min(options.resolution,512) if small else options.resolution
+                if (state["whole_generation"] and options.preserve_background and scene=="document"
+                        and config.protected_document_resolution and options.resolution>=1024
+                        and source.width*source.height>options.resolution**2):
+                    budget=max(budget,config.protected_document_resolution)
                 cores=[pixel_box(r.box,source.size) for r in core_regions
                        if not small and r.box[0]>=region.box[0] and r.box[1]>=region.box[1]
                        and r.box[2]<=region.box[2] and r.box[3]<=region.box[3]]
@@ -357,6 +368,14 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         previous = edit["size"]
         key = (edit["resolution"],edit["size"]) if config.batch_bucketing else (run,edit["resolution"],edit["size"])
         buckets[key].append(edit)
+    if (phase_manage and not phase_offload and config.quality_phase_offload_above
+            and any(e["resolution"]>config.quality_phase_offload_above for e in edits)):
+        phase_offload=True
+        from .quality_loading import park_quality_encoder
+        transfer_started=time.monotonic()
+        pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
+        torch.cuda.empty_cache()
+        quality_transfer_seconds+=time.monotonic()-transfer_started
     prefill_stats={"cached_images":0,"oom_splits":0,"fallback_images":0}
     if cuda and config.prompt_encoder=="lean" and config.encoder_batch_size>1 and edits:
         from .batching import preencode_window
@@ -479,7 +498,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             result.update(ok=False, error=f"{type(error).__name__}: {error}"[:800])
         results[task["relative"]] = result
     if options.quality_check:
-        if phase_offload:
+        if phase_manage:
             transfer_started=time.monotonic()
             torch.cuda.empty_cache()
             from .quality_loading import restore_quality_encoder
@@ -558,7 +577,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         torch.cuda.synchronize()
     metrics = {
         "quality_phase_offload":phase_offload,
-        "quality_host_pinned_bytes":getattr(pipe._quality_encoder,"_quality_host_pinned_bytes",0) if phase_offload else 0,
+        "quality_host_pinned_bytes":getattr(getattr(pipe,"_quality_encoder",None),"_quality_host_pinned_bytes",0),
         "quality_weight_transfer_seconds":round(quality_transfer_seconds/max(1,len(tasks)),4),
         "window_seconds": round(time.monotonic() - start, 3), "window_images": len(tasks),
         "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,

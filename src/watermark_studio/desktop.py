@@ -722,6 +722,7 @@ def apply_processing_defaults(window, args):
     window.quality_retry.setChecked(args.quality_auto_retry)
     window.quality_cross_review.setChecked(getattr(args,"quality_cross_review",False))
     window.quality_batch.setValue(args.quality_batch_size)
+    window.retry_resolution.setCurrentIndex(window.retry_resolution.findData(getattr(args,"quality_retry_resolution",1024)))
     window.update_cross_review_availability()
     if args.input_dir:
         window.input_dir.setText(args.input_dir)
@@ -748,6 +749,7 @@ def main():
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
     parser.add_argument("--preserve-background", action="store_true", help="Preselect automatic per-image source protection after whole-image inference")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
+    parser.add_argument("--quality-retry-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -143,7 +144,27 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         if unsupported_residual_dispute(q):
             q["retry_recheck_only"] = True
             q["retry_recheck_reason"] = "unsupported_residual_dispute"
+        if (config.retain_rejected_first and current_attempt==1 and result["ok"]
+                and q.get("status") in {"review","error"}):
+            first=folder/("first-rejected"+candidate.suffix)
+            try:
+                if not first.exists():
+                    try:
+                        os.link(candidate,first)
+                    except OSError:
+                        atomic_copy(candidate,first,False)
+                saved["first_rejected_candidate"]=str(first)
+                saved["first_rejected_sha256"]=hashlib.sha256(first.read_bytes()).hexdigest()
+            except OSError as error:
+                saved["first_candidate_retention_error"]=str(error)[:240]
         record = {"attempt": current_attempt, "quality": result.get("quality"),
+                  "model_inferences":result.get("model_inferences",0),
+                  "model_input_budgets":result.get("model_input_budgets",[]),
+                  "batch_sizes":result.get("batch_sizes",[]),
+                  "model_prefill_batch_sizes":result.get("model_prefill_batch_sizes",[]),
+                  "processing_path":result.get("processing_path"),
+                  "source_scene":result.get("source_scene"),
+                  "quality_weight_transfer_seconds":result.get("quality_weight_transfer_seconds",0),
                   "ok": result["ok"], "action": result.get("action"), "error": result.get("error"),
                   "repair_feedback_used": result.get("repair_feedback_used", []),
                   "repair_feedback_attempt": result.get("repair_feedback_attempt")}
@@ -155,7 +176,10 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                 atomic_copy(chosen_path, best, True)
             saved["best"] = result
         selected = dict(saved["best"] or result)
-        selected.update(quality_attempts=current_attempt, attempt_history=saved["attempts"][-20:],
+        selected.update(first_rejected_candidate=saved.get("first_rejected_candidate"),
+                        first_rejected_sha256=saved.get("first_rejected_sha256"),
+                        first_candidate_retention_error=saved.get("first_candidate_retention_error"),
+                        quality_attempts=current_attempt, attempt_history=saved["attempts"][-20:],
                         best_attempt=saved.get("best_attempt", 1),
                         quality_total_seconds=round(sum(
                             (r.get("quality") or {}).get("seconds", 0)

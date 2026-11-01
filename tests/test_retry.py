@@ -389,3 +389,28 @@ def test_protected_whole_retry_never_switches_to_region_crops(tmp_path):
     result=process_attempts([task],options,DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state")),
                             None,{},"job",process)[0]
     assert result["quality"]["status"]=="passed" and target.read_bytes()==b"result"
+
+
+def test_first_rejected_snapshot_survives_mixed_extension_retries(tmp_path):
+    config=DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state"),retain_rejected_first=True)
+    options=ProcessingConfig(scope="full_image",preserve_background=True,quality_check=True,
+                             quality_auto_retry=True,quality_max_attempts=2)
+    tasks=[{"source":"original-"+suffix,"destination":str(tmp_path/("out."+suffix)),
+            "relative":"image."+suffix} for suffix in ("jpg","png")]
+    def process(group,settings,*args):
+        rows=[]
+        for task in group:
+            attempt=task.get("_attempt",1)
+            Path(task["destination"]).write_bytes(("first" if attempt==1 else "second").encode())
+            rows.append({"file":task["relative"],"ok":True,
+                         "quality":verdict("passed" if attempt==2 else "review",removed=attempt==2)})
+        return rows
+    first=process_attempts(tasks,options,config,None,{},"job",process)
+    for task,row in zip(tasks,first):
+        saved=Path(row["first_rejected_candidate"])
+        assert saved.suffix==Path(task["relative"]).suffix and saved.read_bytes()==b"first"
+    final=process_attempts([r["_retry_task"] for r in first],options,config,None,{},"job",process)
+    for task,row in zip(tasks,final):
+        assert Path(row["first_rejected_candidate"]).read_bytes()==b"first"
+        assert Path(task["destination"]).read_bytes()==b"second"
+        assert row["quality"]["status"]=="passed" and len(row["attempt_history"])==2

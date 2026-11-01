@@ -16,6 +16,8 @@ from PIL import Image
 from watermark_studio.cli import request
 
 parser=argparse.ArgumentParser()
+parser.add_argument("--prepare-only",action="store_true")
+parser.add_argument("--preserve-paths",action="store_true",help="Holdout uses real dataset-relative paths/seeds instead of flattened labels")
 parser.add_argument("--url",default="http://127.0.0.1:8765")
 parser.add_argument("--tag",required=True)
 parser.add_argument("--subset",choices=["hard","all","holdout","replay","frozen"],default="hard")
@@ -36,6 +38,8 @@ parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="h
 parser.add_argument("--whole-prompt-profiles",nargs="+",choices=["baseline","fidelity","scene"],default=["baseline"])
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
+if args.preserve_paths and args.subset!="holdout":
+    parser.error("--preserve-paths requires a holdout selection")
 benchmark_revision=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()
 if not re.fullmatch(r"[a-zA-Z0-9_-]+",args.tag) or not 1<=args.images<=10000:
     parser.error("Use a simple tag and 1..10000 images")
@@ -100,7 +104,7 @@ else:
     random.Random(args.seed).shuffle(candidates)
     paths=[]
     for p in candidates:
-        if str(p) in seen or not p.is_file() or not p.stat().st_size:
+        if not p.resolve().is_relative_to(data.resolve()) or p.is_symlink() or str(p) in seen or not p.is_file() or not p.stat().st_size:
             continue
         digest=hashlib.sha256(p.read_bytes()).hexdigest()
         if digest in seen_hashes: continue
@@ -111,7 +115,8 @@ else:
         paths.append(p)
         seen_hashes.add(digest)
         if len(paths)==args.images: break
-    names=[f"{i:04d}"+p.suffix for i,p in enumerate(paths)]
+    names=([p.resolve().relative_to(data.resolve()).as_posix() for p in paths] if args.preserve_paths
+           else [f"{i:04d}"+p.suffix for i,p in enumerate(paths)])
 if args.files:
     selected=[(p,n) for p,n in zip(paths,names) if n in args.files]
     paths=[p for p,n in selected]; names=[n for p,n in selected]
@@ -126,7 +131,7 @@ source_hashes={name:hashlib.sha256((inputs/name).read_bytes()).hexdigest() for n
 if args.subset=="holdout" and (len(set(source_hashes.values()))!=len(paths)
         or set(source_hashes.values())&prior_hashes):
     raise ValueError("Holdout hashes must be unique and disjoint from all excluded inputs")
-selection={"benchmark_revision":benchmark_revision,"automatic_exclusions":automatic_exclusions,"subset":args.subset,"sampling_seed":args.seed,"select_model_review":args.select_model_review,"images":len(paths),
+selection={"benchmark_revision":benchmark_revision,"automatic_exclusions":automatic_exclusions,"subset":args.subset,"sampling_seed":args.seed,"select_model_review":args.select_model_review,"preserve_paths":args.preserve_paths,"images":len(paths),
     "exclusions":args.exclude_benchmarks,"prior_sha256_overlap":len(set(source_hashes.values())&prior_hashes),
     "unique_sha256":len(set(source_hashes.values())),"source_sha256":source_hashes,
     "sources":[str(p) for p in paths]}
@@ -134,6 +139,10 @@ selection_text=json.dumps(selection,ensure_ascii=False,sort_keys=True)
 (work/"source-selection.json").write_text(selection_text)
 selection_sha256=hashlib.sha256(selection_text.encode()).hexdigest()
 
+if args.prepare_only:
+    print(json.dumps({"work":str(work),"images":len(paths),"source_selection_sha256":selection_sha256,
+                      "unique_sha256":len(set(source_hashes.values())),"prior_sha256_overlap":selection["prior_sha256_overlap"]}),flush=True)
+    raise SystemExit(0)
 while request(args.url,"/health")["stage"]!="ready": time.sleep(2)
 for profile,whole_prompt_profile in itertools.product(args.profiles,args.whole_prompt_profiles):
     match=re.fullmatch(r"(whole|focused|thorough|complete)(?:@([0-9.]+))?-([0-9]+)",profile)
@@ -204,6 +213,7 @@ for profile,whole_prompt_profile in itertools.product(args.profiles,args.whole_p
         "generation_retries":sum(max(0,r.get("quality_attempts",1)-1) for r in rows),
         "input_budgets":dict(collections.Counter(str(n) for r in rows for n in r.get("model_input_budgets",[]))),
         "quality_phase_offload":state.get("quality_phase_offload",False),
+        "quality_phase_offload_above":state.get("quality_phase_offload_above",0),
         "quality_weight_transfer_seconds_sum":round(sum(r.get("quality_weight_transfer_seconds",0) for r in rows),4),
         "source_geometry_requeries":sum((r.get("source_geometry_requery") or {}).get("attempts",0) for r in rows),
         "core_feather_images":sum(bool(r.get("protected_core_boxes")) for r in rows),

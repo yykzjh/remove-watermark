@@ -58,7 +58,8 @@ def load_quality_encoder(path, config, device):
                       device_map={"":str(device)})
     encoder=factory.from_pretrained(path,**kwargs)
     if config.quality_quantization=="none":
-        if config.quality_phase_offload:
+        phase_enabled=config.quality_phase_offload or config.quality_phase_offload_above>0
+        if phase_enabled:
             encoder.requires_grad_(False)
             mirror={}
             pinned_bytes=0
@@ -71,8 +72,8 @@ def load_quality_encoder(path, config, device):
                 mirror[name]=host
             encoder._quality_host_parameters=mirror
             encoder._quality_host_pinned_bytes=pinned_bytes
-        encoder=(encoder.to(device,non_blocking=True) if config.quality_phase_offload else encoder.to(device))
-        if config.quality_phase_offload:
+        encoder=(encoder.to(device,non_blocking=True) if phase_enabled else encoder.to(device))
+        if phase_enabled:
             torch.cuda.synchronize()
     for name,module in encoder.named_modules():
         if "visual" in name and type(module).__name__ in {"Linear4bit","Linear8bitLt"}:

@@ -462,6 +462,7 @@ class Runtime:
                 "quality_quantization":self.config.quality_quantization,
                 "quality_rectangle_guard":self.config.quality_rectangle_guard,
                 "quality_phase_offload":self.config.quality_phase_offload,
+                "quality_phase_offload_above":self.config.quality_phase_offload_above,
                 "separate_vae_decode":self.config.separate_vae_decode,
                 "cross_review_supported":bool(self.config.quality_verifier
                     and self.config.quality_backend=="independent"
@@ -475,6 +476,8 @@ class Runtime:
                     "prefill_overlays": self.config.prefill_overlays,
                     "encoder_batch_size":self.config.encoder_batch_size,
                     "detection_batch_size":self.config.detection_batch_size,
+                    "protected_document_resolution":self.config.protected_document_resolution,
+                    "retain_rejected_first":self.config.retain_rejected_first,
                     "protection_detail_scan":self.config.protection_detail_scan,
                     "protection_core_feather":self.config.protection_core_feather,
                     "cudnn_benchmark": self.config.cudnn_benchmark,

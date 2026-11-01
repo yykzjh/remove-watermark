@@ -1,0 +1,117 @@
+"""Frozen protected whole-image first/final acceptance and total throughput; no uploads."""
+import argparse
+import collections
+import hashlib
+import json
+import subprocess
+import time
+from pathlib import Path
+
+from PIL import Image
+
+from watermark_studio.cli import request
+
+p=argparse.ArgumentParser()
+p.add_argument("--work",type=Path,required=True)
+p.add_argument("--url",default="http://127.0.0.1:8765")
+p.add_argument("--concurrency",type=int,default=20)
+p.add_argument("--auto-retry",action="store_true")
+p.add_argument("--cross-review",action="store_true")
+p.add_argument("--attempts",type=int,default=3)
+p.add_argument("--retry-resolution",type=int,choices=[1024,1280,1536,2048],default=1024)
+a=p.parse_args()
+work=a.work.resolve();inputs=work/"input";target=work/"protected-e2e"
+output=work/"e2e-summary.json"
+if target.exists() or output.exists() or not (work/"source-selection.json").is_file():
+    p.error("Prepared immutable selection and fresh output required")
+selection=json.loads((work/"source-selection.json").read_text())
+hashes=selection["source_sha256"]
+if selection["unique_sha256"]!=len(hashes) or selection["prior_sha256_overlap"]:
+    p.error("Nonunique or overlapping test inputs")
+def audit_sources():
+    return all(hashlib.sha256((inputs/name).read_bytes()).hexdigest()==digest for name,digest in hashes.items())
+assert audit_sources(),"Source differs from prepared selection"
+while request(a.url,"/health")["stage"]!="ready":
+    time.sleep(2)
+health=request(a.url,"/health")
+assert health["job"] is None or health["job"]["state"] in {"completed","failed","cancelled"}
+if a.auto_retry:
+    assert health["optimization"].get("retain_rejected_first"),"Retain rejected first candidates for first/final audit"
+options={"scope":"full_image","preset":"auto","preserve_background":True,"first_pass_mode":"whole",
+         "whole_prompt_profile":"fidelity","resolution":1024,"concurrency":a.concurrency,
+         "quality_check":True,"quality_batch_size":2,"quality_detail_patches":4,
+         "quality_cross_review":a.cross_review,"quality_auto_retry":a.auto_retry,
+         "quality_max_attempts":a.attempts,"quality_retry_resolution":a.retry_resolution,
+         "overwrite":True,"seed":42}
+started=time.monotonic()
+job=request(a.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(target),"options":options})["id"]
+print(json.dumps({"job":job,"images":len(hashes),"selection_sha256":hashlib.sha256(
+    (work/"source-selection.json").read_bytes()).hexdigest()}),flush=True)
+first_completed_seconds=None
+last=started
+while True:
+    health=request(a.url,"/health");state=health["job"]
+    assert state["id"]==job,"Do not mix job histories"
+    if first_completed_seconds is None and state.get("first_pass_total",0)==len(hashes):
+        first_completed_seconds=round(time.monotonic()-started,3)
+    if time.monotonic()-last>=30:
+        print(json.dumps({"completed":state["completed"],"total":state["total"],
+            "first_total":state.get("first_pass_total",0),"first_counts":state.get("first_pass_counts",{}),
+            "final_counts":state.get("quality_counts",{}),"pending_retries":health.get("pending_retries"),
+            "elapsed":round(time.monotonic()-started,1)}),flush=True)
+        last=time.monotonic()
+    if state["state"] in {"completed","failed","cancelled","interrupted"}:
+        break
+    if time.monotonic()-started>21600:
+        raise TimeoutError(job)
+    time.sleep(1)
+elapsed=time.monotonic()-started
+folder=Path.home()/".local/state/watermark-studio"/job
+rows=[json.loads(line) for line in (folder/"results.jsonl").read_text().splitlines()]
+assert len(rows)==len(hashes)==len({r["file"] for r in rows})
+assert set(hashes)=={r["file"] for r in rows}
+retained=[r for r in rows if r.get("first_rejected_candidate")]
+retained_ok=all(Path(r["first_rejected_candidate"]).is_file() and
+    hashlib.sha256(Path(r["first_rejected_candidate"]).read_bytes()).hexdigest()==r["first_rejected_sha256"] for r in retained)
+assert retained_ok and not any(r.get("first_candidate_retention_error") for r in rows)
+assert audit_sources(),"Immutable source changed"
+sizes=[]
+for row in rows:
+    if row["ok"]:
+        with Image.open(inputs/row["file"]) as before,Image.open(target/row["file"]) as after:
+            if before.size!=after.size:
+                sizes.append(row["file"])
+histories=[h for r in rows for h in r.get("attempt_history",[]) or [r]]
+first=[(r.get("attempt_history") or [r])[0] for r in rows]
+assert state.get("first_pass_total",0)==len(hashes),"Incomplete first-pass accounting"
+summary={"scope":"automatic independent checks, not human-labelled accuracy","job":job,
+    "code_revision":health["code_revision"],"benchmark_revision":subprocess.check_output(
+        ["git","rev-parse","--short","HEAD"],text=True).strip(),"options":options,
+    "selection":{k:v for k,v in selection.items() if k not in {"source_sha256","sources"}},
+    "images":len(hashes),"state":state["state"],"processing_failed":state["failed"],
+    "seconds":round(elapsed,3),"images_per_minute":round(len(hashes)*60/elapsed,4),
+    "first_completed_seconds":first_completed_seconds,"first_counts":state.get("first_pass_counts",{}),
+    "first_total":state.get("first_pass_total",0),
+    "final_counts":dict(collections.Counter(r.get("quality",{}).get("status","none") for r in rows)),
+    "final_guard_counts":dict(collections.Counter(g for r in rows for g in r.get("quality",{}).get("guard_codes",[]))),
+    "first_checker_before_cross_counts":dict(collections.Counter(
+        ((h.get("quality") or {}).get("pre_cross_review") or h.get("quality") or {}).get("status","none") for h in first)),
+    "first_cross_review_corrected":sum((h.get("quality") or {}).get("cross_review",{}).get("status")=="corrected" for h in first),
+    "first_model_input_budgets":dict(collections.Counter(str(b) for h in first for b in h.get("model_input_budgets",[]))),
+    "total_model_input_budgets":dict(collections.Counter(str(b) for h in histories for b in h.get("model_input_budgets",[]))),
+    "successful_diffusion_forwards":round(sum(1/b for h in histories for b in h.get("batch_sizes",[]) if b),6),
+    "best_attempt_counts":dict(collections.Counter(str(r.get("best_attempt",1)) for r in rows)),
+    "attempt_counts":dict(collections.Counter(str(r.get("quality_attempts",1)) for r in rows)),
+    "generation_attempt_errors":sum(not h["ok"] for h in histories),
+    "quality_attempt_errors":sum((h.get("quality") or {}).get("status")=="error" for h in histories),
+    "retained_first_rejected":len(retained),"retained_first_unchanged":retained_ok,
+    "source_inputs_unchanged":True,"unique_sources":len(set(hashes.values())),"bad_sizes":sizes,
+    "acceptance_complete":state.get("acceptance_complete",False),"optimization":health["optimization"],
+    "worker_count":health["worker_count"],"batch_size":health["batch_size"],
+    "quality_weight_identity":health.get("quality_weight_identity"),
+    "review_files":[r["file"] for r in rows if r.get("quality",{}).get("status")!="passed"]}
+output.write_text(json.dumps(summary,ensure_ascii=False,indent=2)+"\n")
+print(json.dumps({k:v for k,v in summary.items() if k not in {"review_files","selection","options","quality_weight_identity"}},
+                 ensure_ascii=False),flush=True)
+if state["state"]!="completed" or state["failed"] or sizes:
+    raise RuntimeError("Incomplete/invalid benchmark; retained report is not a successful run")

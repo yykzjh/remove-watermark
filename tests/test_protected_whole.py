@@ -75,7 +75,8 @@ def test_protected_complete_scan_still_sends_one_full_photo_to_diffusion(tmp_pat
 
 
 @pytest.mark.parametrize("reuse",[False,True])
-def test_quality_weight_swap_finishes_before_verification_and_skips_readonly_edit_phase(tmp_path,monkeypatch,reuse):
+@pytest.mark.parametrize("adaptive",[False,True])
+def test_quality_weight_swap_finishes_before_verification_and_skips_readonly_edit_phase(tmp_path,monkeypatch,reuse,adaptive):
     from watermark_studio.worker import process_batch
     source=tmp_path/"source.png";target=tmp_path/"out.png"
     Image.new("RGB",(64,64),"gray").save(source)
@@ -104,6 +105,34 @@ def test_quality_weight_swap_finishes_before_verification_and_skips_readonly_edi
     monkeypatch.setattr("watermark_studio.quality.verify_batch",verify)
     row=process_batch([{"source":str(source),"destination":str(target),"relative":"a.png","reuse_existing":reuse}],
         ProcessingConfig(scope="full_image",quality_check=True),
-        DeploymentConfig(quality_verifier=True,quality_backend="independent",quality_phase_offload=True),pipe)[0]
+        DeploymentConfig(quality_verifier=True,quality_backend="independent",
+                         quality_phase_offload=not adaptive,quality_phase_offload_above=768 if adaptive else 0),pipe)[0]
     assert row["ok"] and row["quality"]["status"]=="passed" and row["quality_phase_offload"]
     assert moves==(["cuda:0"] if reuse else ["cpu","cuda:0"])
+
+@pytest.mark.parametrize("scene,size,budget,expected",[
+    ("document",(2000,1500),1024,1536),("document",(800,600),1024,1024),
+    ("document",(2000,1500),768,768),("outdoor",(2000,1500),1024,1024)])
+def test_document_detail_budget_routes_only_large_protected_whole_inputs(tmp_path,monkeypatch,scene,size,budget,expected):
+    from watermark_studio.worker import process_batch
+    source=tmp_path/"s.png";target=tmp_path/"out.png"
+    Image.new("RGB",size,"gray").save(source)
+    raw=json.dumps({"watermarks":[{"kind":"panel","box":[100,600,450,950]}],"scene":scene})
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a,**k:[(parse_detection(raw),raw)])
+    budgets=[]
+    def dimensions(image,resolution):
+        assert image.size==size
+        budgets.append(resolution)
+        return (640,480)
+    monkeypatch.setattr("watermark_studio.batching.dimensions",dimensions)
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",
+        lambda pipe,items,*a:[Image.new("RGB",(640,480),"gray") for _ in items])
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,max_memory_allocated=lambda:0,
+        max_memory_reserved=lambda:0)))
+    row=process_batch([{"source":str(source),"destination":str(target),"relative":"s.png"}],
+        ProcessingConfig(scope="full_image",preserve_background=True,resolution=budget),
+        DeploymentConfig(protected_document_resolution=1536),
+        SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu"))[0]
+    assert row["ok"] and budgets==[expected] and row["model_input_budgets"]==[expected]
+    assert Image.open(target).size==size
