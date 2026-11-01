@@ -460,6 +460,7 @@ class Runtime:
                                   else self.config.model+"::text_encoder"),
                 "quality_backend": self.config.quality_backend,
                 "quality_quantization":self.config.quality_quantization,
+                "quality_rectangle_guard":self.config.quality_rectangle_guard,
                 "cross_review_supported":bool(self.config.quality_verifier
                     and self.config.quality_backend=="independent"
                     and self.quality_identity.get("relation")=="different_weights"),

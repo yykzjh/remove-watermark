@@ -363,3 +363,31 @@ def test_explicit_repair_artifact_cannot_be_overridden_by_other_positive_checks(
     assert calls[1][0]=="repair_artifact"
     assert row["reference_checks"]["natural"] and row["reference_checks"]["repair_artifact"]
     assert row["status"]=="review" and not row["natural"]
+
+
+def test_rectangle_phase_warning_remains_a_veto_and_produces_shadow_retry_evidence(monkeypatch):
+    from PIL import ImageDraw
+
+    from watermark_studio.config import Region
+    from watermark_studio.quality import verify_batch
+    def inspect(chats,fields,*args,**kwargs):
+        return [{f:(f not in ("watermark_removed","uncertain"))
+                 for f in fields}|{"area":"bottom_left"} for _ in chats],.01
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",inspect)
+    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
+    monkeypatch.setattr("watermark_studio.quality.repair_boundary_warnings",lambda *a,**k:{"count":0})
+    monkeypatch.setattr("watermark_studio.quality.repair_texture_warnings",lambda *a,**k:{"count":0})
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda images,*a:[([],"{}") for _ in images])
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda chats,*a:[
+        {"status":"ok","assessment":"no_clear_defect","summary":"No clear defect","findings":[]} for _ in chats])
+    original=Image.new("RGB",(800,600),(140,140,140))
+    result=original.copy()
+    ImageDraw.Draw(original).rectangle((160,120,560,480),fill=(30,100,220))
+    ImageDraw.Draw(result).rectangle((160,120,560,480),fill=(120,120,120))
+    regions=[Region(kind="panel",box=(.162,.156,.738,.844))]
+    q=verify_batch([(original,result)],None,None,"cpu",source_regions=[regions],
+                   rectangle_guard=True,cross_review_allowed=[True],weights_relation="different_weights")[0]
+    assert q["status"]=="review" and not q["natural"] and q["uncertain"]
+    assert "repair_rectangle_phase" in q["guard_codes"]
+    assert q["cross_review"]["reason"]=="strict_guard_or_content_veto"
+    assert any(item["issue"]=="rectangular_shadow" for item in q["retry_feedback"])

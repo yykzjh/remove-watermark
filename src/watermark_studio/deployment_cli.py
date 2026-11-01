@@ -26,6 +26,7 @@ HELP = {
     "replicas_per_gpu": "Full model copies per GPU, 1..4; multiplies VRAM use",
     "quality_backend": "resident: reuse image encoder; independent: separate instruction VLM",
     "quality_verifier": "Enable post-removal review using the selected quality backend",
+    "quality_rectangle_guard": "With quality verification, review coherent multi-side panel tone steps; CPU-only, no extra model call",
     "quality_model": "Independent quality VLM repository or local path; adds GPU memory",
     "quality_revision": "Independent quality VLM revision (master for ModelScope)",
     "quality_quantization": "none/int8/nf4 for the independent quality VLM; keeps visual encoder/head unquantized",

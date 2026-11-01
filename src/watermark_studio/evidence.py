@@ -102,6 +102,8 @@ def local_findings(verdict):
                         "observation":observation, "certainty":"suspected"})
     for item in verdict.get("repair_boundary", {}).get("suspect_segments", [])[:2]:
         add("rectangular_shadow",item["box"],f"修补边界{item['side']}明暗台阶 {item['luma_step']} 灰度级。")
+    for item in verdict.get("repair_rectangle_phase",{}).get("findings",[])[:2]:
+        add("rectangular_shadow",item["box"],"原水印多条边界存在同向、对齐的局部明暗阶跃，需检查矩形残影。")
     for item in verdict.get("repair_texture", {}).get("suspect_segments", [])[:2]:
         add("blur_smear",item.get("box"),"修补区邻近边界存在局部纹理/清晰度衰减。")
     for box in verdict.get("outside_repair_change", {}).get("boxes", [])[:2]:
