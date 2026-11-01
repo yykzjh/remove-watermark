@@ -757,8 +757,11 @@ def scene_review_context(scene):
 def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=128,
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
                  cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None,
-                 weights_relation="unknown", rectangle_guard=False, cross_context=False):
+                 weights_relation="unknown", rectangle_guard=False, cross_context=False,
+                 inspection_profile="legacy"):
     from .detection import locate_watermarks_batch, source_scene
+    if inspection_profile not in {"legacy","defects"}:
+        raise ValueError("Unknown inspection protocol")
     contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
     if len(contexts)!=len(pairs):
         raise ValueError("Editor context count mismatch")
@@ -798,14 +801,21 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         content_chats.append(reference_inspection(before,aligned,regions,resolution,
             detail_patches,contexts[pair_index].get("source_scene")))
         boxes_list.append(boxes)
-    inspected, output_seconds = _structured_vqa(
-        output_chats, ("watermark_removed", "natural", "uncertain"),
-        encoder, processor, device, max_tokens,
-    )
-    compared, content_seconds = _structured_vqa(
-        content_chats, ("content_preserved","natural","uncertain"),
-        encoder, processor, device, max_tokens,
-    )
+    if inspection_profile == "defects":
+        from .defect_protocol import inspect_defects
+        inspected, output_seconds = inspect_defects(
+            output_chats, "output", encoder, processor, device, max_tokens)
+        compared, content_seconds = inspect_defects(
+            content_chats, "reference", encoder, processor, device, max_tokens)
+    else:
+        inspected, output_seconds = _structured_vqa(
+            output_chats, ("watermark_removed", "natural", "uncertain"),
+            encoder, processor, device, max_tokens,
+        )
+        compared, content_seconds = _structured_vqa(
+            content_chats, ("content_preserved","natural","uncertain"),
+            encoder, processor, device, max_tokens,
+        )
     verdicts, residual_candidates = [], []
     for index, (check, comparison, (before, after), boxes) in enumerate(zip(inspected, compared, pairs, boxes_list)):
         data = {k: check[k] for k in ("watermark_removed", "natural")}
@@ -814,6 +824,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         data["uncertain"] = check["uncertain"] or comparison["uncertain"]
         data["area"] = check.get("area", "none") if not check["watermark_removed"] or not check["natural"] else comparison.get("area", "none")
         verdict = parse_review(json.dumps(data))
+        verdict["inspection_profile"] = inspection_profile
         verdict["model_checks"] = dict(data)
         verdict["output_checks"]=dict(check)
         verdict["reference_checks"]=dict(comparison)

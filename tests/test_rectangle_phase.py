@@ -58,3 +58,15 @@ def test_joint_search_checks_both_tone_directions_once_per_panel(shade,expected_
     assert cue["count"]==1
     assert cue["findings"][0]["joint_sign"]==expected_sign
     assert cue["method"]=="source_panel_phase_v2_joint"
+
+
+def test_core_search_only_adds_vetoes_with_valid_source_provenance():
+    from watermark_studio.rectangle_phase import rectangle_phase_core
+    clean,source,dark,regions=fixture((.2,.2,.7,.8))
+    core={"mask":list(regions[0].box),"core":[.2,.2,.7,.8]}
+    base=rectangle_phase(source,dark,regions)
+    extended=rectangle_phase_core(source,dark,regions,[core])
+    assert {tuple(v["box"]) for v in base["findings"]} <= {tuple(v["box"]) for v in extended["findings"]}
+    assert rectangle_phase_core(source,clean,regions,[core])["count"]==0
+    assert rectangle_phase_core(source,dark,regions,[{"mask":core["mask"],"core":[0,0,1,1]}])["findings"]==base["findings"]
+    assert rectangle_phase_core(source,dark,regions,[{"core":[float("nan"),0,1,1]}])["findings"]==base["findings"]

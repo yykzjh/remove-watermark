@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 
-def _single_phase(before, after, regions, resolution=1024, forced_sign=None):
+def _single_phase(before, after, regions, resolution=1024, forced_sign=None, core_mapping=None):
     """Require a sharp, spatially coherent tone step on every available panel side."""
     panels=[r for r in regions if r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06]
     if not panels:
@@ -21,23 +21,31 @@ def _single_phase(before, after, regions, resolution=1024, forced_sign=None):
         l,t,r,b=region.box
         if (r-l)*(b-t)<.06:
             continue
+        core=(core_mapping or {}).get(tuple(region.box))
+        if core_mapping is not None and core is None:
+            continue
         px=.008+.06*max(0,(r-l-.016)/1.12)
         py=.008+.06*max(0,(b-t-.016)/1.12)
         evidence={};available=[];contaminated=False
         for side in ("top","bottom","left","right"):
             vertical=side in ("left","right")
             coordinate={"left":l,"right":r,"top":t,"bottom":b}[side]
+            if core is not None:
+                coordinate=core[{"left":0,"top":1,"right":2,"bottom":3}[side]]
             if coordinate in (0,1):
                 continue
             inward=1 if side in ("left","top") else -1
             extent=size[0] if vertical else size[1]
             along=size[1] if vertical else size[0]
-            start,end=(t,b) if vertical else (l,r)
+            start,end=((core[1],core[3]) if vertical else (core[0],core[2])) if core else ((t,b) if vertical else (l,r))
             margin=px if vertical else py
             lo,hi=round((start+(end-start)*.18)*along),round((end-(end-start)*.18)*along)
             positions=[p for p in range(round(coordinate*extent)-2,
                                        round(coordinate*extent)+inward*round(margin*extent*1.8)+inward,
                                        inward) if 17<p<extent-18]
+            if core is not None:
+                centre=round(coordinate*extent)
+                positions=[pos for pos in range(centre-5,centre+6) if 17<pos<extent-18]
             if hi-lo<64 or len(positions)<5:
                 continue
             band=round(margin*extent*1.8)+18
@@ -113,3 +121,34 @@ def rectangle_phase(before, after, regions, resolution=1024):
             findings.setdefault(key,item|{"joint_sign":sign})
     return {"method":"source_panel_phase_v2_joint","count":len(findings),
             "findings":list(findings.values()),"comparison_size":size}
+
+
+def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024):
+    """Experimental added vetoes near validated raw detector edges; no approvals.
+
+    Keep every original warning and all amplitude/coherence/source conditions.
+    A natural texture peak elsewhere in the padded margin cannot hide a weaker
+    but coherent step at the actual source panel edge.
+    """
+    from .surface_reference import _box
+    mapping = {}
+    for item in core_boxes or []:
+        if not isinstance(item, dict):
+            continue
+        mask, core = _box(item.get("mask")), _box(item.get("core"))
+        if mask is None or core is None:
+            continue
+        match = next((tuple(r.box) for r in regions if
+                      all(abs(a-b)<1e-6 for a,b in zip(r.box,mask))), None)
+        if (match is not None and mask[0]<=core[0]<core[2]<=mask[2]
+                and mask[1]<=core[1]<core[3]<=mask[3]):
+            mapping[match] = core
+    baseline = rectangle_phase(before,after,regions,resolution)
+    findings = {tuple(item["box"]): item for item in baseline["findings"]}
+    if mapping:
+        for sign in (-1,1):
+            result = _single_phase(before,after,regions,resolution,sign,mapping)
+            for item in result["findings"]:
+                findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"source_core_search":True})
+    return baseline|{"method":"source_panel_phase_v3_core_experiment",
+                     "findings":list(findings.values()),"count":len(findings)}

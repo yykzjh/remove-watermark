@@ -15,6 +15,9 @@ p.add_argument("--source",type=Path,required=True)
 p.add_argument("--output",type=Path,required=True)
 p.add_argument("--resolution",type=int,choices=[1024,1536,2048],default=1024)
 p.add_argument("--batches",default="2,3,4")
+p.add_argument("--vae-tiling",action="store_true")
+p.add_argument("--vae-tile-size",type=int,default=1024)
+p.add_argument("--vae-tile-stride",type=int,default=768)
 p.add_argument("--quality-phase-offload",action="store_true")
 p.add_argument("--whole-prompt-profile",choices=["fidelity","neutral","concise"],default="fidelity")
 a=p.parse_args()
@@ -22,6 +25,8 @@ batches=[int(s) for s in a.batches.split(",")]
 if not batches or len(set(batches))!=len(batches) or any(n<1 or n>4 for n in batches):
     p.error("Distinct batch sizes 1..4 required")
 if a.output.exists(): p.error("Fresh report required")
+if not 64<=a.vae_tile_stride<a.vae_tile_size or a.vae_tile_size%64 or a.vae_tile_stride%64:
+    p.error("VAE tile sizes must be multiples of64 with stride<size")
 revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
 os.environ["TOKENIZERS_PARALLELISM"]="false"
@@ -45,6 +50,7 @@ before=hashlib.sha256(a.source.read_bytes()).hexdigest()
 settings=json.loads(Path(".run/deployment.json").read_text())|{"gpus":[a.gpu]}
 if a.quality_phase_offload:
     settings["quality_phase_offload"]=True
+settings.update(vae_tiling=a.vae_tiling,vae_tile_size=a.vae_tile_size,vae_tile_stride=a.vae_tile_stride)
 cfg=DeploymentConfig.model_validate(settings)
 pipe=load_pipeline(cfg,str(Path(cfg.model).expanduser()))
 verifier=load_quality_encoder(str(Path(cfg.quality_model).expanduser()),cfg,"cuda:0")
@@ -103,6 +109,7 @@ report={"scope":"GPU generation+encoder and optional residency cycles; no detect
         "inference_dimensions":dimensions(photo,a.resolution),
         "verifier_resident_at_cycle_boundaries":True,"phase_offload":a.quality_phase_offload,
         "host_pinned_mib":round(getattr(verifier,"_quality_host_pinned_bytes",0)/2**20),
+        "vae_tiling":a.vae_tiling,"vae_tile_size":a.vae_tile_size,"vae_tile_stride":a.vae_tile_stride,
         "prompt_profile":a.whole_prompt_profile,"saved_sigma_count":len(pipe.config.sample_sigmas),
         "rows":rows}
 for label,key in [("median_seconds_per_image","seconds"),

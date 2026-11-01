@@ -103,7 +103,7 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -146,7 +146,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                             editor_context=[{"source_scene":c["scene"],"protected_core_boxes":c.get("source_cores",[]),"background_preserved":c.get("preserved",False)} for c in group],
                             cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
                             reviewer="paired_"+mode,weights_relation=relation,rectangle_guard=rectangle_guard,
-                            cross_context=context)
+                            cross_context=context,inspection_profile=inspection_profile)
                     if len(values)!=len(group):
                         raise RuntimeError("Verifier response count differs from frozen pairs")
                     torch.cuda.synchronize()
@@ -205,6 +205,8 @@ def main():
     parser.add_argument("--gpus",default="0,1,2,3,4,5,6,7")
     parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
     parser.add_argument("--quality-resolution",type=int,choices=[512,768,1024,1280],default=768)
+    parser.add_argument("--inspection-profile",choices=["legacy","defects"],default="legacy")
+    parser.add_argument("--first-snapshot",action="store_true",help="Validate an immutable first snapshot, then freshly grade the same pixels")
     parser.add_argument("--text-free-scope",choices=["global","targets"],default="global")
     parser.add_argument("--frozen-disputes",action="store_true",help="Only adjudicate SHA-validated immutable first verdicts; do not rerun first VQA")
     parser.add_argument("--text-free-consensus",action="store_true",help="Experimental evidence-based adjudication; cannot override frozen vetoes")
@@ -217,6 +219,8 @@ def main():
     parser.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
     parser.add_argument("--models-root",type=Path,default=Path.home()/".cache/watermark-models/models")
     args=parser.parse_args()
+    if args.first_snapshot and (args.frozen_disputes or args.controls_only or args.profile!="4b-bf16"):
+        parser.error("--first-snapshot requires a canonical4b source snapshot; no cached disputes/controls-only")
     if args.text_free_consensus and not args.cross_review:
         parser.error("--text-free-consensus requires --cross-review")
     if args.frozen_disputes and (not args.text_free_consensus or args.controls or args.controls_only or args.paired_context or args.profile!="4b-bf16"):
@@ -226,7 +230,7 @@ def main():
     if args.controls_only:
         if args.source_job or args.files or not args.controls:
             parser.error("--controls-only requires --controls and excludes --source-job")
-    elif not args.source_job or not re.fullmatch(r"[a-zA-Z0-9_-]+" if args.frozen_disputes else r"[a-f0-9]{32}",args.source_job):
+    elif not args.source_job or not re.fullmatch(r"[a-zA-Z0-9_-]+" if args.frozen_disputes or args.first_snapshot else r"[a-f0-9]{32}",args.source_job):
         parser.error("Exact completed source job ID required")
     gpus=[int(v) for v in args.gpus.split(",")]
     if len(set(gpus))!=len(gpus) or not gpus or min(gpus)<0:
@@ -254,7 +258,7 @@ def main():
     editor_root=args.models_root/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
     from watermark_studio.model_identity import compare_model_weights
     identity=compare_model_weights(editor_root/"text_encoder",model)
-    if args.frozen_disputes:
+    if args.frozen_disputes or args.first_snapshot:
         from watermark_studio.frozen_candidates import validate_first_snapshot
         validate_first_snapshot(args.state_dir/args.source_job,identity)
     ctx=mp.get_context("spawn")
@@ -266,7 +270,7 @@ def main():
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
                 args.cross_review,args.quality_batch_size,args.rectangle_guard,
-                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,events,start))
+                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -323,6 +327,7 @@ def main():
         result={"profile":args.profile,"source_job":args.source_job,"source_files":args.files,
                  "code_revision":code_revision,"images":len(cases),"verifications":expected_total,
                 "cross_full_context":args.cross_full_context,"paired_context":args.paired_context,
+                "inspection_profile":args.inspection_profile,"first_snapshot":args.first_snapshot,
                 "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,"text_free_scope":args.text_free_scope,
                 "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
