@@ -344,3 +344,22 @@ def test_native_verdict_json_has_the_same_strict_boolean_and_location_contract()
                  valid.replace('"none"','"upper-left"'),valid.replace(',"uncertain":false','')):
         with pytest.raises((ValueError,TypeError)):
             _verdict_json(text,fields)
+
+
+def test_explicit_repair_artifact_cannot_be_overridden_by_other_positive_checks(monkeypatch):
+    from watermark_studio.quality import verify_batch
+    calls=[]
+    def inspect(chats,fields,*args,**kwargs):
+        calls.append(fields)
+        row={f:(True if f=="repair_artifact" else f!="uncertain") for f in fields}
+        return [row|{"area":"bottom_left"} for _ in chats],.01
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",inspect)
+    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda chats,*a:[
+        {"status":"ok","assessment":"no_clear_defect","summary":"No clear defect","findings":[]} for _ in chats])
+    image=Image.new("RGB",(400,300),"gray")
+    row=verify_batch([(image,image.copy())],None,None,"cpu",detail_patches=0,
+                     source_regions=[[]],artifact_question=True)[0]
+    assert calls[1][0]=="repair_artifact"
+    assert row["reference_checks"]["natural"] and row["reference_checks"]["repair_artifact"]
+    assert row["status"]=="review" and not row["natural"]
