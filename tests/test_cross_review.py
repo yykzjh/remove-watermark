@@ -274,7 +274,8 @@ def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds
                               "observation":"printing follows metal surface"}]}]
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations", explain)
     source=Image.new("RGB",(401,307),"gray")
-    result=discover_dispute(source,source.copy(),"center",None,None,"cpu",full_context=full_context)
+    result_image=Image.new("RGB",source.size,"green")
+    result=discover_dispute(source,result_image,"center",None,None,"cpu",full_context=full_context)
     l,t,r,b=result["crop_in_photo"]
     assert result["findings"][0]["box"] == pytest.approx(
         [l+.2*(r-l),t+.1*(b-t),l+.5*(r-l),t+.3*(b-t)],abs=1e-6)
@@ -282,6 +283,10 @@ def test_dispute_locator_maps_crop_coordinates_in_code_using_actual_pixel_bounds
     assert result["coordinate_source"] == "crop_local_mapped_by_program"
     text=" ".join(item.get("text","") for item in captured[0][0]["content"])
     assert "当前局部图像0..1000" in text and "不要使用完整照片坐标" in text
+    images=[item["image"] for item in captured[0][0]["content"] if item["type"]=="image"]
+    assert len(images)==(2 if full_context else 1)
+    assert all(image.getpixel((0,0))==(0,128,0) for image in images)
+    assert "只定位当前结果中实际可见" in text
 
 
 @pytest.mark.parametrize("relation", ["unknown", "same_base_weights", "same_instance"])

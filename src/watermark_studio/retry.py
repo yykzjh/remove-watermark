@@ -130,7 +130,8 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                 prepared[0]["_repair_provenance"]={
                     "regions":best_saved.get("repair_regions",[]),
                     "scene":best_saved.get("source_scene","unknown"),
-                    "harmonization":best_saved.get("harmonization")}
+                    "harmonization":best_saved.get("harmonization"),
+                    "protected_core_boxes":best_saved.get("protected_core_boxes",[])}
 
     results = process(prepared, settings, config, pipe, batch_limits)
     for (task, paths, saved), result in zip(records, results):

@@ -239,7 +239,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     **({"background_preserved":True,
                         "repair_regions":task["_repair_provenance"]["regions"],
                         "source_scene":task["_repair_provenance"].get("scene","unknown"),
-                        "harmonization":task["_repair_provenance"].get("harmonization")}
+                        "harmonization":task["_repair_provenance"].get("harmonization"),
+                        "protected_core_boxes":task["_repair_provenance"].get("protected_core_boxes",[])}
                        if task.get("_repair_provenance") else {}),
                 }
                 continue
@@ -551,7 +552,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                      "repair_regions":results[t["relative"]].get("repair_regions",[]),
                                      "action":results[t["relative"]].get("action"),
                                      "source_scene":results[t["relative"]].get("source_scene","unknown"),
-                                     "harmonization":results[t["relative"]].get("harmonization")} for t in group],
+                                     "harmonization":results[t["relative"]].get("harmonization"),
+                                     "protected_core_boxes":results[t["relative"]].get("protected_core_boxes",[])} for t in group],
                     reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                     rectangle_guard=config.quality_rectangle_guard,
                     cross_context=config.quality_cross_full_context,

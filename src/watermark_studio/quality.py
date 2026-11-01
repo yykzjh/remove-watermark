@@ -288,7 +288,7 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
 
 
 def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=None, debug=False,
-                           *, inset_search=False):
+                           *, inset_search=False, core_boxes=()):
     """Detect box-aligned sharpness collapse while allowing genuine low-detail surfaces."""
     scale=min(1,resolution/max(image.size))
     size=(max(1,round(image.width*scale)),max(1,round(image.height*scale)))
@@ -300,6 +300,8 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
     reference=None
     records=[]
     probes=[]
+    source_references=None
+    supported_references=[]
     for region_index,region in enumerate(repair_probe_regions(regions) if inset_search else regions):
         box=region.box if hasattr(region,"box") else region["box"]
         x0,y0,x1,y1=box
@@ -348,6 +350,16 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                     if float(np.abs(source-output).mean())<3:
                         hits.append(None)
                         continue
+                    if core_boxes and not inset_search:
+                        from .surface_reference import matching_smooth_run, source_rims
+                        if source_references is None:
+                            source_references=source_rims(reference,regions,core_boxes)
+                        support=matching_smooth_run(source_references.get(region_index,[]),colours[0])
+                        if support:
+                            supported_references.append({"region":region_index,"side":side,"lo":lo,
+                                "comparison_scope":"visible_source_smooth_surface",**support})
+                            hits.append(None)
+                            continue
                 tile_box=([max(0,pos-deep-outer)/size[0],lo/size[1],
                            min(size[0],pos+deep+outer)/size[0],hi/size[1]] if vertical else
                           [lo/size[0],max(0,pos-deep-outer)/size[1],
@@ -363,7 +375,8 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                     run=[]
                 else:
                     run.append(hit)
-    return {"method":"mask_texture_collapse_v2_insets","count":len(records),
+    return {"method":"mask_texture_collapse_v3_source_surface","count":len(records),
+            "source_reference_support":supported_references[:24],
             "suspect_segments":records[:12],"comparison_size":list(size),
             **({"probes":sorted(probes,key=lambda p:p["ratio"])[:12]} if debug else {})}
 
@@ -845,7 +858,8 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             seam_photo = after if after.size == before.size else after.resize(before.size, Image.Resampling.LANCZOS)
             seam = repair_boundary_warnings(seam_photo, regions, feather, before=before)
             verdict["repair_boundary"] = seam
-            texture=repair_texture_warnings(seam_photo,regions,feather,before=before)
+            texture=repair_texture_warnings(seam_photo,regions,feather,before=before,
+                core_boxes=contexts[index].get("protected_core_boxes",[]))
             verdict["repair_texture"]=texture
             generation_drift=contexts[index].get("harmonization") or {}
             if generation_drift.get("correction_withheld") is True:

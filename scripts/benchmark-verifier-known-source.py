@@ -65,7 +65,7 @@ def frozen_job_cases(state_root, job, files=None):
         cases.append({"file":str(name),"source":str(source),"output":str(output),
                       "regions":regions,"scene":scene,"cohort":"source_job",
                       "generation_attempts":row.get("quality_attempts",1),
-                      "baseline_status":q.get("status"),
+                      "baseline_status":q.get("status"),"source_cores":row.get("protected_core_boxes",[]),
                       "frozen_vetoes":[g for g in q.get("guard_codes",[]) if g!="identical"]})
     return cases
 
@@ -95,7 +95,9 @@ def known_control_cases(root):
                 min(1,right+px+1/w),min(1,bottom+py+1/h))).model_dump()]
         cases.append({"file":name,"source":str(source),"output":str(output),"regions":regions,
                       "scene":"document" if record["background"]=="receipt" else "outdoor",
-                      "cohort":"controls","expected":record["expected"],"kind":record["kind"]})
+                      "cohort":"controls","expected":record["expected"],"kind":record["kind"],
+                      "source_cores":[] if not regions else [{"mask":regions[0]["box"],
+                          "core":[left,top,min(1,right+1/w),min(1,bottom+1/h)]}]})
     return cases
 
 
@@ -136,7 +138,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                     values=verify_batch(pairs,encoder,processor,"cuda:0",resolution=768,
                         detail_patches=4,detection_batch_size=2,
                         source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
-                        editor_context=[{"source_scene":c["scene"]} for c in group],
+                        editor_context=[{"source_scene":c["scene"],"protected_core_boxes":c.get("source_cores",[])} for c in group],
                         cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
                         reviewer="paired_"+mode,weights_relation=relation,rectangle_guard=rectangle_guard,
                         cross_context=context)
