@@ -649,3 +649,21 @@ d274bf0新v7新背景320对照：exact/JPEG各误报同一真实背景1/64，sha
 再改变feather/harmonic-fine；不能重现基准或SHA/尺寸/源条带证明不一致则中止。
 新合成另存独立任务，additional_generations=0，不修改原图、旧输出，不批准质量；
 必须新跑相同严格独立QA，且保留本次真实harmonization与源身份不确定。
+
+d274bf0同6图ControlNet筛选：scale1.5为3/6、scale2为2/6、masked参考0/6、CFG1.7为2/6、
+1536+解码编码器卸载为2/6；均按本次严格QA，未通过字段不放宽。
+生成/后处理秒依次80.170、79.422、140.883、127.296、205.297（各自加载另计）。
+1536实际无OOM且保留原始尺寸，但没有质量收益、明显更慢，暂不采用。
+同一scale1.5原始GEN6图的feather与harmonic-fine回放分别8.545/17.426秒，
+每张基准JPEG均逐字节复现，additional_generations=0；等待严格新QA。
+
+增加独立RealESRGAN x4 safetensors小试验，尚未接服务：
+Comfy-Org/Real-ESRGAN_repackaged rev5fd49b7b278836f48af63ecd314d0f98ab336105，
+66857836字节，SHA37f9a931c215f040aa6d50f711f2cb115f713c46df1d0d6469a8bd7bfe9a60bb，
+开发机自行下载并校验。固定RGB x4 RRDB架构、每个键/形状/有限值/SHA严格验证，无pickle/远程代码。
+BasicSR RRDB计算适配，完整Apache-2.0许可证与修改说明随代码保留。
+仅对同一已生成整图做学习式超分再保护性合成，不额外调用扩散模型，不改源图、不更改非编辑区；
+旧raw捕获已上采样到原尺寸，所以试验须如实标明先回采样到冻结模型分辨率，不能声称拿到了原生解码像素。
+不能仅因纹理守卫改善就当自然细节正确，仍需完整质量复检及有收益时的原生视觉复核。
+官方架构：https://github.com/XPixelGroup/BasicSR/blob/master/basicsr/archs/rrdbnet_arch.py
+官方推理：https://github.com/xinntao/Real-ESRGAN/blob/master/inference_realesrgan.py

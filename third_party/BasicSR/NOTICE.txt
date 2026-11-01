@@ -1,0 +1,3 @@
+RRDB architecture adapted from BasicSR, Copyright 2018-2022 BasicSR Authors.
+Source: https://github.com/XPixelGroup/BasicSR/blob/master/basicsr/archs/rrdbnet_arch.py
+Changes: fixed RGB x4 inference architecture; no initialization/registry/training helpers; strict safetensors-only loading and bounded tiled full-frame restoration.
