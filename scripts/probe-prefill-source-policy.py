@@ -35,7 +35,12 @@ def read(job):
     rows=[json.loads(l) for l in (root/job/"results.jsonl").read_text().splitlines()]
     assert len(rows)==summary["total"]==len({r["file"] for r in rows})
     assert all(r.get("ok") and r.get("quality_attempts",1)==1 and r.get("model_inferences",0)<=1
-               and r.get("processing_path")=="whole_composite" for r in rows)
+               and r.get("processing_path") in {"whole_composite","source_copy"} for r in rows)
+    for row in rows:
+        if row.get("processing_path")=="source_copy":
+            assert row.get("model_inferences")==0
+            assert digest(bounded(Path(summary["input_dir"]),row["file"]))==digest(
+                bounded(Path(summary["output_dir"]),row["file"]))
     return summary,{r["file"]:r for r in rows}
 baseline,old=read(a.baseline_job);initialized,new=read(a.initialized_job)
 assert old.keys()==new.keys() and 1<=len(old)<=256
