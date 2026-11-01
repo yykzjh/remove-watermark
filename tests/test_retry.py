@@ -451,3 +451,24 @@ def test_drift_candidates_rank_below_otherwise_equal_review_and_can_retry():
     drift={"ok":True,"quality":dict(plain["quality"],guard_codes=["generation_reference_drift"])}
     assert quality_rank(plain)>quality_rank(drift)
     assert retry_allowed(drift,ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_max_attempts=3),1)
+
+
+def test_measured_material_drift_retries_neutral_prompt_from_full_original(tmp_path):
+    source=tmp_path/"original.png";source.write_bytes(b"source")
+    task={"source":str(source),"destination":str(tmp_path/"output.png"),"relative":"a.png"}
+    cfg=DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state"))
+    options=ProcessingConfig(scope="full_image",preserve_background=True,first_pass_mode="whole",
+        whole_prompt_profile="fidelity",quality_check=True,quality_auto_retry=True,quality_retry_resolution=1536)
+    calls=[]
+    def process(tasks,settings,*_):
+        calls.append((tasks[0]["source"],settings.scope,settings.whole_prompt_profile,settings.resolution))
+        Path(tasks[0]["destination"]).write_bytes(b"candidate")
+        q=verdict("review" if len(calls)==1 else "passed",removed=True)
+        if len(calls)==1:
+            q.update(natural=False,guard_codes=["generation_reference_drift"],
+                     source_regions=[{"kind":"panel","box":[0,.6,.4,1]}])
+        return [{"file":"a.png","ok":True,"quality":q}]
+    first=process_attempts([task],options,cfg,None,{},"job",process)[0]
+    final=process_attempts([first["_retry_task"]],options,cfg,None,{},"job",process)[0]
+    assert final["quality"]["status"]=="passed"
+    assert calls==[(str(source),"full_image","fidelity",1024),(str(source),"full_image","concise",1536)]

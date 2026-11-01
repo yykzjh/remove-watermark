@@ -47,3 +47,14 @@ def test_contaminated_exterior_and_non_panel_masks_do_not_supply_evidence():
     neighbour=Region(kind="logo",box=(.75,.25,.78,.45))
     assert rectangle_phase(source,dark,[*regions,neighbour])["count"]==0
     assert rectangle_phase(source,dark,[Region(kind="logo",box=(.2,.2,.7,.8))])["count"]==0
+
+
+@pytest.mark.parametrize("shade,expected_sign",[(120,-1),(160,1)])
+def test_joint_search_checks_both_tone_directions_once_per_panel(shade,expected_sign):
+    _clean,source,_dark,regions=fixture((.2,.2,.7,.8))
+    result=Image.new("RGB",source.size,(140,140,140))
+    ImageDraw.Draw(result).rectangle((160,120,560,480),fill=(shade,shade,shade))
+    cue=rectangle_phase(source,result,regions)
+    assert cue["count"]==1
+    assert cue["findings"][0]["joint_sign"]==expected_sign
+    assert cue["method"]=="source_panel_phase_v2_joint"

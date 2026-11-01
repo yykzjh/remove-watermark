@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import inspect
 import json
 import runpy
 import time
@@ -24,23 +23,12 @@ cases=helper["known_control_cases"](a.controls)
 hashes=helper["file_hashes"](cases)
 baseline={r["file"]:r["quality"]["status"] for r in map(json.loads,a.baseline.read_text().splitlines())
           if r["cohort"]=="controls" and r.get("context_variant","local")=="local"}
-source=inspect.getsource(phase_module.rectangle_phase)
-signature="def rectangle_phase(before, after, regions, resolution=1024):"
-selection="candidate=int(np.argmax(np.abs(average)))"
-assert source.count(signature)==source.count(selection)==1
-source=source.replace(signature,signature.replace("1024):","1024, forced_sign=None):"))
-source=source.replace(selection,
-    "candidate=int(np.argmax(np.abs(average) if forced_sign is None else average*forced_sign))")
-source=source.replace("if abs(step)<.022 or phase<.5 or coherence<.65:",
-    "if (forced_sign is not None and sign!=forced_sign) or abs(step)<.022 or phase<.5 or coherence<.65:")
-namespace=dict(vars(phase_module))
-exec(compile(source,"<offline-joint-sign-phase>","exec"),namespace)  # noqa: S102
-variant=namespace["rectangle_phase"]
+variant=phase_module._single_phase
 rows=[];started=time.monotonic()
 for case in cases:
     before,after=load_photo(case["source"])[0],load_photo(case["output"])[0]
     regions=[Region.model_validate(r) for r in case["regions"]]
-    original=phase_module.rectangle_phase(before,after,regions)
+    original=variant(before,after,regions)
     alternate=[variant(before,after,regions,forced_sign=sign) for sign in (-1,1)]
     rows.append({"file":case["file"],"expected":case["expected"],"kind":case["kind"],
                  "baseline":baseline[case["file"]],"original_count":original["count"],

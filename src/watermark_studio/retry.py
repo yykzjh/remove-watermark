@@ -112,6 +112,10 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         ).strip()
         from .evidence import REPAIR_ACTIONS, feedback_from_quality
         validated = feedback_from_quality({"evidence": tasks[0].get("_retry_feedback", [])})
+        # A measured material/colour collapse needs a different instruction,
+        # rather than repeating the long scene vocabulary at a larger budget.
+        if whole_input and any(item["issue"]=="material_mismatch" for item in validated):
+            settings.whole_prompt_profile="concise"
         guidance = "\n".join(dict.fromkeys(REPAIR_ACTIONS[item["issue"]] for item in validated))
         if guidance:
             settings.extra_prompt += ("\n上轮检验定位的返工重点（具体位置按当前模型输入坐标说明）：\n" + guidance +

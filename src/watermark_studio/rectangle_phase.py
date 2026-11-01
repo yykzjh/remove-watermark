@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 
-def rectangle_phase(before, after, regions, resolution=1024):
+def _single_phase(before, after, regions, resolution=1024, forced_sign=None):
     """Require a sharp, spatially coherent tone step on every available panel side."""
     panels=[r for r in regions if r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06]
     if not panels:
@@ -64,13 +64,13 @@ def rectangle_phase(before, after, regions, resolution=1024):
                 continue
             profiles=np.asarray(profiles,dtype=np.float32)
             average=np.mean(np.sort(profiles,axis=0)[1:-1],axis=0) if len(profiles)>=5 else np.mean(profiles,axis=0)
-            candidate=int(np.argmax(np.abs(average)))
+            candidate=int(np.argmax(np.abs(average) if forced_sign is None else average*forced_sign))
             step=float(average[candidate])
             sign=1 if step>=0 else -1
             peaks=np.argmax(profiles*sign,axis=1)
             phase=float(np.mean(np.abs(peaks-candidate)<=3))
             coherence=float(np.mean(profiles[:,candidate]*sign>=.012))
-            if abs(step)<.022 or phase<.5 or coherence<.65:
+            if (forced_sign is not None and sign!=forced_sign) or abs(step)<.022 or phase<.5 or coherence<.65:
                 continue
             pos=positions[candidate]
             changes=[]
@@ -94,3 +94,22 @@ def rectangle_phase(before, after, regions, resolution=1024):
         findings.append({"box":list(region.box),"side_evidence":evidence})
     return {"method":"source_panel_phase_v1","count":len(findings),"findings":findings,
             "comparison_size":list(size)}
+
+
+def rectangle_phase(before, after, regions, resolution=1024):
+    """Joint bright/dark hypotheses keep texture distractors from hiding a box.
+
+    All side, amplitude, coherence, contamination and source-change conditions
+    are identical to the original absolute-peak search. This only adds vetoes.
+    """
+    findings={}
+    size=None
+    for sign in (-1,1):
+        result=_single_phase(before,after,regions,resolution,sign)
+        size=result["comparison_size"]
+        for item in result["findings"]:
+            key=tuple(item["box"])
+            # One record per panel, even if it contains both bright and dark bands.
+            findings.setdefault(key,item|{"joint_sign":sign})
+    return {"method":"source_panel_phase_v2_joint","count":len(findings),
+            "findings":list(findings.values()),"comparison_size":size}
