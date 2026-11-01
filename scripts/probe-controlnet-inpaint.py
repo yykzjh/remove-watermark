@@ -25,8 +25,10 @@ def main():
     p.add_argument("--scale",type=float,default=1.)
     p.add_argument("--resolution",type=int,choices=[1024,1536],default=1024)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--shards",type=int,choices=range(1,9),default=1)
+    p.add_argument("--shard-index",type=int,default=0)
     a=p.parse_args()
-    if a.gpu<0 or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
+    if a.gpu<0 or not 0<=a.shard_index<a.shards or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
         p.error("Explicit GPU and simple new tag required")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
@@ -44,6 +46,10 @@ def main():
         rows=[r for r in rows if r["file"] in set(a.files)]
     if not 1<=len(rows)<=64 or any(not r.get("ok") or not r.get("background_preserved") for r in rows):
         p.error("1..64 valid protected development sources required")
+    all_files=sorted(r["file"] for r in rows)
+    rows=sorted(rows,key=lambda r:r["file"])[a.shard_index::a.shards]
+    if not rows:
+        p.error("Empty probe shard")
     sources=Path(summary["input_dir"]).resolve()
     for row in rows:
         name=Path(row["file"])
@@ -78,15 +84,21 @@ def main():
     from watermark_studio.optimizations import quantize_transformer
     from watermark_studio.source_panel_rims import effective_rim_scope, restore_proven_rims
     torch.set_num_threads(1)
+    if torch.cuda.mem_get_info()[0]<42*2**30:
+        raise RuntimeError("ControlNet capacity probe requires a verified free 42 GiB GPU")
     loaded=time.monotonic()
     pipe=QwenImage21Pipeline.from_pretrained(a.model,dtype=torch.bfloat16,local_files_only=True)
+    print(json.dumps({"stage":"base_loaded","seconds":round(time.monotonic()-loaded,3)}),flush=True)
     if len(pipe.config.sample_sigmas or [])!=8:
         raise ValueError("This probe requires the original Turbo eight-sigma grid")
     branch,identity=load_branch(pipe.transformer,a.control,a.sha256)
+    print(json.dumps({"stage":"control_loaded","identity":identity}),flush=True)
     quantize_transformer(pipe.transformer,"float8","tensor")
+    print(json.dumps({"stage":"quantized","seconds":round(time.monotonic()-loaded,3)}),flush=True)
     pipe.to("cuda:0");branch.to(device="cuda:0",dtype=torch.bfloat16)
     pipe.set_progress_bar_config(disable=True)
     load_seconds=time.monotonic()-loaded
+    print(json.dumps({"stage":"ready","load_seconds":round(load_seconds,3)}),flush=True)
     options=ProcessingConfig.model_validate(summary["options"])
     options.quality_auto_retry=False;options.quality_max_attempts=0;options.overwrite=False
     results=[];began=time.monotonic()
@@ -147,11 +159,18 @@ def main():
                 size=list(saved.size)
         else:
             size=save_output(generated,sources/name,destination,exif,icc,options)
-        result={k:v for k,v in row.items() if k not in ("quality","quality_attempts","quality_history")}
+        source_fields=("file","background_preserved","repair_regions","protected_core_boxes","source_scene",
+            "source_rim_protection","source_edge_completion","source_geometry_requery","source_physical_vetting",
+            "source_detail_views","source_detail_context_requeries")
+        result={k:row[k] for k in source_fields if k in row}
+        result["harmonization"]=generated.info.get("harmonization")
+        result["denoising_context"]=[]
+        result["source_rim_composition"]={"regions":[r.model_dump() for r in scoped],"cores":mapped}
         result.update(ok=True,quality={},quality_attempts=1,model_inferences=int(bool(regions)),
             processing_path="whole_composite" if regions else "source_copy",
             action="restored" if regions else "no_watermark_detected",output_size=size,controlnet_probe={"weights":identity,
-            "scale":a.scale,"denoising_steps":8 if regions else 0,
+            "scale":a.scale,"resolution":a.resolution,"model_input_size":[width,height] if regions else None,
+            "denoising_steps":8 if regions else 0,
             "source_caption":caption,"source_masks_frozen":True,"whole_frame":True,
             "kv_cache":False,"seconds":round(time.monotonic()-start,3),
             "peak_allocated_mib":round(torch.cuda.max_memory_allocated()/2**20)})
@@ -167,9 +186,11 @@ def main():
         assert server==helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
     report={"state":"completed","scope":"Development GEN1 with frozen source masks; separate strict QA required, not holdout",
         "job":job,"code_revision":revision,"source_job":a.source_job,"input_dir":str(sources),"output_dir":str(outputs),
-        "total":len(rows),"options":options.model_dump(),"seconds":round(time.monotonic()-began,3),
+        "total":len(rows),"probe_shard":{"count":a.shards,"index":a.shard_index,"all_files":all_files},
+        "options":options.model_dump(),"seconds":round(time.monotonic()-began,3),
         "load_seconds":round(load_seconds,3),"sources_sha256":hashes,"quality_evaluated":False,
-        "controlnet":identity,"server_isolation":server}
+        "controlnet":identity,"controlnet_settings":{"scale":a.scale,"resolution":a.resolution,"kv_cache":False},
+        "server_isolation":server}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     print(json.dumps({k:v for k,v in report.items() if k not in ("sources_sha256","options")}),flush=True)

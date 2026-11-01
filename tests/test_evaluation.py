@@ -103,3 +103,23 @@ def test_benchmark_refuses_a_stale_service_before_submitting_any_images(tmp_path
     with pytest.raises(RuntimeError, match="no job submitted"):
         runpy.run_path(str(script), run_name="__main__")
     assert calls and all(endpoint == "/health" for endpoint in calls)
+
+
+def test_standalone_reinspection_keeps_generation_drift_and_source_ambiguity(tmp_path):
+    import runpy
+    helper=runpy.run_path(str(Path(__file__).resolve().parents[1]/"scripts/benchmark-verifier-known-source.py"))
+    source=tmp_path/"source";output=tmp_path/"output";job=tmp_path/"job"
+    for d in (source,output,job):
+        d.mkdir()
+    for d in (source,output):
+        (d/"a.png").write_bytes(b"immutable fixture")
+    (job/"summary.json").write_text(json.dumps({"state":"completed","total":1,
+        "input_dir":str(source),"output_dir":str(output)}))
+    drift={"correction_withheld":True,"outside_mae":22.}
+    (job/"results.jsonl").write_text(json.dumps({"file":"a.png","ok":True,"repair_regions":[],
+        "background_preserved":True,"source_scene":"outdoor","harmonization":drift,
+        "source_physical_vetting":[{"requires_review":True}],
+        "quality":{"status":"review","guard_codes":["repair_boundary_step"]}})+"\n")
+    case=helper["frozen_job_cases"](tmp_path,"job")[0]
+    assert set(case["frozen_vetoes"])=={"repair_boundary_step","source_physical_ambiguity"}
+    assert helper["case_context"](case)["harmonization"]==drift

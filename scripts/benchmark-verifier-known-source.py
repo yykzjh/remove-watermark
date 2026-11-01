@@ -72,8 +72,18 @@ def frozen_job_cases(state_root, job, files=None):
                       "baseline_status":q.get("status"),"frozen_quality":q,"source_cores":row.get("protected_core_boxes",[]),
                       "source_rim_protection":row.get("source_rim_protection",[]),
                       "denoising_context":row.get("denoising_context",[]),"preserved":row.get("background_preserved",False),
-                      "frozen_vetoes":[g for g in q.get("guard_codes",[]) if g!="identical"]})
+                      "harmonization":row.get("harmonization"),
+                      "frozen_vetoes":list(dict.fromkeys([g for g in q.get("guard_codes",[]) if g!="identical"]+
+                          (["source_physical_ambiguity"] if any(v.get("requires_review") for v in
+                            row.get("source_physical_vetting",[])) else [])))})
     return cases
+
+
+def case_context(case):
+    return {"source_scene":case["scene"],"protected_core_boxes":case.get("source_cores",[]),
+            "background_preserved":case.get("preserved",False),"harmonization":case.get("harmonization"),
+            "source_rim_protection":case.get("source_rim_protection",[]),
+            "denoising_context":case.get("denoising_context",[])}
 
 
 def known_control_cases(root):
@@ -156,9 +166,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                         values=verify_batch(pairs,encoder,processor,"cuda:0",resolution=resolution,
                             detail_patches=4,detection_batch_size=2,
                             source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
-                            editor_context=[{"source_scene":c["scene"],"protected_core_boxes":c.get("source_cores",[]),"background_preserved":c.get("preserved",False),
-                                "source_rim_protection":c.get("source_rim_protection",[]),
-                                "denoising_context":c.get("denoising_context",[])} for c in group],
+                            editor_context=[case_context(c) for c in group],
                             cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
                             reviewer="paired_"+mode,weights_relation=relation,rectangle_guard=rectangle_guard,
                             cross_context=context,inspection_profile=inspection_profile)
