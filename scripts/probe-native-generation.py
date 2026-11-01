@@ -9,6 +9,7 @@ p.add_argument("--output",type=Path,required=True)
 p.add_argument("--no-compile",action="store_true")
 p.add_argument("--quantization",choices=["none","float8"],default="float8")
 p.add_argument("--granularity",choices=["tensor","row"],default="tensor")
+p.add_argument("--prompt-suite",action="store_true")
 a=p.parse_args()
 if a.output.exists(): p.error("Fresh output required")
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
@@ -33,8 +34,28 @@ for row in cases:
  source=load_photo(a.input/row["file"])[0]
  stable=int.from_bytes(hashlib.sha256(row["file"].encode()).digest()[:4],"big")
  items.append({"image":source,"prompt":build_full_prompt(scene_instruction("outdoor"),"fidelity"),"seed":(42+stable)%2**32})
-for label,bs,kv in [("single",1,True),("batch",2,True),("batch_no_kv",2,False)]:
+variants=([("stock_attention",1,True),("stock_encoder",1,True),("short",1,True),
+           ("source_facts",1,True),("located",1,True)] if a.prompt_suite else
+          [("single",1,True),("batch",2,True),("batch_no_kv",2,False)])
+if a.prompt_suite:
+ from diffusers.models.transformers.transformer_qwenimage21 import QwenImage21AttnProcessor
+ pipe.transformer.set_attn_processor(QwenImage21AttnProcessor())
+for label,bs,kv in variants:
  current=[dict(item) for item in items]
+ if label=="stock_encoder":
+  pipe._watermark_prompt_encoder="stock"
+ if label=="short":
+  for item in current:
+   item["prompt"]="去除照片中所有后期叠加的水印文字、信息卡底板和相机标识。仅重建被覆盖部分，严格延续紧邻区域已经存在的材质、颜色、纹理、结构和光照。保持所有其余画面和真实物体上的文字不变，输出同一张照片。"
+ if label=="source_facts":
+  from watermark_studio.source_brief import inspect_sources,guidance
+  briefs=inspect_sources([i["image"] for i in current],pipe.text_encoder,pipe.processor,pipe._execution_device,2)
+  for item,brief in zip(current,briefs):
+   item["prompt"]+=guidance(brief)
+ if label=="located":
+  from watermark_studio.prompts import whole_location_guidance
+  for item,case in zip(current,cases):
+   item["prompt"]+=whole_location_guidance([Region.model_validate(r) for r in case["regions"]])
  if bs==2: preencode_window(pipe,current,4)
  started=time.monotonic()
  outputs=[]
