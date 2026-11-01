@@ -333,3 +333,13 @@ def test_full_context_keeps_both_carrier_proofs_and_unwhitelisted_residual_scan(
     calls(monkeypatch,residuals=[Region(kind="logo",box=(.55,.3,.7,.45))])
     run(before,after,q,full_context=True)
     assert q["status"]=="review" and q["cross_review"]["reason"]=="other_residual_overlays"
+
+
+def test_output_localizer_cannot_use_entire_context_as_precise_text_evidence(monkeypatch):
+    from watermark_studio.cross_review import discover_dispute
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[{
+        "assessment":"uncertain","findings":[{"issue":"physical_text","box":[0,0,1,1]}]}])
+    photo=Image.new("RGB",(1000,800),"gray")
+    result=discover_dispute(photo,photo,"top_left",None,None,"cpu")
+    assert result["findings"]==[]
+    assert result["rejected_locations"][0]["reason"]=="imprecise_crop_coverage"

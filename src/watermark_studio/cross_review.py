@@ -240,12 +240,18 @@ def discover_dispute(before,after,area,encoder,processor,device,full_context=Fal
                              native[2]/before.width,native[3]/before.height]
     report["coordinate_source"]="crop_local_mapped_by_program"
     report["local_findings"]=[]
+    report["rejected_locations"]=[]
     mapped=[]
     for finding in findings:
         if finding.get("issue")!="physical_text" or not finding.get("box"):
             continue
         local=valid_box(finding["box"])
         report["local_findings"].append(dict(finding))
+        # A whole crop is context, not a precise physical-text hypothesis.
+        # Broad localization must never unlock an appeal over unrelated repairs.
+        if (local[2]-local[0])*(local[3]-local[1])>=.5:
+            report["rejected_locations"].append({"box":list(local),"reason":"imprecise_crop_coverage"})
+            continue
         left,top,right,bottom=report["crop_in_photo"]
         x0,y0,x1,y1=local
         full=valid_box([left+x0*(right-left),top+y0*(bottom-top),
