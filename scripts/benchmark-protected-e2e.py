@@ -96,6 +96,11 @@ summary={"scope":"automatic independent checks, not human-labelled accuracy","jo
     "final_guard_counts":dict(collections.Counter(g for r in rows for g in r.get("quality",{}).get("guard_codes",[]))),
     "first_checker_before_cross_counts":dict(collections.Counter(
         ((h.get("quality") or {}).get("pre_cross_review") or h.get("quality") or {}).get("status","none") for h in first)),
+    "source_vetting_protected_first":sum(v.get("status")=="protected_physical_text"
+        for h in first for v in h.get("source_physical_vetting",[])),
+    "first_source_scene_counts":dict(collections.Counter(h.get("source_scene","unknown") for h in first)),
+    "first_guard_counts":dict(collections.Counter(g for h in first for g in (h.get("quality") or {}).get("guard_codes",[]))),
+    "outside_change_attempts":sum("outside_repair_change" in (h.get("quality") or {}).get("guard_codes",[]) for h in histories),
     "first_cross_review_corrected":sum((h.get("quality") or {}).get("cross_review",{}).get("status")=="corrected" for h in first),
     "first_model_input_budgets":dict(collections.Counter(str(b) for h in first for b in h.get("model_input_budgets",[]))),
     "total_model_input_budgets":dict(collections.Counter(str(b) for h in histories for b in h.get("model_input_budgets",[]))),
