@@ -45,6 +45,11 @@ def load_pipeline(config, model_path):
         rim_detector._engine()  # Fail before loading GPU weights if the extra is missing.
     dtype = getattr(torch, config.dtype)
     pipe = QwenImage21Pipeline.from_pretrained(model_path, dtype=dtype, local_files_only=True)
+    pipe._image_adapter = {}
+    if config.lora_path:
+        from .adapters import fuse_cpu_adapter
+        pipe._image_adapter=fuse_cpu_adapter(pipe.transformer,config.lora_path,
+            scale=config.lora_scale,alpha=config.lora_alpha,expected_sha256=config.lora_sha256)
     pipe.set_progress_bar_config(disable=True)
     if config.vae_tiling:
         pipe.vae.enable_tiling(
@@ -750,6 +755,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     if cuda:
         torch.cuda.synchronize()
     metrics = {
+        "image_adapter":getattr(pipe,"_image_adapter",{}),
         "quality_phase_offload":phase_offload,
         "quality_host_pinned_bytes":getattr(getattr(pipe,"_quality_encoder",None),"_quality_host_pinned_bytes",0),
         "source_transformer_transfer":dict(source_transformer_transfer),
@@ -791,7 +797,7 @@ def worker_main(index, gpu, settings, model_path, requests, events, load_gate, q
                 pipe._quality_encoder, pipe._quality_processor = pipe.text_encoder, pipe.processor
             if pipe is not None:
                 pipe._quality_weights_relation = quality_weights_relation
-        events.put({"type": "ready", "worker": index})
+        events.put({"type": "ready", "worker": index,"image_adapter":getattr(pipe,"_image_adapter",{})})
     except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
         traceback.print_exc()
         events.put({"type": "fatal", "worker": index, "error": str(error)[:800]})

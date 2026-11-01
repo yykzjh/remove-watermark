@@ -124,6 +124,7 @@ class Runtime:
                     worker = self.workers[event["worker"]]
                     if event["type"] == "ready":
                         worker["state"] = "idle"
+                        worker["image_adapter"] = event.get("image_adapter",{})
                     elif event["type"] == "fatal":
                         worker["state"] = "failed"
                         self.error = event["error"]
@@ -443,7 +444,7 @@ class Runtime:
                 "code_revision":self.code_revision,"quality_weight_identity":self.quality_identity,
                 "error": self.error,
                 "backend": self.config.backend,
-                "workers": [{"gpu": w["gpu"], "state": w["state"]} for w in self.workers],
+                "workers": [{"gpu": w["gpu"], "state": w["state"],"image_adapter":w.get("image_adapter",{})} for w in self.workers],
                 "capacity": self.config.capacity,
                 "inflight_images": sum(len(w["task"]) for w in self.workers if w["state"] == "busy"),
                 "pending_images": len(self.pending),
@@ -484,6 +485,8 @@ class Runtime:
                     "translucent_body_hint": self.config.translucent_body_hint,
                     "translucent_transmission": self.config.translucent_transmission,
                     "transformer_phase_offload": self.config.transformer_phase_offload,
+                    "lora_path":self.config.lora_path,"lora_scale":self.config.lora_scale,
+                    "lora_alpha":self.config.lora_alpha,"lora_sha256":self.config.lora_sha256,
                     "encoder_batch_size":self.config.encoder_batch_size,
                     "detection_batch_size":self.config.detection_batch_size,
                     "protected_document_resolution":self.config.protected_document_resolution,

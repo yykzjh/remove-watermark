@@ -117,6 +117,10 @@ class DeploymentConfig(BaseModel):
     translucent_body_hint: bool = False
     translucent_transmission: float = Field(default=.55, ge=.35, le=.85, allow_inf_nan=False)
     transformer_phase_offload: bool = False
+    lora_path: str = Field(default="", max_length=4096)
+    lora_scale: float = Field(default=1., ge=0, le=2, allow_inf_nan=False)
+    lora_alpha: float = Field(default=0., ge=0, le=512, allow_inf_nan=False)
+    lora_sha256: str = Field(default="", pattern=r"^(?:[0-9a-f]{64})?$")
     batch_window: int = Field(default=4, ge=1, le=8)
     batch_bucketing: bool = False
     adaptive_dispatch: bool = False

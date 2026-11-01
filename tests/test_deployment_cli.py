@@ -93,3 +93,15 @@ def test_document_resolution_numeric_literal_roundtrips(tmp_path):
     config,_=parse_deployment(["--config",str(path),"--protected-document-resolution","1536",
                               "--quality-phase-offload-above","1024"])
     assert config.protected_document_resolution==1536 and config.quality_phase_offload_above==1024
+
+
+def test_adapter_cli_keeps_artifact_fingerprint_and_rejects_nonfinite_strength(tmp_path):
+    from watermark_studio.deployment_cli import parse_deployment
+    path=tmp_path/"base.toml";path.write_text("")
+    config,_=parse_deployment(["--config",str(path),"--lora-path","/models/adapter.safetensors",
+                              "--lora-alpha","32","--lora-scale",".75","--lora-sha256","a"*64])
+    assert config.lora_path=="/models/adapter.safetensors" and config.lora_scale==.75
+    assert config.lora_alpha==32 and config.lora_sha256=="a"*64
+    for flags in (["--lora-scale","nan"],["--lora-alpha","inf"],["--lora-sha256","invalid"]):
+        with pytest.raises(SystemExit):
+            parse_deployment(["--config",str(path),*flags])

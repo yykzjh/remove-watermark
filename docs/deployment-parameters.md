@@ -16,6 +16,10 @@
 |--prefill-overlays|False|Experimental source-only harmonic conditioning for focused or protected whole editing; whole mode requires trusted large-card cores. Small groups remain original for Qwen removal. No extra generation.|
 |--prefill-original-semantics|False|With prefill-overlays in protected whole mode, encode the unchanged full photograph and baseline prompt; initialize only the VAE reference. No extra image encoding or generation; experimental, not in default recipe.|
 |--protect-denoising-context|False|Experimental full-frame flow context preservation using already encoded original VAE latents. Same official sigma schedule and full-frame forwards. Incompatible with prefill-overlays; not enabled in recipe.|
+|--lora-path|(empty)|Optional plain Qwen21 safetensors LoRA. CPU FP32 fusion before quantization/compilation; no runtime adapter branch. Comfy fused gate_up is split into gate_layer then proj; unknown/missing/extra tensors fail closed. Experimental, not in default recipe.|
+|--lora-scale|1.0|Adapter strength 0..2; applies alpha/rank at merge, record actual artifact SHA with each worker/result.|
+|--lora-alpha|0.0|Explicit training alpha; 0 requires scalar per-pair alpha or ss_network_alpha metadata. No silent alpha=rank fallback.|
+|--lora-sha256|(empty)|Optional pinned lowercase SHA256; mismatch fails before any model parameter mutation.|
 |--transformer-phase-offload|False|Stage unquantized DiT during SOURCE/QA; park editor only after full prompt encoding until generation+VAE decode finish; pinned immutable mirrors; independent unquantized verifier is staged too; quantization=none, offload=none|
 |--translucent-body-hint|False|Experimental full-frame VAE hint in independently proven translucent digital card bodies; original semantic/QA reference and all guards retained, requires protect-source-rims, incompatible with prefill-overlays. Not enabled by recipe.|
 |--translucent-transmission|0.55|Assumed white-card transmission, 0.35..0.85; conditioning only, not measured opacity or final pixel recovery.|
