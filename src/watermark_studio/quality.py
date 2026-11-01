@@ -288,7 +288,7 @@ def repair_boundary_warnings(image, regions, feather=12, resolution=1024, before
 
 
 def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=None, debug=False,
-                           *, inset_search=False, core_boxes=()):
+                           *, inset_search=False, core_boxes=(), _source_rim_reference_boxes=()):
     """Detect box-aligned sharpness collapse while allowing genuine low-detail surfaces."""
     scale=min(1,resolution/max(image.size))
     size=(max(1,round(image.width*scale)),max(1,round(image.height*scale)))
@@ -353,7 +353,9 @@ def repair_texture_warnings(image, regions, feather=12, resolution=1024, before=
                     if core_boxes and not inset_search:
                         from .surface_reference import matching_smooth_run, source_rims
                         if source_references is None:
-                            source_references=source_rims(reference,regions,core_boxes)
+                            source_references=source_rims(reference,regions,core_boxes,
+                                **({"verified_clear_boxes":_source_rim_reference_boxes}
+                                   if _source_rim_reference_boxes else {}))
                         support=matching_smooth_run(source_references.get(region_index,[]),colours[0])
                         if support:
                             supported_references.append({"region":region_index,"side":side,"lo":lo,

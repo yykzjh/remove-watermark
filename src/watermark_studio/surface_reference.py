@@ -15,10 +15,16 @@ def _box(value):
     return tuple(value) if 0<=a<c<=1 and 0<=b<d<=1 else None
 
 
-def source_rims(rgb,regions,cores):
-    """Only raw detector cores with matching padded masks define visible margins."""
+def source_rims(rgb,regions,cores,*,verified_clear_boxes=()):
+    """Visible detector margins, optionally supplemented by proven clear source bands.
+
+    The caller must validate source SHA and clear-band provenance before supplying
+    verified_clear_boxes. No inferred/generated pixels may establish a reference.
+    This helper never changes production approval policy.
+    """
     height,width=rgb.shape[:2]
     masks=[tuple(r.box) for r in regions]
+    clear_boxes=[box for value in verified_clear_boxes if (box:=_box(value)) is not None]
     mapping={}
     for item in cores or []:
         if not isinstance(item,dict):
@@ -51,20 +57,27 @@ def source_rims(rgb,regions,cores):
             low,high_at=(coord-8,coord-4) if lower else (coord+4,coord+8)
             if low<0 or high_at>(width if vertical else height):
                 continue
-            if (lower and low<outer+1) or (not lower and high_at>outer-1):
+            in_margin=not ((lower and low<outer+1) or (not lower and high_at>outer-1))
+            if not in_margin and not clear_boxes:
                 continue
             start,end=(t,b) if vertical else (l,r)
             tiles=[]
             for at in range(start+8,end-39,32):
                 native=(low,at,high_at,at+32) if vertical else (at,low,at+32,high_at)
                 box=[v/s for v,s in zip(native,(width,height,width,height))]
+                clear_band=any(q[0]<=box[0] and q[1]<=box[1] and
+                               box[2]<=q[2] and box[3]<=q[3] for q in clear_boxes)
+                if not in_margin and not clear_band:
+                    tiles.append(None);continue
                 blocked=any(max(box[0],q[0])<min(box[2],q[2]) and
                             max(box[1],q[1])<min(box[3],q[3]) for q in unknown)
                 if blocked:
                     tiles.append(None);continue
                 x0,y0,x1,y1=native
                 sample=rgb[y0:y1,x0:x1]
-                tiles.append({"box":box,"detail":float(high[y0:y1,x0:x1].mean()),
+                tiles.append({"box":box,
+                              "scope":"detector_margin" if in_margin else "verified_clear_source_band",
+                              "detail":float(high[y0:y1,x0:x1].mean()),
                               "spread":float(sample.std(axis=(0,1)).mean()),
                               "rgb":np.median(sample.reshape(-1,3),axis=0).tolist()})
             sides.append({"side":side,"tiles":tiles})
@@ -90,5 +103,6 @@ def matching_smooth_run(sides,colour):
                 return {"reference_side":side["side"],"reference_boxes":[r["box"] for r in run],
                         "reference_detail_max":round(max(r["detail"] for r in run),4),
                         "colour_delta_max":round(max(r["colour_delta"] for r in run),3),
-                        "visible_source_pixels":96}
+                        "visible_source_pixels":96,
+                        "reference_scopes":sorted({r.get("scope","detector_margin") for r in run})}
     return None

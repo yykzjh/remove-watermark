@@ -70,3 +70,35 @@ def test_rim_reference_pixels_must_not_overlap_any_other_overlay_core():
     refs=source_rims(rgb,[region,other],[core])
     left=next(side for side in refs[0] if side["side"]=="left")
     assert left["tiles"] and all(tile is None for tile in left["tiles"])
+
+
+def test_tight_scope_only_uses_explicit_clear_band_outside_mask():
+    before,_after,_regions,cores=scene()
+    tight=Region(kind="panel",box=(.02,.62,.48,.98))
+    tight_cores=[{"mask":list(tight.box),"core":cores[0]["core"]}]
+    rgb=np.asarray(before,dtype=np.float32)
+    top=lambda refs:next((s for s in refs[0] if s["side"]=="top"),None)
+    assert top(source_rims(rgb,[tight],tight_cores)) is None
+    clear=(.02,.58,.48,.62)
+    refs=source_rims(rgb,[tight],tight_cores,verified_clear_boxes=[clear])
+    support=matching_smooth_run([top(refs)],np.array([109,142,176]))
+    assert support["visible_source_pixels"]==96
+    assert support["reference_scopes"]==["verified_clear_source_band"]
+    # A short, invalid, or noncontaining strip cannot establish 96 clear pixels.
+    for band in ((.05,.60,.10,.62),[0,0,1,2],(.02,.619,.48,.62)):
+        refs=source_rims(rgb,[tight],tight_cores,verified_clear_boxes=[band])
+        assert matching_smooth_run([top(refs)] if top(refs) else [],np.array([109,142,176])) is None
+
+
+def test_clear_band_cannot_override_other_unknown_overlay_or_colour():
+    before,_after,_regions,cores=scene()
+    tight=Region(kind="panel",box=(.02,.62,.48,.98))
+    other=Region(kind="logo",box=(.02,.60,.48,.619))
+    tight_cores=[{"mask":list(tight.box),"core":cores[0]["core"]}]
+    refs=source_rims(np.asarray(before,dtype=np.float32),[tight,other],tight_cores,
+                     verified_clear_boxes=[(.02,.58,.48,.62)])
+    top=next(s for s in refs[0] if s["side"]=="top")
+    assert all(t is None for t in top["tiles"])
+    refs=source_rims(np.asarray(before,dtype=np.float32),[tight],tight_cores,
+                     verified_clear_boxes=[(.02,.58,.48,.62)])
+    assert matching_smooth_run(refs[0],np.array([180,30,30])) is None

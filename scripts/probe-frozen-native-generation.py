@@ -26,6 +26,7 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--caption-job",help="Optional SHA-bound existing source observations; no additional caption/GEN calls")
     p.add_argument("--frozen-input-budget",action="store_true",help="Reuse each source record original single inference budget, including document overrides")
     p.add_argument("--sigma-profile",choices=["native","tail9","tail10","tail12"],default="native",help="Offline tail refinement; adds measured forward cost but no second image generation")
     p.add_argument("--quantization",choices=["float8","none"],default="float8")
@@ -58,6 +59,10 @@ def main():
         if Path(row["file"]).is_absolute() or not source.is_relative_to(source_root):
             p.error("Source must remain under immutable input root")
         hashes[row["file"]]=digest(source)
+    captions={}
+    if a.caption_job:
+        from watermark_studio.probe_conditioning import frozen_source_captions
+        captions=frozen_source_captions(state,a.caption_job,hashes)
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu);os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
     import torch
     from PIL import Image
@@ -105,7 +110,11 @@ def main():
         budget=row["model_input_budgets"][0] if a.frozen_input_budget else options.resolution
         width,height=dimensions(source,budget)
         seed=(options.seed+int.from_bytes(hashlib.sha256(name.encode()).digest()[:4],"big"))%(2**32)
-        item={"image":source,"prompt":build_full_prompt(options.extra_prompt,options.whole_prompt_profile),"seed":seed}
+        prompt=build_full_prompt(options.extra_prompt,options.whole_prompt_profile)
+        if captions:
+            from watermark_studio.probe_conditioning import observed_scene_prompt
+            prompt=observed_scene_prompt(prompt,captions[name])
+        item={"image":source,"prompt":prompt,"seed":seed}
         if a.source_flow_context:
             item["_denoising_context_regions"]=[r.model_dump() for r in scoped]
         capture={};original_decode=pipe.vae.decode
@@ -135,6 +144,8 @@ def main():
             "source_rim_protection","source_edge_completion","source_geometry_requery","source_physical_vetting",
             "source_detail_views","source_detail_context_requeries")
         result={k:row[k] for k in source_fields if k in row}
+        if captions:
+            result["observed_scene_conditioning"]=captions[name]
         result.update(ok=True,quality={},quality_attempts=1,model_inferences=1,processing_path="whole_composite",
             action="restored",output_size=size,model_input_budgets=[budget],latent_capture=capture,harmonization=generated.info.get("harmonization"),
             denoising_context=[item["_denoising_context_log"]] if "_denoising_context_log" in item else [],
@@ -153,7 +164,7 @@ def main():
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
         "native_settings":{"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
-            "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
+            "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"caption_job":a.caption_job,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
             "source_flow_context":a.source_flow_context,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
