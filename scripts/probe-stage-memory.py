@@ -33,6 +33,7 @@ from watermark_studio.quality_loading import (
 from watermark_studio.worker import load_pipeline
 
 torch.set_num_threads(1)
+assert torch.cuda.mem_get_info()[0]>35*2**30,"Probe GPU is not free enough; do not disturb other work"
 report={"gpu":a.gpu,"source":str(a.source)}
 before=hashlib.sha256(a.source.read_bytes()).hexdigest()
 cfg=DeploymentConfig(gpus=[a.gpu],quality_verifier=True,quality_backend="independent",quality_phase_offload=True)

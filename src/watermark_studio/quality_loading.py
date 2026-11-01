@@ -79,7 +79,7 @@ def load_quality_encoder(path, config, device):
             raise RuntimeError("Verifier vision encoder must retain full inference precision")
     return encoder.eval()
 
-   
+
 def park_quality_encoder(encoder):
     """Reuse immutable host weights: no repeated GPU-to-CPU parameter copy."""
     import torch
