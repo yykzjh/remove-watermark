@@ -361,6 +361,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     core_box=None
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
+                    "_denoising_context_regions": ([r.model_dump() for r in state["protected_regions"]]
+                        if config.protect_denoising_context and state["whole_generation"]
+                        and state["protected_regions"] is not None else None),
                     "_semantic_reference": (source if prefilled and state["whole_generation"]
                                             and config.prefill_original_semantics else None),
                     "prompt": (build_full_prompt(extra_prompt,options.whole_prompt_profile)
@@ -498,6 +501,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "window_prefill_stats":prefill_stats,
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
+            "denoising_context": [e.get("_denoising_context_log") for e in edits if e["state"] is state
+                                  and e.get("_denoising_context_log")],
             "original_semantic_reference": bool(config.prefill_original_semantics and state["whole_generation"]
                 and any(e["prefilled"] for e in edits if e["state"] is state)),
             "whole_conditioning_source":("source_harmonic_initialization" if state["whole_generation"]

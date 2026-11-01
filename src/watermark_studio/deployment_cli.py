@@ -18,6 +18,7 @@ HELP = {
     "batch_size": "Maximum independent edits per GPU forward, 1..16",
     "prefill_overlays": "Experimental source-only harmonic conditioning for focused or protected whole editing; requires trusted cores for whole mode; no additional generations",
     "prefill_original_semantics": "Experimental protected whole prefill: encode the original full photograph with the baseline prompt; initialize only the VAE reference; active with prefill-overlays",
+    "protect_denoising_context": "Experimental protected whole editing: preserve original context on the flow trajectory, reuse existing full-frame VAE latents; no extra model forwards; incompatible with prefill-overlays",
     "large_batch_size": "Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks",
     "small_batch_size": "Optional separate batch cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it",
     "batch_window": "Images gathered per worker = batch size times window, 1..8",

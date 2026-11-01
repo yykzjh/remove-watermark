@@ -1,5 +1,6 @@
 """Independent-image batching for pinned QwenImage21. Never broadcast reference pixels."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from functools import wraps
 
 
 def dimensions(image, resolution):
@@ -127,18 +128,47 @@ def independent_batch(pipe, items, resolution, kv_cache):
         def encode_prompt(**kwargs):
             return combined
 
+        context_rows = [item.get("_denoising_context_regions") is not None for item in items]
+        if any(context_rows) and not all(context_rows):
+            raise ValueError("Cannot mix protected and ordinary denoising contexts")
+        context = None
+        if all(context_rows):
+            if (type(pipe.scheduler).__name__ != "FlowMatchEulerDiscreteScheduler"
+                    or getattr(pipe.scheduler.config, "stochastic_sampling", False)):
+                raise ValueError("Context protection requires deterministic FlowMatchEuler scheduling")
+            from .denoising_context import DenoisingContext
+            context = DenoisingContext(items, width, height, pipe.vae_scale_factor)
+
         def prepare_latents(images, *args, **kwargs):
-            return original_prepare([vae_batch], *args, **kwargs)
+            noise, reference = original_prepare([vae_batch], *args, **kwargs)
+            return context.capture(noise, reference) if context is not None else (noise, reference)
+
+        original_schedule = pipe.scheduler.set_timesteps
+
+        @wraps(original_schedule)
+        def set_timesteps(*args, **kwargs):
+            result = original_schedule(*args, **kwargs)
+            context.schedule(pipe.scheduler.sigmas)
+            return result
+
+        callback_options = ({"callback_on_step_end": context.after_step,
+                             "callback_on_step_end_tensor_inputs": ["latents"]}
+                            if context is not None else {})
+        schedule_scope = (override_methods(pipe.scheduler, set_timesteps=set_timesteps)
+                          if context is not None else nullcontext())
 
         generators = [torch.Generator("cpu").manual_seed(item["seed"]) for item in items]
-        with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents):
+        with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents), schedule_scope:
             separate=getattr(pipe,"_watermark_separate_vae_decode",False)
             output=pipe(
                 prompt=[item["prompt"] for item in items], image=items[0]["image"],
                 height=height, width=width, output_resolution=resolution,
                 true_cfg_scale=1.0, use_kv_cache=kv_cache, generator=generators,
                 output_type="latent" if separate else "pil",
+                **callback_options,
             ).images
+        if context is not None:
+            context.finish()
         # Returning from the pipeline releases its local prefix K/V and denoising
         # tensors before allocating VAE activations; sampling arithmetic is unchanged.
         return decode_latents(pipe,output,height,width) if separate else output

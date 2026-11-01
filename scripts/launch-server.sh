@@ -4,7 +4,9 @@
 # To disable an enabled boolean, remove its line or call start-server.sh directly.
 # Available disabled boolean switches (uncomment only after validating the combination):
 # --quality-cross-full-context: Experimental full-result physical-carrier context; all vetoes remain.
-# --prefill-original-semantics: With prefill-overlays, retain the original full-frame VLM reference; initialize VAE only. Experimental, disabled by default.\n# --prefill-overlays: Experimental source-only harmonic conditioning for focused or protected whole editing; requires trusted cores for whole mode; no additional generations
+# --protect-denoising-context: Experimental full-frame flow context preservation; no extra VAE/diffusion forwards; incompatible with prefill-overlays.
+# --prefill-original-semantics: With prefill-overlays, retain the original full-frame VLM reference; initialize VAE only. Experimental, disabled by default.
+# --prefill-overlays: Experimental source-only harmonic conditioning for focused or protected whole editing; requires trusted cores for whole mode; no additional generations
 # --adaptive-dispatch: Shrink worker windows near job tail to balance remaining work
 # --quality-verifier: Enable post-removal review using the selected quality backend
 # --retain-rejected-first: Keep an immutable first rejected candidate for audit; adds disk use only for rejected first attempts

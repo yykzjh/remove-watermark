@@ -112,6 +112,7 @@ class DeploymentConfig(BaseModel):
     small_batch_size: int = Field(default=0, ge=0, le=16)
     prefill_overlays: bool = False
     prefill_original_semantics: bool = False
+    protect_denoising_context: bool = False
     batch_window: int = Field(default=4, ge=1, le=8)
     batch_bucketing: bool = False
     adaptive_dispatch: bool = False
@@ -167,6 +168,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.protect_denoising_context and self.prefill_overlays:
+            raise ValueError("生成上下文保护需使用未初始化的完整原图，不能同时启用prefill-overlays")
         if self.quality_quantization!="none" and (not self.quality_verifier or self.quality_backend!="independent"):
             raise ValueError("检验量化需要启用独立检验模型")
         if len(set(self.gpus)) != len(self.gpus) or any(g < 0 for g in self.gpus):

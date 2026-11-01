@@ -28,6 +28,7 @@ def test_all_deployment_fields_have_cli_options_and_override_toml(tmp_path):
     ["--compile", "--offload", "model"],
     ["--gpus", "1,1"],
     ["--gpus", "oops"],
+    ["--prefill-overlays", "--protect-denoising-context"],
     ["--replicas-per-gpu", "9"],
     ["--parallelism", "tensor"],
     ["--offload", "model", "--quantization", "float8"],

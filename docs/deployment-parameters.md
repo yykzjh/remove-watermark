@@ -14,7 +14,9 @@
 |--parallelism|data|single: exactly one worker; data: independent image workers on selected GPUs|
 |--batch-size|2|Maximum independent edits per GPU forward, 1..16|
 |--prefill-overlays|False|Experimental source-only harmonic conditioning for focused or protected whole editing; whole mode requires trusted large-card cores. Small groups remain original for Qwen removal. No extra generation.|
-|--prefill-original-semantics|False|With prefill-overlays in protected whole mode, encode the unchanged full photograph and baseline prompt; initialize only the VAE reference. No extra image encoding or generation; experimental, not in default recipe.|\n|--large-batch-size|0|Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks|
+|--prefill-original-semantics|False|With prefill-overlays in protected whole mode, encode the unchanged full photograph and baseline prompt; initialize only the VAE reference. No extra image encoding or generation; experimental, not in default recipe.|
+|--protect-denoising-context|False|Experimental full-frame flow context preservation using already encoded original VAE latents. Same official sigma schedule and full-frame forwards. Incompatible with prefill-overlays; not enabled in recipe.|
+|--large-batch-size|0|Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks|
 |--small-batch-size|0|Separate cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it. Does not raise the raw-image concurrency/window. Exact shapes and OOM learned caps still apply. Quality recipe explicitly selects 2.|
 |--batch-window|4|Images gathered per worker = batch size times window, 1..8|
 |--batch-bucketing|False|Group edits by identical inference dimensions within the window|

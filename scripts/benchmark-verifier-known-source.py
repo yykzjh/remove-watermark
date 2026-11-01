@@ -18,6 +18,7 @@ from pathlib import Path
 PROFILES={
     "4b-bf16":("Qwen--Qwen3-VL-4B-Instruct","none"),
     "8b-nf4":("Qwen--Qwen3-VL-8B-Instruct","nf4"),
+    "32b-nf4":("Qwen--Qwen3-VL-32B-Instruct","nf4"),
     "35-4b-bf16":("Qwen--Qwen3.5-4B","none"),
     "35-9b-bf16":("Qwen--Qwen3.5-9B","none"),
 }
@@ -245,8 +246,8 @@ def main():
         parser.error("The optional uniform-core veto requires text-free consensus")
     if args.frozen_disputes and args.inspection_profile!="legacy":
         parser.error("Cached first verdicts cannot be relabelled with a fresh inspection protocol")
-    if args.first_snapshot and (args.frozen_disputes or args.controls_only or args.profile not in {"4b-bf16","35-4b-bf16","35-9b-bf16"}):
-        parser.error("--first-snapshot requires fresh independent unquantized inspection; no cached disputes/controls-only")
+    if args.first_snapshot and (args.frozen_disputes or args.controls_only):
+        parser.error("--first-snapshot requires fresh independent inspection; no cached disputes/controls-only")
     if args.text_free_consensus and not args.cross_review:
         parser.error("--text-free-consensus requires --cross-review")
     if args.frozen_disputes and (not args.text_free_consensus or args.controls or args.controls_only or args.paired_context or args.profile!="4b-bf16"):
