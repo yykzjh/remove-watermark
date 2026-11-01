@@ -26,6 +26,9 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--quantization",choices=["float8","none"],default="float8")
+    p.add_argument("--granularity",choices=["tensor","row"],default="tensor")
+    p.add_argument("--transformer-phase-offload",action="store_true")
     p.add_argument("--kv-cache",action="store_true")
     p.add_argument("--source-flow-context",action="store_true")
     p.add_argument("--compile-projections",action="store_true")
@@ -68,7 +71,8 @@ def main():
     from watermark_studio.source_panel_rims import effective_rim_scope, restore_proven_rims
     from watermark_studio.worker import load_pipeline
     torch.set_num_threads(1)
-    cfg=DeploymentConfig(model=str(a.model),gpus=[a.gpu],quantization="float8",prompt_encoder="lean",
+    cfg=DeploymentConfig(model=str(a.model),gpus=[a.gpu],quantization=a.quantization,float8_granularity=a.granularity,
+        transformer_phase_offload=a.transformer_phase_offload,prompt_encoder="lean",
         compile=a.compile_projections,compile_scope="projections",compile_dynamic=a.compile_projections,
         separate_vae_decode=a.separate_vae_decode)
     began=time.monotonic();pipe=load_pipeline(cfg,str(a.model));load_seconds=time.monotonic()-began
@@ -136,6 +140,9 @@ def main():
     report={"state":"completed","job":job,"source_job":a.source_job,"input_dir":str(source_root),"output_dir":str(outputs),
         "total":len(rows),"options":options.model_dump(),"code_revision":revision,"sources_sha256":hashes,
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
+        "native_settings":{"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
+            "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
+            "source_flow_context":a.source_flow_context,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))

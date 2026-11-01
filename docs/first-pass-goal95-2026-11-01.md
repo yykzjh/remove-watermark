@@ -711,3 +711,16 @@ a544d91完整多样64 ControlNet1.5仅37/64（原整图编辑49/64），QA99.284
 解码小试验改优先原生整图编辑：调用现有independent_batch，冻结源范围/提示与种子，
 仅观察原始VAE实际输入，不改其内容/调用次数。只保存safetensors与源SHA，先原解码RGB/字节精确复现，
 再改解码器；不会借用ControlNet较差总体结果宣称原生路线改善。
+
+3dbd7be本地完整569 passed、13缺Torch skip、Ruff通过；开发机decoder/control/SR合计10项真实Torch测试通过9.59秒。
+原生6图单GEN捕获5e4a428a2ad04e6496968be22af6bdb1，52.639秒+26.565加载，原QA2/6。
+修正VAE已直下且SHA/字节数校验成功。同输入解码74c6c8480f4b49d5859bf4e04467f4ea：
+18.035秒包含两种解码和基准合成校验，加载12.595另计；6/6原RGB及最终文件字节精确复现，额外生成0。
+修正VAE严格QA仍2/6（34.864秒+19.657加载），没有数量收益，暂不接服务默认。
+同一原生64图用新glyph协议严格重新复检47/64，97.350秒+20.318加载（三GPU）；
+不是新生成，也不能套用原49/64结论称已达95。
+
+准备单独核查原生FP8缩放粒度与KV缓存交互。TorchAO官方说明PerTensor/PerRow同时影响动态激活与权重，
+因此整张量动态scale在缓存路径剔除prefix后可能不同，此为需实测的数值假设，不是已证实根因。
+早期row性能微基准只有吞吐/像素差异，不是目前严格质量实验；不因row预期更准直接采用。
+参考：https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html
