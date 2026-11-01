@@ -724,3 +724,13 @@ a544d91完整多样64 ControlNet1.5仅37/64（原整图编辑49/64），QA99.284
 因此整张量动态scale在缓存路径剔除prefix后可能不同，此为需实测的数值假设，不是已证实根因。
 早期row性能微基准只有吞吐/像素差异，不是目前严格质量实验；不因row预期更准直接采用。
 参考：https://docs.pytorch.org/ao/stable/api_reference/generated/torchao.quantization.Float8DynamicActivationFloat8WeightConfig.html
+
+da1ee6d同6图原生FP8/cache矩阵：row+KV54.033秒、row无KV89.483秒、tensor无KV89.768秒，
+相对tensor+KV52.639秒，三组QA均2/6，不采用更慢路径，也未证实缓存/缩放是当前缺陷的主因。
+BF16分阶段未量化参考97cfc17417a94b7c8ec38e969e51446d生成71.776秒+64.200加载，
+QA24.356秒+20.291加载，仍2/6，不以解除量化当作画质收益。
+
+准备默认native不变的离线末端sigma细化：tail9/tail10/tail12完整保留原8个sigma，
+仅追加原末端sigma的1/2、1/4（以及1/8、1/16），不改变先前步、不产生第二张候选或返工。
+原模型为8步优化，这些是未证实有效的实验，不是官方建议。实际9/10/12次前向及耗时必须完整记录，
+不能称“仍为8步”，也不能通过增加计算却声称吞吐提升；只在严格质量/总耗时确有收益时考虑。

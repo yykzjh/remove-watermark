@@ -26,6 +26,7 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--sigma-profile",choices=["native","tail9","tail10","tail12"],default="native",help="Offline tail refinement; adds measured forward cost but no second image generation")
     p.add_argument("--quantization",choices=["float8","none"],default="float8")
     p.add_argument("--granularity",choices=["tensor","row"],default="tensor")
     p.add_argument("--transformer-phase-offload",action="store_true")
@@ -76,6 +77,11 @@ def main():
         compile=a.compile_projections,compile_scope="projections",compile_dynamic=a.compile_projections,
         separate_vae_decode=a.separate_vae_decode)
     began=time.monotonic();pipe=load_pipeline(cfg,str(a.model));load_seconds=time.monotonic()-began
+    from watermark_studio.probe_schedules import tail_sigma_grid
+    original_sigmas=list(pipe.config.sample_sigmas)
+    experimental_sigmas=tail_sigma_grid(original_sigmas,a.sigma_profile)
+    if a.sigma_profile!="native":
+        pipe.register_to_config(sample_sigmas=experimental_sigmas)
     options=ProcessingConfig.model_validate(summary["options"])
     options.quality_auto_retry=False;options.quality_max_attempts=0;options.overwrite=False
     work=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")/a.tag
@@ -130,7 +136,8 @@ def main():
             denoising_context=[item["_denoising_context_log"]] if "_denoising_context_log" in item else [],
             source_rim_composition={"regions":[r.model_dump() for r in scoped],"cores":cores},
             native_generation_probe={"model_input_size":[width,height],"seed":seed,"whole_frame":True,
-                "seconds":round(time.monotonic()-started,4),"kv_cache":a.kv_cache,"steps":len(pipe.scheduler.timesteps)})
+                "seconds":round(time.monotonic()-started,4),"kv_cache":a.kv_cache,
+                "encoder_residency":item.get("_encoder_generation_log"),"sigma_profile":a.sigma_profile,"steps":len(pipe.scheduler.timesteps)})
         with (folder/"results.jsonl").open("a") as f:f.write(json.dumps(result,ensure_ascii=False)+"\n")
         print(json.dumps({"completed":index+1,"total":len(rows),"job":job}),flush=True)
     if any(digest(source_root/name)!=value for name,value in hashes.items()):
@@ -142,6 +149,7 @@ def main():
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
         "native_settings":{"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
+            "sigma_profile":a.sigma_profile,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
             "source_flow_context":a.source_flow_context,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
