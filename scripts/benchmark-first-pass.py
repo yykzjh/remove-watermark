@@ -2,6 +2,7 @@
 import argparse
 import collections
 import hashlib
+import itertools
 import json
 import os
 import random
@@ -27,10 +28,12 @@ parser.add_argument("--preserve-background",action="store_true",help="Explicit l
 parser.add_argument("--concurrency",type=int,default=20)
 parser.add_argument("--quality-batch-size",type=int,choices=[1,2,3,4],default=2)
 parser.add_argument("--files",nargs="*")
+parser.add_argument("--select-model-review",action="store_true",help="Development replay: generator VLM rejections plus deterministic model-passed controls")
 parser.add_argument("--select-review",action="store_true",help="Frozen job: all unaccepted rows plus deterministic passed controls")
 parser.add_argument("--review-controls",type=int,default=32)
 parser.add_argument("--source-job",help="Completed job ID for a frozen source replay; requires --files")
 parser.add_argument("--blending",choices=["harmonic","harmonic-fine"],default="harmonic")
+parser.add_argument("--whole-prompt-profiles",nargs="+",choices=["baseline","fidelity","minimal"],default=["baseline"])
 parser.add_argument("--profiles",nargs="+",default=["whole-1024","focused-1024","thorough-1024"])
 args=parser.parse_args()
 benchmark_revision=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()
@@ -58,7 +61,7 @@ elif args.subset=="replay":
     names=hard+sorted(bad)+controls
     paths=[base/"input"/name for name in hard]+[old/"input"/name for name in sorted(bad)+controls]
 elif args.subset=="frozen":
-    if not args.source_job or not re.fullmatch(r"[a-f0-9]{32}",args.source_job) or (not args.files and not args.select_review):
+    if not args.source_job or not re.fullmatch(r"[a-f0-9]{32}",args.source_job) or (not args.files and not args.select_review and not args.select_model_review):
         parser.error("Frozen replay requires a completed --source-job and explicit --files or --select-review")
     folder=Path.home()/".local/state/watermark-studio"/args.source_job
     snapshot=json.loads((folder/"summary.json").read_text())
@@ -66,11 +69,14 @@ elif args.subset=="frozen":
         parser.error("Source job must be completed")
     frozen=Path(snapshot["input_dir"]).resolve()
     records=[json.loads(line) for line in (folder/"results.jsonl").read_text().splitlines()]
-    if args.select_review:
+    if args.select_review and args.select_model_review:
+        parser.error("Choose one review selection method")
+    if args.select_review or args.select_model_review:
         if args.files or not 0<=args.review_controls<=1024:
             parser.error("Review selection excludes --files and requires 0..1024 controls")
-        rejected=sorted(r["file"] for r in records if r.get("quality",{}).get("status")!="passed")
-        controls=sorted(r["file"] for r in records if r.get("quality",{}).get("status")=="passed")
+        criterion="model_status" if args.select_model_review else "status"
+        rejected=sorted(r["file"] for r in records if r.get("quality",{}).get(criterion)!="passed")
+        controls=sorted(r["file"] for r in records if r.get("quality",{}).get(criterion)=="passed")
         controls=random.Random(args.seed).sample(controls,min(args.review_controls,len(controls)))
         args.files=rejected+sorted(controls)
     available={r["file"] for r in records}
@@ -120,7 +126,7 @@ source_hashes={name:hashlib.sha256((inputs/name).read_bytes()).hexdigest() for n
 if args.subset=="holdout" and (len(set(source_hashes.values()))!=len(paths)
         or set(source_hashes.values())&prior_hashes):
     raise ValueError("Holdout hashes must be unique and disjoint from all excluded inputs")
-selection={"benchmark_revision":benchmark_revision,"automatic_exclusions":automatic_exclusions,"subset":args.subset,"sampling_seed":args.seed,"images":len(paths),
+selection={"benchmark_revision":benchmark_revision,"automatic_exclusions":automatic_exclusions,"subset":args.subset,"sampling_seed":args.seed,"select_model_review":args.select_model_review,"images":len(paths),
     "exclusions":args.exclude_benchmarks,"prior_sha256_overlap":len(set(source_hashes.values())&prior_hashes),
     "unique_sha256":len(set(source_hashes.values())),"source_sha256":source_hashes,
     "sources":[str(p) for p in paths]}
@@ -129,16 +135,17 @@ selection_text=json.dumps(selection,ensure_ascii=False,sort_keys=True)
 selection_sha256=hashlib.sha256(selection_text.encode()).hexdigest()
 
 while request(args.url,"/health")["stage"]!="ready": time.sleep(2)
-for profile in args.profiles:
+for profile,whole_prompt_profile in itertools.product(args.profiles,args.whole_prompt_profiles):
     match=re.fullmatch(r"(whole|focused|thorough|complete)(?:@([0-9.]+))?-([0-9]+)",profile)
     if not match: raise ValueError("Invalid profile")
     mode,context,budget=match.groups();budget=int(budget);context=float(context or .6)
+    profile=profile+("--"+whole_prompt_profile if len(args.whole_prompt_profiles)>1 or whole_prompt_profile!="baseline" else "")
     target=work/profile
     if target.exists(): raise RuntimeError("Fresh tag/output required; existing accepted outputs must not bias first-pass metrics")
     preserve_background=mode!="whole" or args.preserve_background
     started=time.monotonic()
     job=request(args.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(target),"options":{
-        "scope":"full_image","concurrency":args.concurrency,"resolution":budget,"preserve_background":preserve_background,"first_pass_mode":mode,"context":context,
+        "scope":"full_image","whole_prompt_profile":whole_prompt_profile,"concurrency":args.concurrency,"resolution":budget,"preserve_background":preserve_background,"first_pass_mode":mode,"context":context,
         "repair_blending":args.blending,"quality_check":not args.generation_only,"quality_batch_size":args.quality_batch_size,
         "quality_detail_patches":4,"quality_cross_review":args.cross_review,"quality_auto_retry":False,"seed":42,"overwrite":True}})["id"]
     last_progress=started
@@ -166,7 +173,7 @@ for profile in args.profiles:
         raise ValueError("A generation retry cannot count as a first-pass result")
     counts=collections.Counter(r.get("quality",{}).get("status","none") for r in rows)
     record={"processing_path":("whole_direct" if mode=="whole" and not preserve_background else "whole_composite" if mode=="whole" else "region_repair"),
-        "preserve_background":preserve_background,"scope":"full_image","concurrency":args.concurrency,
+        "preserve_background":preserve_background,"scope":"full_image","whole_prompt_profile":whole_prompt_profile,"concurrency":args.concurrency,
         "deployment":{"batch_size":state.get("batch_size"),"small_batch_size":state.get("small_batch_size"),
                       "batch_window":state.get("batch_window"),"worker_count":state.get("worker_count"),
                       "optimization":state.get("optimization")},
@@ -175,8 +182,14 @@ for profile in args.profiles:
         "quality_model":state.get("quality_model"),"quality_backend":state.get("quality_backend"),"seconds":round(elapsed,3),"source_inputs_unchanged":source_unchanged,"source_hash_audit_seconds":source_audit_seconds,
         "source_selection_sha256":selection_sha256,"sampling_seed":args.seed,"model_seed":42,"first_counts":dict(counts),
         "first_pass_rate":None if args.generation_only else round(counts["passed"]/len(paths),5),
+        "model_status_counts":dict(collections.Counter(r.get("quality",{}).get("model_status","unknown") for r in rows)),
+        "guard_counts":dict(collections.Counter(g for r in rows for g in r.get("quality",{}).get("guard_codes",[]))),
+        "outside_change_tiles_sum":sum(r.get("quality",{}).get("outside_repair_change",{}).get("tiles",0) for r in rows),
+        "outside_change_max_mae_mean":round(sum(r.get("quality",{}).get("outside_repair_change",{}).get("max_tile_mae",0) for r in rows)/len(rows),4),
         "generation_only":args.generation_only,"quality_batch_size":args.quality_batch_size,"processing_failed":status["failed"],
         "model_inferences":sum(r.get("model_inferences",0) for r in rows),
+        "rows_with_oom_recovery":sum(r.get("oom_retries",0)>0 for r in rows),
+        "max_oom_retries_in_one_worker_request":max((r.get("oom_retries",0) for r in rows),default=0),
         "prefilled_model_inputs":sum(bool(p) for r in rows for p in r.get("conditioning_prefill",[])),
         "prefill_overlays":state.get("optimization",{}).get("prefill_overlays",False),
         "edit_batch_participation":dict(collections.Counter(str(b) for r in rows for b in r.get("batch_sizes",[]))),

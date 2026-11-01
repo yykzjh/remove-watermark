@@ -85,3 +85,14 @@ def test_explicit_subset_can_inspect_successful_pairs_without_hiding_a_full_job_
         TOOLS["frozen_job_cases"](state,"job",["failed.png"])
     with pytest.raises(ValueError,match="subset"):
         TOOLS["frozen_job_cases"](state,"job",["missing.png"])
+
+
+def test_whole_direct_empty_repair_mask_never_hides_original_watermarks(tmp_path):
+    state,folder,row=job_fixture(tmp_path,processing_path="whole_direct",repair_regions=[])
+    cases=TOOLS["frozen_job_cases"](state,"job")
+    assert len(cases[0]["regions"])==1
+    assert json.loads(json.dumps(cases[0]["regions"]))==row["quality"]["source_regions"]
+    row["quality"].pop("source_regions")
+    (folder/"results.jsonl").write_text(json.dumps(row)+"\n")
+    with pytest.raises(ValueError,match="source-mask"):
+        TOOLS["frozen_job_cases"](state,"job")

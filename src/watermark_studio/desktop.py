@@ -702,11 +702,12 @@ def default_ssh_program():
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     window.processing_context=getattr(args,"context",.6)
-    mode=getattr(args,"first_pass_mode","whole")
-    window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData(mode))
+    if getattr(args,"first_pass_mode","whole")!="whole" or args.preserve_background:
+        print("Desktop automatic mode now uses whole-image direct output; legacy crop/composite options apply only to CLI/API comparisons.",file=sys.stderr)
+    window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData("whole"))
     window.resolution.setCurrentIndex(window.resolution.findData(getattr(args,"input_resolution",1024)))
     window.repair_blending.setCurrentIndex(window.repair_blending.findData(getattr(args,"repair_blending","harmonic")))
-    window.preserve_background.setChecked(args.preserve_background)
+    window.preserve_background.setChecked(False)
     window.quality_check.setChecked(args.quality_check)
     window.quality_retry.setChecked(args.quality_auto_retry)
     window.quality_cross_review.setChecked(getattr(args,"quality_cross_review",False))
@@ -735,7 +736,7 @@ def main():
     parser.add_argument("--quality-check", action="store_true", help="Preselect quality review")
     parser.add_argument("--quality-cross-review", action="store_true", help="Preselect editor/independent dispute review")
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
-    parser.add_argument("--preserve-background", action="store_true", help="Preselect original background protection")
+    parser.add_argument("--preserve-background", action="store_true", help="Legacy compatibility argument; desktop automatic mode always uses direct whole-image output")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")

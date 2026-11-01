@@ -151,7 +151,7 @@ def test_explicit_quality_launch_defaults_do_not_submit_job():
         preserve_background=True, quality_check=True, quality_auto_retry=True, quality_cross_review=True,
         quality_batch_size=2, input_dir="/mnt/input", output_dir="/mnt/output",
     ))
-    assert window.preserve_background.isChecked()
+    assert not window.preserve_background.isChecked()
     assert window.quality_check.isChecked() and window.quality_retry.isChecked()
     assert window.quality_cross_review.isChecked()
     assert window.quality_batch.value() == 2

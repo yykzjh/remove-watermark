@@ -347,7 +347,8 @@ def test_oversized_auxiliary_quarter_gets_context_without_redrawing_known_large_
     assert calls[1][0][0]>calls[0][1][0] and calls[1][0][1]>calls[0][1][1]
 
 
-def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositing(tmp_path,monkeypatch):
+@pytest.mark.parametrize("profile",["baseline","fidelity","minimal"])
+def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositing(tmp_path,monkeypatch,profile):
     import sys
     from types import SimpleNamespace
 
@@ -365,7 +366,9 @@ def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositi
     monkeypatch.setattr("watermark_studio.images.protect_edge_completion_context",forbidden)
     monkeypatch.setattr("watermark_studio.batching.dimensions",lambda image,resolution:image.size)
     observed=[]
+    prompts=[]
     def generate(pipe,items,resolution,*args):
+        prompts.extend(item["prompt"] for item in items)
         observed.extend((item["image"].size,item["image"].getpixel((0,0))) for item in items)
         return [Image.new("RGB",(64,64),"green") for item in items]
     monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
@@ -374,7 +377,9 @@ def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositi
         max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
     pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu")
     tasks=[{"source":str(p),"destination":str(tmp_path/("out-"+p.name)),"relative":p.name} for p,_,_ in sources]
-    rows=process_batch(tasks,ProcessingConfig(scope="full_image"),DeploymentConfig(),pipe)
+    rows=process_batch(tasks,ProcessingConfig(scope="full_image",whole_prompt_profile=profile),DeploymentConfig(),pipe)
+    from watermark_studio.prompts import build_full_prompt
+    assert prompts==[build_full_prompt(profile=profile)]*2
     assert len(rows)==2 and all(r["ok"] for r in rows)
     assert sorted(observed)==sorted([((800,600),(255,0,0)),((600,800),(0,0,255))])
     for row,(path,before,size),task in zip(rows,sources,tasks):
@@ -384,3 +389,13 @@ def test_whole_direct_uses_one_full_reference_per_photo_without_region_compositi
         assert Image.open(task["destination"]).size==size
         assert Image.open(task["destination"]).getpixel((0,0))==(0,128,0)
         assert path.read_bytes()==before
+
+
+@pytest.mark.parametrize("profile,word",[("fidelity","白平衡"),("minimal","white balance")])
+def test_whole_fidelity_prompts_preserve_capture_and_physical_text_without_fixed_regions(profile,word):
+    from watermark_studio.prompts import build_full_prompt
+    prompt=build_full_prompt("keep sensor grain",profile)
+    assert word in prompt and "今日水印" in prompt and "防伪码" in prompt
+    assert "keep sensor grain" in prompt and "x=" not in prompt and "y=" not in prompt
+    assert len(prompt)<len(build_full_prompt())
+    assert ProcessingConfig(whole_prompt_profile=profile).whole_prompt_profile==profile

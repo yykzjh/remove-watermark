@@ -50,7 +50,12 @@ def frozen_job_cases(state_root, job, files=None):
         if not source.is_file() or not output.is_file():
             raise ValueError("A source/output pair is missing")
         q = row.get("quality", {})
-        raw = row.get("repair_regions", q.get("source_regions"))
+        if row.get("processing_path")=="whole_direct":
+            # No compositing mask does not mean the original has no watermark.
+            # Only the independent source scan is valid provenance here.
+            raw=q.get("source_regions")
+        else:
+            raw = row.get("repair_regions", q.get("source_regions"))
         if not isinstance(raw, list) or len(raw)>8:
             raise ValueError("Missing bounded ORIGINAL source-mask snapshot")
         regions = [Region.model_validate(r).model_dump() for r in raw]

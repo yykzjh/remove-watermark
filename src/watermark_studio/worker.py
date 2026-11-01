@@ -277,7 +277,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 edits.append({
                     "state": state, "box": box, "crop": crop, "index": index, "image": reference,
                     "prompt": (build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
-                               build_full_prompt(extra_prompt) if state["whole_generation"] else
+                               build_full_prompt(extra_prompt, options.whole_prompt_profile) if state["whole_generation"] else
                                build_small_overlay_prompt(box,crop,extra_prompt)+scene_instruction(scene)
                                if small else build_focused_prompt(region.kind,box,crop,extra_prompt,scene)
                                if focused else build_prompt(region.kind,box,crop,extra_prompt)),
@@ -379,6 +379,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
             "model_inferences":len(state["regions"]),
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
+            "whole_prompt_profile":options.whole_prompt_profile,
+            "edit_prompt_sha256":[hashlib.sha256(e["prompt"].encode()).hexdigest() for e in edits if e["state"] is state],
             "model_reference_sizes":[list(e["image"].size) for e in edits if e["state"] is state],
             "conditioning_prefill":[e["prefilled"] for e in edits if e["state"] is state],
             "opaque_core_boxes":[e["core_box"] for e in edits if e["state"] is state],
