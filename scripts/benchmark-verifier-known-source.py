@@ -117,7 +117,65 @@ def known_control_cases(root):
     return cases
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, proof_profile, proof_identity, uniform_guard, ocr_guard, ready, start):
+def identity_overlay_challenges(controls):
+    # Simulate an upstream detector missing a real overlay, without changing
+    # either image. An exact copy is NOT successful removal in these cases.
+    return [c|{"file":"identity-overlay-challenge/"+c["file"],
+               "cohort":"identity_overlay_challenge","regions":[],"source_cores":[],
+               "expected":"review"} for c in controls if c.get("kind")=="retained_panel"]
+
+
+def manifest_cases(path):
+    """Explicit immutable development pairs; labels never become approval evidence."""
+    from watermark_studio.config import Region
+    data=json.loads(Path(path).read_text())
+    cases=data.get("cases")
+    if data.get("version")!=1 or not isinstance(cases,list) or not 1<=len(cases)<=10000:
+        raise ValueError("Bounded versioned pair manifest required")
+    names=set()
+    for case in cases:
+        name=case.get("file")
+        if not isinstance(name,str) or not name or name in names:
+            raise ValueError("Every development case needs a unique stable label")
+        names.add(name)
+        if case.get("expected") not in (None,"passed","review") or case.get("scene") not in ("outdoor","indoor","document","unknown"):
+            raise ValueError("Unknown development label or scene")
+        if not isinstance(case.get("regions"),list) or len(case["regions"])>8:
+            raise ValueError("Bounded original mask snapshot required")
+        for region in case["regions"]:
+            Region.model_validate(region)
+        if any(not Path(case[key]).is_absolute() or not Path(case[key]).is_file() for key in ("source","output")):
+            raise ValueError("Existing absolute original/candidate pairs required")
+    if file_hashes(cases)!=data.get("file_sha256"):
+        raise ValueError("Immutable pair manifest SHA256 mismatch")
+    return cases
+
+
+def load_appeal_baseline(revision):
+    # The baseline is explicitly selected from this trusted project Git history.
+    # It shares the same current images, models and initial VQA verdict.
+    if not re.fullmatch(r"[a-f0-9]{7,40}",revision):
+        raise ValueError("Explicit immutable Git revision required")
+    raw=subprocess.check_output(["git","show",revision+":src/watermark_studio/cross_review.py"],text=True)
+    namespace={"__name__":"watermark_studio._matched_appeal_baseline","__package__":"watermark_studio"}
+    exec(compile(raw,"git:"+revision+":cross_review.py","exec"),namespace)  # noqa: S102 - audited local Git revision only
+    return namespace["reconsider"]
+
+
+def compare_appeals(pair,case,value,baseline,current,*args,**kwargs):
+    old,new=deepcopy(value),deepcopy(value)
+    for function,verdict in ((baseline,old),(current,new)):
+        function(*pair,verdict,*args,**kwargs)
+        if case.get("frozen_vetoes"):
+            if verdict["status"]!="error":
+                verdict["status"]="review"
+            verdict["guard_codes"]=sorted(set(verdict.get("guard_codes",[])+case["frozen_vetoes"]))
+    new["matched_appeal_baseline"]={k:old.get(k) for k in (
+        "status","reason","guard_codes","cross_review","watermark_removed","natural","content_preserved","uncertain")}
+    return new
+
+
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, proof_profile, proof_identity, uniform_guard, ocr_guard, baseline_revision, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -151,6 +209,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
         if ocr_guard:
             from watermark_studio.text_presence import TargetTextPresence
             text_detector=TargetTextPresence()
+        baseline_appeal=load_appeal_baseline(baseline_revision) if baseline_revision else None
         ready.put({"type":"ready","gpu":gpu})
         start.wait()
         def grade(group,contexts=None):
@@ -167,9 +226,15 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                             detail_patches=4,detection_batch_size=2,
                             source_regions=[[Region.model_validate(r) for r in c["regions"]] for c in group],
                             editor_context=[case_context(c) for c in group],
-                            cross_review_allowed=[allow]*len(group),editor_encoder=editor,editor_processor=ep,
+                            cross_review_allowed=None if baseline_appeal else [allow]*len(group),editor_encoder=editor,editor_processor=ep,
                             reviewer="paired_"+mode,weights_relation=relation,rectangle_guard=rectangle_guard,
                             cross_context=context,inspection_profile=inspection_profile)
+                    if baseline_appeal:
+                        from watermark_studio.cross_review import reconsider
+                        values=[compare_appeals(pair,case,value,baseline_appeal,reconsider,
+                            editor,ep,encoder,processor,"cuda:0",resolution,128,12,case_context(case),
+                            weights_relation=relation,full_context=context)
+                            for pair,case,value in zip(pairs,group,values,strict=True)]
                     if len(values)!=len(group):
                         raise RuntimeError("Verifier response count differs from frozen pairs")
                     torch.cuda.synchronize()
@@ -239,7 +304,9 @@ def require_disjoint_server_gpus(health, requested, allow):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--source-job")
+    parser.add_argument("--pair-manifest",type=Path,help="Versioned SHA-validated development pairs; excludes job/controls selectors")
     parser.add_argument("--files",nargs="+",help="Explicit successful source subset; omissions are reported")
+    parser.add_argument("--identity-overlay-challenge",action="store_true",help="Also test source-copy false-negative overlay snapshots; no pixels changed")
     parser.add_argument("--controls-only",action="store_true",help="Grade only known control pairs; no candidate source job")
     parser.add_argument("--tag",required=True)
     parser.add_argument("--profile",choices=list(PROFILES),required=True)
@@ -257,6 +324,7 @@ def main():
     parser.add_argument("--frozen-disputes",action="store_true",help="Only adjudicate SHA-validated immutable first verdicts; do not rerun first VQA")
     parser.add_argument("--text-free-consensus",action="store_true",help="Experimental evidence-based adjudication; cannot override frozen vetoes")
     parser.add_argument("--cross-review",action="store_true")
+    parser.add_argument("--appeal-baseline-revision",help="Matched old/new appeals on the exact same fresh initial VQA, trusted Git SHA")
     parser.add_argument("--rectangle-guard",action="store_true")
     parser.add_argument("--cross-full-context",action="store_true")
     parser.add_argument("--paired-context",action="store_true")
@@ -283,11 +351,16 @@ def main():
         parser.error("--frozen-disputes requires text-free consensus, a first snapshot and 4b-bf16; no controls/paired variants")
     if not re.fullmatch(r"[a-zA-Z0-9_-]+",args.tag):
         parser.error("Simple tag required")
-    if args.controls_only:
+    if args.pair_manifest:
+        if args.source_job or args.files or args.controls or args.controls_only or args.first_snapshot or args.frozen_disputes or args.select_review:
+            parser.error("Pair manifest excludes other source selectors")
+    elif args.controls_only:
         if args.source_job or args.files or not args.controls:
             parser.error("--controls-only requires --controls and excludes --source-job")
     elif not args.source_job or not re.fullmatch(r"[a-zA-Z0-9_-]+" if args.frozen_disputes or args.first_snapshot else r"[a-f0-9]{32}",args.source_job):
         parser.error("Exact completed source job ID required")
+    if args.appeal_baseline_revision and (not args.cross_review or not re.fullmatch(r"[a-f0-9]{7,40}",args.appeal_baseline_revision)):
+        parser.error("Matched appeal comparison requires --cross-review and an explicit Git SHA")
     gpus=[int(v) for v in args.gpus.split(",")]
     if len(set(gpus))!=len(gpus) or not gpus or min(gpus)<0:
         parser.error("Distinct nonnegative GPU indices required")
@@ -305,8 +378,12 @@ def main():
     code_revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
     target=args.state_dir/"verifier-benchmarks"/args.tag/args.profile
     target.mkdir(parents=True,exist_ok=False)
-    cases=known_control_cases(args.controls) if args.controls else []
-    if not args.controls_only:
+    cases=manifest_cases(args.pair_manifest) if args.pair_manifest else known_control_cases(args.controls) if args.controls else []
+    if args.identity_overlay_challenge:
+        if not args.controls:
+            parser.error("Source-copy challenges require labeled --controls")
+        cases += identity_overlay_challenges(cases)
+    if not args.controls_only and not args.pair_manifest:
         source_cases=frozen_job_cases(args.state_dir,args.source_job,args.files)
         cases += [c for c in source_cases if not args.select_review or c["baseline_status"]!="passed"]
     expected_total=len(cases)*(2 if args.paired_context else 1)
@@ -339,7 +416,7 @@ def main():
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
                 args.cross_review,args.quality_batch_size,args.rectangle_guard,
-                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,args.text_free_proof_profile,proof_identity,args.text_free_uniform_guard,args.text_free_ocr_guard,events,start))
+                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,args.text_free_proof_profile,proof_identity,args.text_free_uniform_guard,args.text_free_ocr_guard,args.appeal_baseline_revision,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -407,6 +484,9 @@ def main():
                 "text_free_uniform_guard":args.text_free_uniform_guard,"text_free_ocr_guard":args.text_free_ocr_guard,
                 "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,"text_free_scope":args.text_free_scope,
                 "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
+                "identity_overlay_challenge":args.identity_overlay_challenge,
+                "appeal_baseline_revision":args.appeal_baseline_revision,"file_sha256":before,
+                "pair_manifest":str(args.pair_manifest) if args.pair_manifest else None,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,
                 "cross_review_effective":args.cross_review and identity["relation"]=="different_weights",

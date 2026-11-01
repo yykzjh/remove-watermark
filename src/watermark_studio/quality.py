@@ -1009,7 +1009,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,
                            device,resolution,max_tokens,feather,context,weights_relation=weights_relation,full_context=cross_context)
             if rectangle_guard:
-                verdict["review_version"]=("2026-11-02.native-reference-full-context-v13-tight-phase" if cross_context
+                verdict["review_version"]=("2026-11-02.native-glyph-refinement-v14-tight-phase" if cross_context
                                            else "2026-11-02.source-surface-v13-tight-phase")
             else:
                 verdict["review_version"]=("2026-11-01.native-reference-full-context-v12" if cross_context

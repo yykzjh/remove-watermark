@@ -174,7 +174,7 @@ def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024, *,
                      "findings":list(findings.values()),"count":len(findings)}
 
 
-def rectangle_phase_tight(before, after, regions, core_boxes, resolution=1024):
+def rectangle_phase_tight(before, after, regions, core_boxes, resolution=1024, *, _core_prepared=None):
     """Experimental added veto with bounded core search; never an approval.
 
     Preserve v4 and every original v2 warning. Only the search neighborhood changes;
@@ -195,7 +195,8 @@ def rectangle_phase_tight(before, after, regions, core_boxes, resolution=1024):
         if (match is not None and mask[0]<=core[0]<core[2]<=mask[2]
                 and mask[1]<=core[1]<core[3]<=mask[3]):
             mapping[match]=core
-    prepared=_prepare_phase(before,after,resolution,blur_radius=3.) if mapping else None
+    prepared=(_core_prepared if _core_prepared is not None else
+              _prepare_phase(before,after,resolution,blur_radius=3.) if mapping else None)
     base=rectangle_phase_core(before,after,regions,core_boxes,resolution,_core_prepared=prepared)
     findings={tuple(item["box"]):item for item in base["findings"]}
     if mapping:
@@ -206,3 +207,32 @@ def rectangle_phase_tight(before, after, regions, core_boxes, resolution=1024):
                     "core_blur_radius":3.,"core_search_radius":2})
     return base|{"method":"source_panel_phase_v5_tight_experiment",
                  "findings":list(findings.values()),"count":len(findings)}
+
+
+def rectangle_phase_inset(before,after,regions,core_boxes,resolution=1024):
+    """Offline added veto at the producer's fixed .008 safety-padding offset.
+
+    Keep all v5 findings, amplitudes, coherence, side and source-change rules.
+    No inferred cutoff or per-image fitted offset. Not connected to live QA.
+    """
+    from .surface_reference import _box
+    mapping={}
+    for item in core_boxes or []:
+        if not isinstance(item,dict):
+            continue
+        mask,core=_box(item.get("mask")),_box(item.get("core"))
+        if mask is None or core is None or core[2]-core[0]<=.016 or core[3]-core[1]<=.016:
+            continue
+        match=next((tuple(r.box) for r in regions if all(abs(a-b)<1e-6 for a,b in zip(r.box,mask))),None)
+        if match is not None and mask[0]<=core[0]<core[2]<=mask[2] and mask[1]<=core[1]<core[3]<=mask[3]:
+            mapping[match]=[core[0]+.008,core[1]+.008,core[2]-.008,core[3]-.008]
+    prepared=_prepare_phase(before,after,resolution,blur_radius=3.) if mapping else None
+    base=rectangle_phase_tight(before,after,regions,core_boxes,resolution,_core_prepared=prepared)
+    findings={tuple(v["box"]):v for v in base["findings"]}
+    if mapping:
+        for sign in (-1,1):
+            result=_single_phase(before,after,regions,resolution,sign,mapping,prepared,core_radius=2)
+            for item in result["findings"]:
+                findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"fixed_core_inset":.008,
+                    "core_blur_radius":3.,"core_search_radius":2})
+    return base|{"method":"source_panel_phase_v6_inset_experiment","findings":list(findings.values()),"count":len(findings)}

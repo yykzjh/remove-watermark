@@ -31,3 +31,18 @@ def test_ocr_errors_are_never_empty_absence_proofs(response):
     engine=lambda *args,**kwargs:response
     report=TargetTextPresence(engine).inspect(Image.new("RGB",(100,100)),[[0,0,1,1]])
     assert report["status"]=="error"
+
+
+def test_small_glyph_zoom_keeps_threshold_and_maps_back_to_original_pixels():
+    import numpy as np
+    from PIL import Image
+
+    from watermark_studio.text_presence import TargetTextPresence
+    image=Image.new("RGB",(100,100),"white");before=image.tobytes();seen=[]
+    def engine(pixels,**kwargs):
+        seen.append(pixels.shape)
+        return np.array([[[4,6],[20,6],[20,14],[4,14]]]),None
+    result=TargetTextPresence(engine=engine,upsample_small=True).inspect(image,[[.1,.1,.5,.3]])
+    assert seen==[(40,80,3)] and result["det_box_threshold"]==.6
+    assert result["regions"][0]["textlike_boxes"][0]==pytest.approx([.12,.13,.2,.17])
+    assert image.tobytes()==before

@@ -463,3 +463,65 @@ def test_full_photo_localization_never_remaps_a_real_label_to_a_blank_crop(monke
     photo=Image.new("RGB",(2064,2752),"gray")
     result=discover_dispute(photo,photo,"center",None,None,"cpu",full_context=True)
     assert result["findings"][0]["box"]==box and result["coordinate_source"]=="single_full_photo"
+
+
+def test_source_detector_conflict_on_unchanged_paper_still_needs_every_existing_proof(monkeypatch):
+    before,after,q=identity_fixture();history=calls(monkeypatch)
+    scans=iter([([Region(kind="panel",box=(.55,.3,.7,.45))],"source hypothesis"),([],"fresh global")])
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[next(scans)])
+    run(before,after,q,full_context=True)
+    assert q["status"]=="passed" and len(history)==2
+    assert q["cross_review"]["source_detection_conflict_requires_all_carrier_proofs"]
+    assert q["cross_review"]["native_glyph_evidence"] and q["cross_review"]["remaining_regions"]==[]
+
+
+@pytest.mark.parametrize("failure",["digital_identity","no_glyphs","remaining_overlay"])
+def test_source_detection_conflict_cannot_exempt_an_actual_retained_watermark(monkeypatch,failure):
+    before,after,q=identity_fixture()
+    claims=[report(),report(digital_overlay=True,physical_scene_text=False)] if failure=="digital_identity" else None
+    calls(monkeypatch,claims)
+    if failure=="no_glyphs":
+        monkeypatch.setattr("watermark_studio.cross_review.candidate_glyphs",lambda *a:[{"visible_glyphs":False}])
+    stamp=Region(kind="panel",box=(.55,.3,.7,.45))
+    scans=iter([([stamp],"source"),([stamp] if failure=="remaining_overlay" else [],"global")])
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[next(scans)])
+    run(before,after,q,full_context=True)
+    assert q["status"]=="review" and q["guard_codes"]==["identical"]
+
+
+def test_native_refinement_never_escapes_even_one_original_edit_overlap(monkeypatch):
+    import watermark_studio.cross_review as review
+    class Forbidden:
+        def inspect(self,*args):
+            pytest.fail("Cannot refine a source-overlapping proposal into an unrelated clean label")
+    monkeypatch.setattr(review,"_APPEAL_TEXT_DETECTOR",Forbidden())
+    before,after,q=fixture()
+    proposals=[{"box":[.55,.3,.7,.45]},{"box":[0,.6,.8,1]}]
+    result=review.refine_native_hypotheses(before,after,proposals,q,12)
+    assert result["findings"]==[] and "overlaps_original_edit" in result["reason"]
+    assert q["status"]=="review"
+
+
+def test_native_refinement_uses_visible_source_glyphs_not_the_model_coordinate_story(monkeypatch):
+    import watermark_studio.cross_review as review
+    class Detector:
+        def inspect(self,image,boxes):
+            return {"status":"text_present","regions":[{"textlike_boxes":[[.58,.33,.65,.39]]}]}
+    monkeypatch.setattr(review,"_APPEAL_TEXT_DETECTOR",Detector())
+    monkeypatch.setattr(review,"candidate_glyphs",lambda *a:[{"visible_glyphs":True}])
+    before,after,q=fixture()
+    result=review.refine_native_hypotheses(before,after,[{"box":[.55,.3,.7,.45]}],q,12)
+    assert result["findings"][0]["box"]==pytest.approx([.57,.3166666667,.66,.4033333333])
+    assert q["status"]=="review" and "quality" not in result
+
+
+def test_unknown_source_glyphs_or_excessive_proposals_cannot_open_an_appeal(monkeypatch):
+    import watermark_studio.cross_review as review
+    class Detector:
+        def inspect(self,*args):
+            return {"status":"error","regions":[]}
+    monkeypatch.setattr(review,"_APPEAL_TEXT_DETECTOR",Detector())
+    before,after,q=fixture()
+    proposal={"box":[.55,.3,.7,.45]}
+    assert review.refine_native_hypotheses(before,after,[proposal],q,12)["findings"]==[]
+    assert review.refine_native_hypotheses(before,after,[proposal]*3,q,12)["findings"]==[]

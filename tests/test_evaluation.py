@@ -123,3 +123,50 @@ def test_standalone_reinspection_keeps_generation_drift_and_source_ambiguity(tmp
     case=helper["frozen_job_cases"](tmp_path,"job")[0]
     assert set(case["frozen_vetoes"])=={"repair_boundary_step","source_physical_ambiguity"}
     assert helper["case_context"](case)["harmonization"]==drift
+
+
+def test_missed_source_overlay_challenges_remain_known_defects_with_empty_upstream_masks():
+    import runpy
+    helper=runpy.run_path(str(Path(__file__).resolve().parents[1]/"scripts/benchmark-verifier-known-source.py"))
+    controls=[{"file":"00-retained.png","kind":"retained_panel","expected":"review", "source":"same-original",
+        "output":"same-marked-output","regions":[{"kind":"panel","box":[0,0,.3,.3]}],"source_cores":[{}]},
+        {"file":"00-clean.png","kind":"exact_removal","expected":"passed"}]
+    challenge=helper["identity_overlay_challenges"](controls)
+    assert len(challenge)==1 and challenge[0]["expected"]=="review" and challenge[0]["regions"]==[]
+    assert challenge[0]["source"]=="same-original" and challenge[0]["output"]=="same-marked-output"
+    assert controls[0]["regions"] and controls[0]["source_cores"]
+
+
+def test_matched_appeals_share_identical_initial_verdict_and_never_drop_frozen_vetoes():
+    import runpy
+    helper=runpy.run_path(str(Path(__file__).resolve().parents[1]/"scripts/benchmark-verifier-known-source.py"))
+    seen=[]
+    original={"status":"review","guard_codes":["identical"],"reason":"initial"}
+    def baseline(before,after,verdict,*args,**kwargs):
+        seen.append(dict(verdict));verdict.update(status="passed",reason="old proof")
+    def current(before,after,verdict,*args,**kwargs):
+        seen.append(dict(verdict));verdict.update(status="passed",reason="new proof")
+    result=helper["compare_appeals"]((object(),object()),{"frozen_vetoes":["source_physical_ambiguity"]},
+        original,baseline,current)
+    assert seen==[original,original] and original["status"]=="review"
+    assert result["status"]==result["matched_appeal_baseline"]["status"]=="review"
+    assert "source_physical_ambiguity" in result["guard_codes"]
+    assert "source_physical_ambiguity" in result["matched_appeal_baseline"]["guard_codes"]
+
+
+def test_pair_manifest_requires_exact_current_artifacts_and_unique_labels(tmp_path):
+    import hashlib
+    import runpy
+    helper=runpy.run_path(str(Path(__file__).resolve().parents[1]/"scripts/benchmark-verifier-known-source.py"))
+    source,output=tmp_path/"original.png",tmp_path/"candidate.png"
+    source.write_bytes(b"original fixture");output.write_bytes(b"candidate fixture")
+    case={"file":"stable-case","source":str(source),"output":str(output),"regions":[],"scene":"outdoor","expected":"review"}
+    fingerprints={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in (source,output)}
+    manifest=tmp_path/"pairs.json";manifest.write_text(json.dumps({"version":1,"cases":[case],"file_sha256":fingerprints}))
+    assert helper["manifest_cases"](manifest)==[case]
+    output.write_bytes(b"candidate changed")
+    with pytest.raises(ValueError,match="SHA256"):
+        helper["manifest_cases"](manifest)
+    manifest.write_text(json.dumps({"version":1,"cases":[case,case],"file_sha256":fingerprints}))
+    with pytest.raises(ValueError,match="unique"):
+        helper["manifest_cases"](manifest)

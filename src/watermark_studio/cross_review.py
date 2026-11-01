@@ -312,7 +312,7 @@ def candidate_glyphs(before,after,boxes):
     global _APPEAL_TEXT_DETECTOR
     if _APPEAL_TEXT_DETECTOR is None:
         from .text_presence import TargetTextPresence
-        _APPEAL_TEXT_DETECTOR=TargetTextPresence()
+        _APPEAL_TEXT_DETECTOR=TargetTextPresence(upsample_small=True)
     records=[]
     for box in boxes:
         source=_APPEAL_TEXT_DETECTOR.inspect(before,[box])
@@ -322,11 +322,66 @@ def candidate_glyphs(before,after,boxes):
     return records
 
 
+def refine_native_hypotheses(before,after,proposals,verdict,feather):
+    """Anchor untrusted VLM coordinates to real native-source lettering.
+
+    These are possible explanations, never observed defects or deletion masks.
+    An absent proposal can be discarded, but approval still needs BOTH carrier
+    proofs plus every whole-image check. Never refine an edit-overlapping
+    hypothesis into an unrelated outside label to evade the original guard.
+    """
+    from .images import context_box, pixel_box
+    global _APPEAL_TEXT_DETECTOR
+    audit={"method":"native_source_glyph_hypotheses_v1","proposals":[],"findings":[]}
+    if not proposals or len(proposals)>2:
+        return audit|{"reason":"missing_or_excessive_hypotheses"}
+    masks=[]
+    for x0,y0,x1,y1 in _regions(verdict.get("source_regions",[])):
+        masks.append([max(0,x0-(feather+4)/before.width),max(0,y0-(feather+4)/before.height),
+                      min(1,x1+(feather+4)/before.width),min(1,y1+(feather+4)/before.height)])
+    raw=[valid_box(p.get("box")) for p in proposals]
+    if any(box is None for box in raw) or any(_overlap(box,mask) for box in raw for mask in masks):
+        return audit|{"reason":"coarse_hypothesis_overlaps_original_edit_or_is_invalid"}
+    if _APPEAL_TEXT_DETECTOR is None:
+        from .text_presence import TargetTextPresence
+        _APPEAL_TEXT_DETECTOR=TargetTextPresence(upsample_small=True)
+    for proposal,box in zip(proposals,raw,strict=True):
+        native=context_box(pixel_box(box,before.size),before.size,.25)
+        search=[native[0]/before.width,native[1]/before.height,native[2]/before.width,native[3]/before.height]
+        located=_APPEAL_TEXT_DETECTOR.inspect(before,[search])
+        entry={"original_hypothesis":proposal,"search":search,"native_source":located}
+        audit["proposals"].append(entry)
+        if located.get("status")!="text_present":
+            entry["reason"]="no_native_glyph_hypothesis";continue
+        glyphs=[v for group in located.get("regions",[]) for v in group.get("textlike_boxes",[]) if v]
+        glyphs=sorted(glyphs,key=lambda b:(b[2]-b[0])*(b[3]-b[1]),reverse=True)
+        for glyph in glyphs:
+            if not _overlap(glyph,box):
+                continue
+            pad_x,pad_y=4/before.width,4/before.height
+            precise=[max(0,glyph[0]-pad_x),max(0,glyph[1]-pad_y),
+                     min(1,glyph[2]+pad_x),min(1,glyph[3]+pad_y)]
+            bounded,reason=candidate_boxes(verdict|{"residual_regions":[{"box":precise}]},before.size,feather)
+            if reason:
+                continue
+            glyph_proof=candidate_glyphs(before,after,bounded)
+            pixels=preserved_patch(before,after,precise)
+            if len(glyph_proof)!=len(bounded) or not all(g["visible_glyphs"] for g in glyph_proof) or not pixels["unchanged"]:
+                continue
+            entry.update(selected_box=precise,glyph_evidence=glyph_proof,pixel_evidence=pixels)
+            if not any(_overlap(precise,f["box"]) for f in audit["findings"]):
+                audit["findings"].append({"issue":"physical_text","box":precise,
+                    "observation":"源图检测到真实笔画；是否物理印字仍须双方分别核实。"})
+            break
+    return audit
+
+
 def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,device,
                resolution=768,max_tokens=128,feather=12,editor_context=None,weights_relation="unknown",full_context=False):
     """One appeal. Real defect vetoes remain; clean identity needs independent proof."""
     log={"attempted":False,"status":"skipped","editor_context":editor_context or {},
-         "weights_relation":weights_relation,"full_context":full_context}
+         "weights_relation":weights_relation,"full_context":full_context,
+         "protocol_version":"native-glyph-hypotheses-v2" if full_context else "local-physical-v1"}
     verdict["cross_review"]=log
     if weights_relation!="different_weights":
         log["reason"]="different_checkpoint_weights_required"; return
@@ -338,6 +393,7 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
         log["reason"]="strict_guard_or_content_veto"; return
     if editor_encoder is None or editor_encoder is encoder:
         log["reason"]="independent_models_required"; return
+    source_proposals=[]
     if identity_candidate:
         # Whole-photo exact equality only opens an inquiry. It never establishes
         # that a digital overlay is absent: require the OTHER model's source scan.
@@ -350,8 +406,14 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
                 raise scanned
             log["editor_source_regions"]=[r.model_dump() for r in scanned[0]]
             if scanned[0]:
-                log.update(status="unresolved",reason="editor_detected_source_overlay")
-                return
+                if not full_context:
+                    log.update(status="unresolved",reason="editor_detected_source_overlay")
+                    return
+                # A detector box is a hypothesis, including on real photographed
+                # paperwork. Require every existing pixel/native-glyph/carrier
+                # and un-whitelisted global check before resolving the conflict.
+                source_proposals=[r.model_dump() for r in scanned[0]]
+                log["source_detection_conflict_requires_all_carrier_proofs"]=True
         except Exception as error:  # noqa: BLE001 - inquiry failures cannot grant acceptance
             log.update(status="error",error=f"{type(error).__name__}: {error}"[:300])
             return
@@ -359,8 +421,11 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
             elapsed=round(time.monotonic()-began,3)
             log["seconds"]=elapsed
             verdict["seconds"]=round(verdict.get("seconds",0)+elapsed,3)
-    boxes,reason=candidate_boxes(verdict,before.size,feather)
-    if (reason=="missing_or_excessive_locations" and not verdict.get("residual_regions") and
+    proposal_verdict=verdict|{"residual_regions":source_proposals} if source_proposals else verdict
+    coarse_proposals=source_proposals or verdict.get("residual_regions",[]) or [v for v in verdict.get("evidence",[]) if v.get("box") and
+        v.get("issue") in ("physical_text","residual_text","residual_background")]
+    boxes,reason=candidate_boxes(proposal_verdict,before.size,feather)
+    if (reason=="missing_or_excessive_locations" and not source_proposals and not verdict.get("residual_regions") and
             verdict.get("evidence_conflict") is True and verdict.get("area","none")!="none"):
         began=time.monotonic()
         log["attempted"]=True
@@ -368,6 +433,7 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
             located=discover_dispute(before,after,verdict["area"],editor_encoder,editor_processor,device,
                 **({"full_context":True} if full_context else {}))
             log["localization"]=located
+            coarse_proposals=located.get("findings",[])
             boxes,reason=candidate_boxes(verdict|{"evidence":located.get("findings",[])},before.size,feather)
         except Exception as error:  # noqa: BLE001 - discovery cannot grant acceptance
             log.update(status="error",error=f"{type(error).__name__}: {error}"[:300])
@@ -376,6 +442,11 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
             elapsed=round(time.monotonic()-began,3)
             log["seconds"]=elapsed
             verdict["seconds"]=round(verdict.get("seconds",0)+elapsed,3)
+    if full_context and reason=="location_too_broad":
+        refined=refine_native_hypotheses(before,after,coarse_proposals,verdict,feather)
+        log["native_hypothesis_refinement"]=refined
+        if refined["findings"]:
+            boxes,reason=candidate_boxes(verdict|{"residual_regions":refined["findings"]},before.size,feather)
     if reason:
         if log["attempted"]: log["status"]="unresolved"
         log["reason"]=reason; return
@@ -388,9 +459,18 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
         if full_context:
             glyphs=candidate_glyphs(before,after,boxes)
             log["native_glyph_evidence"]=glyphs
-            if not all(item["visible_glyphs"] for item in glyphs):
-                log.update(status="unresolved",reason="localized_physical_text_has_no_native_glyph_evidence")
-                return
+            if len(glyphs)!=len(boxes) or not all(item["visible_glyphs"] for item in glyphs):
+                refined=refine_native_hypotheses(before,after,coarse_proposals,verdict,feather)
+                log["native_hypothesis_refinement"]=refined
+                if refined["findings"]:
+                    boxes,refine_reason=candidate_boxes(verdict|{"residual_regions":refined["findings"]},before.size,feather)
+                    if not refine_reason:
+                        pixels=[preserved_patch(before,after,b) for b in boxes]
+                        glyphs=candidate_glyphs(before,after,boxes)
+                        log.update(boxes=boxes,pixel_evidence=pixels,native_glyph_evidence=glyphs)
+                if not boxes or len(glyphs)!=len(boxes) or not all(g["visible_glyphs"] for g in glyphs) or not all(p["unchanged"] for p in pixels):
+                    log.update(status="unresolved",reason="localized_physical_text_has_no_native_glyph_evidence")
+                    return
         profile_options=({"inspection_profile":"untrusted"} if verdict.get("inspection_profile")=="untrusted" else {})
         chats=dispute_chats(before,after,boxes,full_context=full_context,**profile_options)
         editor=_classify(chats,editor_encoder,editor_processor,device)

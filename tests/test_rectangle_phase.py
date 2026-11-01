@@ -120,3 +120,16 @@ def test_tight_and_broad_core_reuse_the_same_fixed_blur_arrays(monkeypatch):
     monkeypatch.setattr(phase,"_prepare_phase",prepare)
     result=phase.rectangle_phase_tight(source,dark,regions,[core])
     assert result["count"]==1 and len(calls)==2 and calls.count(3.)==1
+
+
+def test_offline_fixed_padding_hypothesis_preserves_every_v5_veto_and_original_pixel():
+    from watermark_studio.rectangle_phase import rectangle_phase_inset, rectangle_phase_tight
+    clean,source,dark,regions=fixture((.2,.2,.7,.8))
+    cores=[{"mask":list(regions[0].box),"core":[.2,.2,.7,.8]}]
+    before=source.tobytes(),dark.tobytes()
+    old=rectangle_phase_tight(source,dark,regions,cores)
+    new=rectangle_phase_inset(source,dark,regions,cores)
+    assert all(f in new["findings"] for f in old["findings"])
+    assert rectangle_phase_inset(source,clean,regions,cores)["count"]==0
+    assert rectangle_phase_inset(dark,dark.copy(),regions,cores)["count"]==0
+    assert before==(source.tobytes(),dark.tobytes())

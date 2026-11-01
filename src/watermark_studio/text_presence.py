@@ -11,9 +11,10 @@ from .images import pixel_box
 
 
 class TargetTextPresence:
-    def __init__(self,engine=None,max_edge=1536):
+    def __init__(self,engine=None,max_edge=1536,*,upsample_small=False):
         self.engine=engine
         self.max_edge=max_edge
+        self.upsample_small=upsample_small
 
     def _engine(self):
         if self.engine is None:
@@ -37,7 +38,7 @@ class TargetTextPresence:
         """
         began=time.monotonic()
         result={"method":"cpu_ppocrv4_text_presence_v1","status":"error","regions":[],
-                "max_edge":self.max_edge,"det_box_threshold":.6}
+                "max_edge":self.max_edge,"det_box_threshold":.6,"upsample_small":self.upsample_small}
         try:
             if not boxes or len(boxes)>32:
                 raise ValueError("Bounded nonempty text-proof targets required")
@@ -49,7 +50,11 @@ class TargetTextPresence:
                 native=pixel_box(box,photo.size)
                 crop=photo.crop(native).convert("RGB")
                 original=crop.size
-                crop.thumbnail((self.max_edge,self.max_edge),Image.Resampling.LANCZOS)
+                if self.upsample_small and max(crop.size)<768:
+                    scale=min(2.,self.max_edge/max(crop.size))
+                    crop=crop.resize((max(1,round(crop.width*scale)),max(1,round(crop.height*scale))),Image.Resampling.LANCZOS)
+                else:
+                    crop.thumbnail((self.max_edge,self.max_edge),Image.Resampling.LANCZOS)
                 response=engine(np.asarray(crop)[...,::-1].copy(),
                                 use_det=True,use_cls=False,use_rec=False)
                 if not isinstance(response,tuple) or len(response)!=2:
