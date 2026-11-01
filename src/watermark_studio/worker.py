@@ -55,6 +55,9 @@ def load_pipeline(config, model_path):
         )
     if config.vae_slicing:
         pipe.vae.enable_slicing()
+    if config.transformer_source_offload:
+        from .source_residency import prepare_transformer_host_mirror
+        prepare_transformer_host_mirror(pipe.transformer)
     if config.offload == "model":
         pipe.enable_model_cpu_offload(gpu_id=0)
     elif config.offload == "sequential":
@@ -148,9 +151,18 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     )
     from .source_residency import transformer_source_phase
     source_transformer_transfer={}
+    def before_transformer_restore():
+        nonlocal quality_transfer_seconds
+        if phase_offload:
+            from .quality_loading import park_quality_encoder
+            began=time.monotonic()
+            pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
+            torch.cuda.empty_cache()
+            quality_transfer_seconds+=time.monotonic()-began
     with transformer_source_phase(pipe, cuda and config.transformer_source_offload
                                   and (needs_detection or options.whole_prompt_profile=="scene"),
-                                  execution_device, source_transformer_transfer):
+                                  execution_device, source_transformer_transfer,
+                                  before_restore=before_transformer_restore):
         if needs_detection:
             detect_tasks = []
             for task in tasks:
@@ -461,7 +473,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         buckets[key].append(edit)
     phase_offload=bool(phase_offload or (phase_manage and config.quality_phase_offload_above
                         and any(e["resolution"]>config.quality_phase_offload_above for e in edits)))
-    if phase_offload and edits:
+    if phase_offload and edits and not str(pipe._quality_encoder.device).startswith("cpu"):
         from .quality_loading import park_quality_encoder
         transfer_started=time.monotonic()
         pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)

@@ -195,7 +195,9 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
     dit_moves = []
     class Transformer:
         device = "cuda:0"
-        def to(self, device):
+        def to(self, device, **kwargs):
+            if device == "cuda:0" and offload:
+                assert encoder.device == "cpu", "Verifier must be parked before DiT restoration"
             self.device = device
             dit_moves.append(device)
             return self

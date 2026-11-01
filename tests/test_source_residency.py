@@ -11,7 +11,7 @@ from watermark_studio.source_residency import transformer_source_phase
 def test_source_transformer_restores_on_success_and_failure_without_touching_editor(monkeypatch, failure):
     moves = []
     class Transformer:
-        def to(self, device):
+        def to(self, device, **kwargs):
             moves.append(str(device))
             return self
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
@@ -44,3 +44,39 @@ def test_disabled_source_transformer_staging_needs_no_torch_or_transformer():
 def test_staging_cannot_silently_move_unsupported_quantized_or_hooked_weights(options):
     with pytest.raises(ValueError, match="quantization=none"):
         DeploymentConfig(transformer_source_offload=True, **options)
+
+
+def test_pre_restore_callback_releases_unused_weights_before_any_cuda_allocation(monkeypatch):
+    events = []
+    class Transformer:
+        def to(self, device, **kwargs):
+            events.append(str(device))
+            return self
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(
+        synchronize=lambda: None, empty_cache=lambda: None)))
+    with transformer_source_phase(SimpleNamespace(transformer=Transformer()), True,
+            "cuda:0", {}, before_restore=lambda: events.append("park_verifier")):
+        events.append("source_proof")
+    assert events == ["cpu", "source_proof", "park_verifier", "cuda:0"]
+
+
+def test_source_host_mirror_is_built_before_cuda_and_retains_original_precision():
+    from watermark_studio.source_residency import prepare_transformer_host_mirror
+
+    host = SimpleNamespace(numel=lambda: 4, element_size=lambda: 2)
+    class Parameter:
+        device = SimpleNamespace(type="cpu")
+        def detach(self):
+            return self
+        def pin_memory(self):
+            return host
+    parameter = Parameter()
+    calls = []
+    model = SimpleNamespace(requires_grad_=lambda value: calls.append(value),
+                            named_parameters=lambda: [("weight", parameter)])
+    prepare_transformer_host_mirror(model)
+    assert calls == [False] and model._source_host_parameters == {"weight": host}
+    assert model._source_host_pinned_bytes == 8
+    parameter.device = SimpleNamespace(type="cuda")
+    with pytest.raises(ValueError, match="before CUDA"):
+        prepare_transformer_host_mirror(model)
