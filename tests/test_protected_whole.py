@@ -84,7 +84,7 @@ def test_quality_weight_swap_finishes_before_verification_and_skips_readonly_edi
     moves=[]
     class Encoder:
         device="cuda:0"
-        def to(self,device):
+        def to(self,device,**kwargs):
             self.device=str(device);moves.append(self.device)
             return self
     encoder=Encoder()

@@ -28,6 +28,7 @@ HELP = {
     "quality_verifier": "Enable post-removal review using the selected quality backend",
     "protection_detail_scan": "Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs",
     "protection_core_feather": "Fade only the source detector safety margin; keep the complete watermark core opaque",
+    "separate_vae_decode": "Decode pipeline latents after per-call prefix KV caches are released; exact pinned decode path, offload none",
     "quality_phase_offload": "Park independent unquantized verifier weights in host RAM during editing; restore before QA; no SSH transfer",
     "quality_rectangle_guard": "With quality verification, review coherent multi-side panel tone steps; CPU-only, no extra model call",
     "quality_model": "Independent quality VLM repository or local path; adds GPU memory",

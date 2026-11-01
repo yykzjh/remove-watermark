@@ -141,3 +141,23 @@ def test_new_candidate_quantization_is_not_silently_enabled(tmp_path,monkeypatch
     cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent",quality_quantization="nf4")
     with pytest.raises(ValueError,match="unquantized"):
         load_quality_encoder(tmp_path,cfg,"cpu")
+
+
+def test_parking_reuses_readonly_host_mirror_and_rejects_shape_mismatch(monkeypatch):
+    from watermark_studio.quality_loading import park_quality_encoder
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda:None)))
+    host=SimpleNamespace(shape=(2,3),dtype="bf16")
+    param=SimpleNamespace(shape=(2,3),dtype="bf16",data="gpu-storage")
+    class Encoder:
+        def __init__(self):
+            self._quality_host_parameters={"weight":host}
+        def named_parameters(self):
+            return [("weight",param)]
+        def to(self,device,**kwargs):
+            assert device=="cpu" and param.data is host
+            return self
+    encoder=Encoder()
+    assert park_quality_encoder(encoder) is encoder
+    param.shape=(3,2)
+    with pytest.raises(ValueError,match="shape/dtype"):
+        park_quality_encoder(encoder)

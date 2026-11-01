@@ -122,8 +122,29 @@ def independent_batch(pipe, items, resolution, kv_cache):
 
         generators = [torch.Generator("cpu").manual_seed(item["seed"]) for item in items]
         with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents):
-            return pipe(
+            separate=getattr(pipe,"_watermark_separate_vae_decode",False)
+            output=pipe(
                 prompt=[item["prompt"] for item in items], image=items[0]["image"],
                 height=height, width=width, output_resolution=resolution,
                 true_cfg_scale=1.0, use_kv_cache=kv_cache, generator=generators,
+                output_type="latent" if separate else "pil",
             ).images
+        # Returning from the pipeline releases its local prefix K/V and denoising
+        # tensors before allocating VAE activations; sampling arithmetic is unchanged.
+        return decode_latents(pipe,output,height,width) if separate else output
+
+
+def decode_latents(pipe,latents,height,width):
+    """Exact decode arithmetic from the pinned QwenImage21 pipeline."""
+    import torch
+    latent_h=2*(int(height)//(pipe.vae_scale_factor*2))
+    latent_w=2*(int(width)//(pipe.vae_scale_factor*2))
+    if latents.ndim!=3 or latents.shape[1]!=latent_h*latent_w:
+        raise ValueError("Latent sequence does not match the requested full-frame grid")
+    with torch.inference_mode():
+        latents=pipe._unpack_latents(latents,height,width,pipe.vae_scale_factor).to(pipe.vae.dtype)
+        mean=torch.tensor(pipe.vae.config.latents_mean).view(1,pipe.vae.config.z_dim,1,1,1).to(latents.device,latents.dtype)
+        std=torch.tensor(pipe.vae.config.latents_std).view(1,pipe.vae.config.z_dim,1,1,1).to(latents.device,latents.dtype)
+        latents=latents*std+mean
+        image=pipe.vae.decode(latents,return_dict=False)[0][:,:,0]
+        return pipe.image_processor.postprocess(image,output_type="pil")

@@ -58,8 +58,45 @@ def load_quality_encoder(path, config, device):
                       device_map={"":str(device)})
     encoder=factory.from_pretrained(path,**kwargs)
     if config.quality_quantization=="none":
-        encoder=encoder.to(device)
+        if config.quality_phase_offload:
+            encoder.requires_grad_(False)
+            mirror={}
+            pinned_bytes=0
+            for name,param in encoder.named_parameters():
+                try:
+                    host=param.detach().pin_memory()
+                    pinned_bytes+=host.numel()*host.element_size()
+                except RuntimeError:
+                    host=param.detach().cpu()
+                mirror[name]=host
+            encoder._quality_host_parameters=mirror
+            encoder._quality_host_pinned_bytes=pinned_bytes
+        encoder=(encoder.to(device,non_blocking=True) if config.quality_phase_offload else encoder.to(device))
+        if config.quality_phase_offload:
+            torch.cuda.synchronize()
     for name,module in encoder.named_modules():
         if "visual" in name and type(module).__name__ in {"Linear4bit","Linear8bitLt"}:
             raise RuntimeError("Verifier vision encoder must retain full inference precision")
     return encoder.eval()
+
+   
+def park_quality_encoder(encoder):
+    """Reuse immutable host weights: no repeated GPU-to-CPU parameter copy."""
+    import torch
+    mirror=getattr(encoder,"_quality_host_parameters",None)
+    if mirror is not None:
+        for name,param in encoder.named_parameters():
+            host=mirror[name]
+            if host.shape!=param.shape or host.dtype!=param.dtype:
+                raise ValueError("Verifier host-mirror shape/dtype changed")
+            param.data=host
+    encoder=encoder.to("cpu",non_blocking=True)
+    torch.cuda.synchronize()
+    return encoder
+
+
+def restore_quality_encoder(encoder,device):
+    import torch
+    encoder=encoder.to(device,non_blocking=True)
+    torch.cuda.synchronize()
+    return encoder

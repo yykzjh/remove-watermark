@@ -462,6 +462,7 @@ class Runtime:
                 "quality_quantization":self.config.quality_quantization,
                 "quality_rectangle_guard":self.config.quality_rectangle_guard,
                 "quality_phase_offload":self.config.quality_phase_offload,
+                "separate_vae_decode":self.config.separate_vae_decode,
                 "cross_review_supported":bool(self.config.quality_verifier
                     and self.config.quality_backend=="independent"
                     and self.quality_identity.get("relation")=="different_weights"),

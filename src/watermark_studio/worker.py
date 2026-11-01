@@ -82,6 +82,7 @@ def load_pipeline(config, model_path):
     if config.quantization != "none":
         from .optimizations import quantize_transformer
         quantize_transformer(pipe.transformer, config.quantization, config.float8_granularity)
+    pipe._watermark_separate_vae_decode=config.separate_vae_decode
     pipe._watermark_prompt_encoder = config.prompt_encoder
     pipe._watermark_encoder_batch_size = config.encoder_batch_size
     if config.compile:
@@ -123,7 +124,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                    and config.quality_quantization=="none" and hasattr(pipe,"_quality_encoder"))
     if phase_offload and any(not t.get("reuse_existing") for t in tasks):
         transfer_started=time.monotonic()
-        pipe._quality_encoder=pipe._quality_encoder.to("cpu")
+        from .quality_loading import park_quality_encoder
+        pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
         torch.cuda.empty_cache()
         quality_transfer_seconds+=time.monotonic()-transfer_started
     detections, decoded = {}, {}
@@ -480,7 +482,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         if phase_offload:
             transfer_started=time.monotonic()
             torch.cuda.empty_cache()
-            pipe._quality_encoder=pipe._quality_encoder.to(pipe._execution_device)
+            from .quality_loading import restore_quality_encoder
+            pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,pipe._execution_device)
             quality_transfer_seconds+=time.monotonic()-transfer_started
         from .quality import verify_batch
         pending = []
@@ -555,6 +558,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         torch.cuda.synchronize()
     metrics = {
         "quality_phase_offload":phase_offload,
+        "quality_host_pinned_bytes":getattr(pipe._quality_encoder,"_quality_host_pinned_bytes",0) if phase_offload else 0,
         "quality_weight_transfer_seconds":round(quality_transfer_seconds/max(1,len(tasks)),4),
         "window_seconds": round(time.monotonic() - start, 3), "window_images": len(tasks),
         "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20) if cuda else 0,

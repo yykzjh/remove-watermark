@@ -75,3 +75,9 @@ def test_phase_offload_rejects_quantized_independent_verifier(tmp_path):
     with pytest.raises(SystemExit):
         parse_deployment(["--config",str(config),"--quality-phase-offload",
                           "--quality-backend","independent","--quality-quantization","nf4"])
+
+
+def test_separate_decode_rejects_unsupported_offload_hooks(tmp_path):
+    config=tmp_path/"base.toml";config.write_text("")
+    with pytest.raises(SystemExit):
+        parse_deployment(["--config",str(config),"--separate-vae-decode","--offload","model"])
