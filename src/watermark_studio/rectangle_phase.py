@@ -171,3 +171,37 @@ def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024):
                     "core_blur_radius":3.,"maximum_side_ratio":2.,"core_search_radius":12})
     return baseline|{"method":"source_panel_phase_v4_core_experiment",
                      "findings":list(findings.values()),"count":len(findings)}
+
+
+def rectangle_phase_tight(before, after, regions, core_boxes, resolution=1024):
+    """Experimental added veto with bounded core search; never an approval.
+
+    Preserve v4 and every original v2 warning. Only the search neighborhood changes;
+    amplitude, coherence, source-change, all-side and common-sign requirements stay.
+    Raw detector cores are hypotheses, not permission to change an original image.
+    """
+    from .surface_reference import _box
+
+    base=rectangle_phase_core(before,after,regions,core_boxes,resolution)
+    mapping={}
+    for item in core_boxes or []:
+        if not isinstance(item,dict):
+            continue
+        mask,core=_box(item.get("mask")),_box(item.get("core"))
+        if mask is None or core is None:
+            continue
+        match=next((tuple(r.box) for r in regions
+                    if all(abs(a-b)<1e-6 for a,b in zip(r.box,mask))),None)
+        if (match is not None and mask[0]<=core[0]<core[2]<=mask[2]
+                and mask[1]<=core[1]<core[3]<=mask[3]):
+            mapping[match]=core
+    findings={tuple(item["box"]):item for item in base["findings"]}
+    if mapping:
+        prepared=_prepare_phase(before,after,resolution,blur_radius=3.)
+        for sign in (-1,1):
+            result=_single_phase(before,after,regions,resolution,sign,mapping,prepared,core_radius=2)
+            for item in result["findings"]:
+                findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"tight_source_core":True,
+                    "core_blur_radius":3.,"core_search_radius":2})
+    return base|{"method":"source_panel_phase_v5_tight_experiment",
+                 "findings":list(findings.values()),"count":len(findings)}

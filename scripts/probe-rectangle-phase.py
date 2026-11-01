@@ -9,10 +9,9 @@ from pathlib import Path
 from watermark_studio.config import Region
 from watermark_studio.images import load_photo
 from watermark_studio.rectangle_phase import (
-    _prepare_phase,
-    _single_phase,
     rectangle_phase,
     rectangle_phase_core,
+    rectangle_phase_tight,
 )
 
 p=argparse.ArgumentParser()
@@ -36,13 +35,7 @@ for c in cases:
     arguments=(load_photo(c["source"])[0],load_photo(c["output"])[0],
                [Region.model_validate(r) for r in c["regions"]])
     if a.tight_core:
-        mapping={tuple(item["mask"]):tuple(item["core"]) for item in c["source_cores"]}
-        prepared=_prepare_phase(arguments[0],arguments[1],1024,blur_radius=3.)
-        found={}
-        for sign in (-1,1):
-            cue=_single_phase(*arguments,1024,sign,mapping,prepared,core_radius=2)
-            found.update({tuple(item["box"]):item for item in cue["findings"]})
-        result={"method":"offline_tight_source_core_v1","count":len(found),"findings":list(found.values())}
+        result=rectangle_phase_tight(*arguments,c["source_cores"])
     else:
         result=(rectangle_phase_core(*arguments,c["source_cores"]) if a.core_boundaries
                 else rectangle_phase(*arguments))

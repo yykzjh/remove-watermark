@@ -84,3 +84,26 @@ def test_sign_searches_share_immutable_pixel_preparation_per_scale(monkeypatch):
     core={"mask":list(regions[0].box),"core":[.2,.2,.7,.8]}
     assert phase.rectangle_phase_core(source,dark,regions,[core])["count"]==1
     assert len(calls)==2
+
+
+
+@pytest.mark.parametrize("box",[(.2,.2,.7,.8),(0,.55,.4,1)])
+def test_tight_core_never_discards_old_vetoes_or_changes_original_pixels(box):
+    from watermark_studio.rectangle_phase import rectangle_phase_core, rectangle_phase_tight
+    clean,source,dark,regions=fixture(box)
+    hashes=source.tobytes(),dark.tobytes()
+    core={"mask":list(regions[0].box),"core":list(box)}
+    original=rectangle_phase_core(source,dark,regions,[core])
+    extra=rectangle_phase_tight(source,dark,regions,[core])
+    assert {tuple(v["box"]) for v in original["findings"]} <= {tuple(v["box"]) for v in extra["findings"]}
+    assert rectangle_phase_tight(source,clean,regions,[core])["count"]==0
+    assert rectangle_phase_tight(dark,dark.copy(),regions,[core])["count"]==0
+    assert (source.tobytes(),dark.tobytes())==hashes
+    json.dumps(extra,allow_nan=False)
+
+
+def test_tight_search_does_not_use_unknown_or_outside_core_coordinates():
+    from watermark_studio.rectangle_phase import rectangle_phase_core, rectangle_phase_tight
+    _,source,dark,regions=fixture((.2,.2,.7,.8))
+    for bad in ([{"mask":list(regions[0].box),"core":[0,0,1,1]}],[{"core":[float("nan"),0,1,1]}],[]):
+        assert rectangle_phase_tight(source,dark,regions,bad)["findings"]==rectangle_phase_core(source,dark,regions,bad)["findings"]

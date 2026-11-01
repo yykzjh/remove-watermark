@@ -32,7 +32,7 @@ def calls(monkeypatch, reports=None, residuals=(), recheck=None):
         history.append(encoder)
         return [deepcopy(reports[len(history)-1])]
     monkeypatch.setattr("watermark_studio.cross_review._classify",classify)
-    monkeypatch.setattr("watermark_studio.cross_review._reinspect",lambda *a:
+    monkeypatch.setattr("watermark_studio.cross_review._reinspect",lambda *a,**kw:
         recheck or {"watermark_removed":True,"natural":True,"uncertain":False,"area":"none"})
     monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[(list(residuals),"scan")])
     return history
@@ -401,3 +401,19 @@ def test_two_locations_require_every_carrier_proof_from_both_models(monkeypatch,
     run(before,after,q,full_context=True)
     assert q["status"]=="review"
     assert history==([2] if disagrees=="editor" else [2,2])
+
+
+
+def test_output_only_global_residual_scan_never_sees_original_watermark_pixels(monkeypatch):
+    from watermark_studio.cross_review import _reinspect
+    captured=[]
+    def structured(chats,fields,*args):
+        captured.extend(item for item in chats[0][0]["content"] if item["type"]=="image")
+        return [{f:f!="uncertain" for f in fields}|{"area":"none"}],.1
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    before=Image.new("RGB",(1000,800),"blue")
+    after=Image.new("RGB",(1000,800),"green")
+    result=_reinspect(before,after,[[.55,.3,.7,.45]],None,None,"cpu",768,128,output_only=True)
+    assert result["watermark_removed"] and len(captured)==2
+    assert all(item["image"].getpixel((0,0))==(0,128,0) for item in captured)
+    assert before.getpixel((0,0))==(0,0,255)
