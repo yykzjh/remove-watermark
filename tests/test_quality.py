@@ -372,3 +372,28 @@ def test_rectangle_phase_warning_remains_a_veto_and_produces_shadow_retry_eviden
     assert "repair_rectangle_phase" in q["guard_codes"]
     assert q["cross_review"]["reason"]=="strict_guard_or_content_veto"
     assert any(item["issue"]=="rectangular_shadow" for item in q["retry_feedback"])
+
+
+def test_large_repair_keeps_native_texture_views_without_more_images():
+    from watermark_studio.config import Region
+    from watermark_studio.quality import output_detail_views
+    image=Image.new("RGB",(2560,1920),(80,90,70))
+    region=Region(kind="panel",box=(0,.6,.42,1))
+    views,boxes=output_detail_views(image,image,4,[region])
+    assert len(views)==len(boxes)==4
+    assert views[1].size==views[2].size==(512,512)
+    for view,box in zip(views[1:3],boxes[1:3]):
+        assert round((box[2]-box[0])*image.width)==view.width
+        assert round((box[3]-box[1])*image.height)==view.height
+    assert boxes[1][1]<region.box[1]<boxes[1][3]
+    assert boxes[2][1]>=region.box[1]
+
+
+def test_native_texture_views_respect_zero_and_small_detail_budgets():
+    from watermark_studio.config import Region
+    from watermark_studio.quality import output_detail_views
+    image=Image.new("RGB",(2560,1920),"gray")
+    regions=[Region(kind="panel",box=(0,.6,.42,1))]
+    for count in (0,1,2,3):
+        views,boxes=output_detail_views(image,image,count,regions)
+        assert len(views)==len(boxes)==count

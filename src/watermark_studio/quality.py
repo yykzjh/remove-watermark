@@ -433,6 +433,26 @@ def output_detail_views(before, after, count=4, regions=()):
         boxes.append(box)
         if len(views)==count:
             return views,boxes
+    # Keep a bounded native-scale view: shrinking a large repaired card to 512px
+    # can hide chroma stippling, VAE noise, and a texture transition at its edge.
+    # Reuse the existing detail budget, rather than adding another VLM pass.
+    for region in sorted(regions, key=lambda r: (r.box[2]-r.box[0])*(r.box[3]-r.box[1]), reverse=True):
+        x0,y0,x1,y1=region.box
+        left,top,right,bottom=(round(v*s) for v,s in zip(
+            (x0,y0,x1,y1),(after.width,after.height,after.width,after.height)))
+        if max(right-left,bottom-top)<=640:
+            continue
+        edge=min(512,after.width,after.height)
+        for cx,cy in (((left+right)//2,top),((left+right)//2,(top+bottom)//2)):
+            xx=max(0,min(after.width-edge,cx-edge//2))
+            yy=max(0,min(after.height-edge,cy-edge//2))
+            native=(xx,yy,xx+edge,yy+edge)
+            box=[v/s for v,s in zip(native,(after.width,after.height,after.width,after.height))]
+            views.append(after.crop(native).convert("RGB"))
+            boxes.append(box)
+            if len(views)==count:
+                return views,boxes
+        break
     _, candidates=detail_sheets(before,after,count)
     for box in candidates:
         native=tuple(round(v*s) for v,s in zip(box,(after.width,after.height,after.width,after.height)))

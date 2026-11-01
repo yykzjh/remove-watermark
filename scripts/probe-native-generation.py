@@ -7,6 +7,8 @@ p.add_argument("--cases",type=Path,required=True)
 p.add_argument("--input",type=Path,required=True)
 p.add_argument("--output",type=Path,required=True)
 p.add_argument("--no-compile",action="store_true")
+p.add_argument("--quantization",choices=["none","float8"],default="float8")
+p.add_argument("--granularity",choices=["tensor","row"],default="tensor")
 a=p.parse_args()
 if a.output.exists(): p.error("Fresh output required")
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
@@ -21,7 +23,8 @@ from watermark_studio.prompts import build_full_prompt, scene_instruction
 torch.set_num_threads(1)
 assert torch.cuda.mem_get_info()[0]>35*2**30
 cfg=DeploymentConfig.model_validate(json.loads(Path(".run/deployment.json").read_text())|{
-    "gpus":[a.gpu],"compile":not a.no_compile,"quality_verifier":False})
+    "gpus":[a.gpu],"compile":not a.no_compile,"quality_verifier":False,
+    "quantization":a.quantization,"float8_granularity":a.granularity})
 pipe=load_pipeline(cfg,str(Path(cfg.model).expanduser()))
 cases=json.loads(a.cases.read_text())[:2]
 a.output.mkdir(parents=True)
