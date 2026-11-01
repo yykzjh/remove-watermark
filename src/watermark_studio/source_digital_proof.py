@@ -51,7 +51,7 @@ def _classify(chats,encoder,processor,device):
     results=[]
     for chat,row in zip(chats,rows,strict=True):
         result={target:row[key] for key,target in mapping.items()}
-        result.update(evidence="未建立完整的数字身份源证明",protocol="source-digital-structured-v4")
+        result.update(evidence="未建立完整的数字身份源证明",protocol="source-digital-structured-v5")
         if (result["digital_overlay"] and not result["physical_scene_text"]
                 and not result["object_attachment"] and not result["surface_evidence"] and not result["uncertain"]):
             content=chat[0]["content"][:-1]
@@ -71,7 +71,16 @@ def _classify(chats,encoder,processor,device):
 
 
 def digital_overlay(report):
-    return (isinstance(report,dict)
+    import re
+    evidence=report.get("evidence","") if isinstance(report,dict) else ""
+    # A contradictory explanation is never a positive identity certificate,
+    # even when its independently generated boolean fields look conclusive.
+    contradictory=(not isinstance(evidence,str) or bool(re.search(
+        r"无法确定|不能确定|不确定|难以确定|未能确定|无法判断|无法确认|未建立完整|无数字叠加|没有数字叠加|非数字(?:水印|图层|覆盖层)|不是数字(?:水印|图层|覆盖层)"
+        r"|\b(?:uncertain|unclear|cannot (?:determine|confirm|tell)|unable to (?:determine|confirm)|not certain)\b"
+        r"|\bno (?:visible |clear )?digital (?:overlay|compositing|layer)\b",
+        evidence,re.IGNORECASE)))
+    return (isinstance(report,dict) and not contradictory
             and report.get("digital_overlay") is True
             and report.get("physical_scene_text") is False
             and report.get("object_attachment") is False
@@ -109,7 +118,7 @@ def certify_gray_regions(photo, regions, cores, rims, editor, editor_processor,
         began=time.monotonic()
         core=cores.get(tuple(region.box))
         item={"mask":list(region.box),"kind":region.kind,"core":list(core) if core is not None else None,
-              "approved":False,"version":"gray-source-digital-v4","weights_relation":weights_relation,
+              "approved":False,"version":"gray-source-digital-v5","weights_relation":weights_relation,
               "source_size":list(photo.size),"source_rgb_sha256":fingerprint}
         try:
             if weights_relation!="different_weights" or editor is verifier:

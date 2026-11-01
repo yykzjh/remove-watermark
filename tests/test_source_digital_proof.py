@@ -160,4 +160,16 @@ def test_structured_source_identity_never_uses_physical_only_appeal_recovery(mon
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[
         {"status":"summary_only","summary":"半透明卡片跨越不同方向的背景纹理，保持相同屏幕平面。"}])
     result=_classify(chats,None,None,"cpu")[0]
-    assert digital_overlay(result) and result["protocol"]=="source-digital-structured-v4"
+    assert digital_overlay(result) and result["protocol"]=="source-digital-structured-v5"
+
+
+@pytest.mark.parametrize("evidence",[
+    "无法确定，该区域为叠加的蓝色信息框。",
+    "无法确定，该区域为黄色挖掘机实物，无数字叠加特征。",
+    "这是实物铭牌，没有数字叠加。",
+    "Cannot confirm digital identity from this view.",
+    "There is no visible digital overlay.",
+    None,
+])
+def test_explicitly_contradictory_explanation_cannot_authorize_gray_repainting(evidence):
+    assert not digital_overlay(report(evidence=evidence))
