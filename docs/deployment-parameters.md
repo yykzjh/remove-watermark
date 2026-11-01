@@ -13,8 +13,8 @@
 |--gpus|[0, 1, 2, 3, 4, 5, 6, 7]|Comma-separated physical GPU indices, e.g. 1,2,3|
 |--parallelism|data|single: exactly one worker; data: independent image workers on selected GPUs|
 |--batch-size|2|Maximum independent edits per GPU forward, 1..16|
-|--prefill-overlays|False|Experimental source-only harmonic conditioning initialization for focused/complete generation; requires real context, preserves original input files, no extra diffusion candidate. Not enabled by default.|
-|--large-batch-size|0|Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks|
+|--prefill-overlays|False|Experimental source-only harmonic conditioning for focused or protected whole editing; whole mode requires trusted large-card cores. Small groups remain original for Qwen removal. No extra generation.|
+|--prefill-original-semantics|False|With prefill-overlays in protected whole mode, encode the unchanged full photograph and baseline prompt; initialize only the VAE reference. No extra image encoding or generation; experimental, not in default recipe.|\n|--large-batch-size|0|Optional cap for input budgets >1024; 0 inherits batch-size, 1 avoids large-frame B2 peaks|
 |--small-batch-size|0|Separate cap for model input budgets <=512; 0 inherits batch-size, 1..16 overrides it. Does not raise the raw-image concurrency/window. Exact shapes and OOM learned caps still apply. Quality recipe explicitly selects 2.|
 |--batch-window|4|Images gathered per worker = batch size times window, 1..8|
 |--batch-bucketing|False|Group edits by identical inference dimensions within the window|
@@ -26,7 +26,7 @@
 |--protected-document-resolution|0|Optional full-frame document budget, 0 disables; protected whole requests >=1024 only, never downsizes chosen budget|
 |--retain-rejected-first|False|Keep an immutable first rejected candidate for audit; adds disk use only for rejected first attempts|
 |--source-vet-batch-size|1|Independent editor-side source claims per forward, 1..4; verifier proofs remain per candidate. Experimental until GPU speed and frozen-reference invariance are measured.|
-|--protection-physical-vet|False|Before protected whole editing, retain small panel-like physical text only when both distinct models establish carrier/surface evidence|
+|--protection-physical-vet|False|Before protected whole editing, retain small physical text only with two distinct proofs. Outdoor masks >=35% additionally require two agreeing tighter detections and digital identity proofs; disagreement preserves original pixels and forces review.|
 |--protection-detail-scan|False|Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs|
 |--protection-core-feather|False|Fade only the source detector safety margin; keep the complete watermark core opaque|
 |--separate-vae-decode|False|Decode pipeline latents after per-call prefix KV caches are released; exact pinned decode path, offload none|

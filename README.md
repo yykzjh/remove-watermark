@@ -129,7 +129,7 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 | gpus | 物理 GPU 编号列表；每张卡独立处理图像，实现数据并行 |
 | replicas_per_gpu | 每卡完整模型副本数；默认 1，增加会成倍占显存 |
 | load_parallelism | 同时加载的副本数；本机实测采用 8，限制 CPU 内存与磁盘峰值 |
-| attention | sdpa 或 flex；flex 必须配合 compile |
+| attention | 当前固定依赖使用 sdpa；flex 编译验证失败，配置校验拒绝启用 |
 | compile / compile_mode | 编译 transformer；第一张和新形状可能重新编译 |
 | kv_cache | 重用当前图像各去噪步的前缀 KV；不是跨图片复用 |
 | offload | none / model / sequential；省显存通常会减吞吐，不与 compile 组合 |
