@@ -3,6 +3,7 @@ import argparse
 import collections
 import hashlib
 import json
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -15,13 +16,17 @@ p=argparse.ArgumentParser()
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--concurrency",type=int,default=20)
+p.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located"],default="fidelity")
+p.add_argument("--run-tag",default="protected-e2e",help="Fresh output name inside the immutable selection; lets paired runs retain identical paths/seeds")
 p.add_argument("--auto-retry",action="store_true")
 p.add_argument("--cross-review",action="store_true")
 p.add_argument("--attempts",type=int,default=3)
 p.add_argument("--retry-resolution",type=int,choices=[1024,1280,1536,2048],default=1024)
 a=p.parse_args()
-work=a.work.resolve();inputs=work/"input";target=work/"protected-e2e"
-output=work/"e2e-summary.json"
+if not re.fullmatch(r"[a-zA-Z0-9_-]+",a.run_tag):
+    p.error("Simple run tag required")
+work=a.work.resolve();inputs=work/"input";target=work/a.run_tag
+output=work/("e2e-summary.json" if a.run_tag=="protected-e2e" else a.run_tag+"-summary.json")
 if target.exists() or output.exists() or not (work/"source-selection.json").is_file():
     p.error("Prepared immutable selection and fresh output required")
 selection=json.loads((work/"source-selection.json").read_text())
@@ -38,7 +43,7 @@ assert health["job"] is None or health["job"]["state"] in {"completed","failed",
 if a.auto_retry:
     assert health["optimization"].get("retain_rejected_first"),"Retain rejected first candidates for first/final audit"
 options={"scope":"full_image","preset":"auto","preserve_background":True,"first_pass_mode":"whole",
-         "whole_prompt_profile":"fidelity","resolution":1024,"concurrency":a.concurrency,
+         "whole_prompt_profile":a.whole_prompt_profile,"resolution":1024,"concurrency":a.concurrency,
          "quality_check":True,"quality_batch_size":2,"quality_detail_patches":4,
          "quality_cross_review":a.cross_review,"quality_auto_retry":a.auto_retry,
          "quality_max_attempts":a.attempts,"quality_retry_resolution":a.retry_resolution,
