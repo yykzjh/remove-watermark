@@ -26,6 +26,7 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--frozen-input-budget",action="store_true",help="Reuse each source record original single inference budget, including document overrides")
     p.add_argument("--sigma-profile",choices=["native","tail9","tail10","tail12"],default="native",help="Offline tail refinement; adds measured forward cost but no second image generation")
     p.add_argument("--quantization",choices=["float8","none"],default="float8")
     p.add_argument("--granularity",choices=["tensor","row"],default="tensor")
@@ -49,6 +50,8 @@ def main():
         rows=[r for r in rows if r["file"] in set(a.files)]
     if summary["state"]!="completed" or not 1<=len(rows)<=64 or any(not r.get("ok") or not r.get("background_preserved") for r in rows):
         p.error("1..64 valid protected frozen sources required")
+    if a.frozen_input_budget and any(not isinstance(r.get("model_input_budgets"),list) or len(r["model_input_budgets"])!=1 or r["model_input_budgets"][0] not in (512,768,1024,1280,1536,2048) for r in rows):
+        p.error("Every frozen source needs one explicit supported model input budget")
     source_root=Path(summary["input_dir"]).resolve();hashes={}
     for row in rows:
         source=(source_root/row["file"]).resolve()
@@ -99,7 +102,8 @@ def main():
         rims=row.get("source_rim_protection",[])
         scoped,cores,invalid=effective_rim_scope(source,regions,row.get("protected_core_boxes",[]),rims,header_core=True)
         if invalid:raise ValueError("Frozen source rim proof invalid")
-        width,height=dimensions(source,options.resolution)
+        budget=row["model_input_budgets"][0] if a.frozen_input_budget else options.resolution
+        width,height=dimensions(source,budget)
         seed=(options.seed+int.from_bytes(hashlib.sha256(name.encode()).digest()[:4],"big"))%(2**32)
         item={"image":source,"prompt":build_full_prompt(options.extra_prompt,options.whole_prompt_profile),"seed":seed}
         if a.source_flow_context:
@@ -117,7 +121,7 @@ def main():
             return original_decode(z,*args,**kwargs)
         started=time.monotonic()
         with override_methods(pipe.vae,decode=decode):
-            generated=independent_batch(pipe,[item],options.resolution,a.kv_cache)[0].convert("RGB").resize(source.size,Image.Resampling.LANCZOS)
+            generated=independent_batch(pipe,[item],budget,a.kv_cache)[0].convert("RGB").resize(source.size,Image.Resampling.LANCZOS)
         capture["native_generated_rgb_sha256"]=hashlib.sha256(generated.tobytes()).hexdigest()
         generated=composite_protected(source,generated,scoped,options.feather,options.repair_blending,
             core_boxes={tuple(c["mask"]):tuple(c["core"]) for c in cores})
@@ -132,7 +136,7 @@ def main():
             "source_detail_views","source_detail_context_requeries")
         result={k:row[k] for k in source_fields if k in row}
         result.update(ok=True,quality={},quality_attempts=1,model_inferences=1,processing_path="whole_composite",
-            action="restored",output_size=size,latent_capture=capture,harmonization=generated.info.get("harmonization"),
+            action="restored",output_size=size,model_input_budgets=[budget],latent_capture=capture,harmonization=generated.info.get("harmonization"),
             denoising_context=[item["_denoising_context_log"]] if "_denoising_context_log" in item else [],
             source_rim_composition={"regions":[r.model_dump() for r in scoped],"cores":cores},
             native_generation_probe={"model_input_size":[width,height],"seed":seed,"whole_frame":True,
@@ -149,7 +153,7 @@ def main():
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
         "native_settings":{"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
-            "sigma_profile":a.sigma_profile,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
+            "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
             "source_flow_context":a.source_flow_context,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
