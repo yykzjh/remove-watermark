@@ -523,6 +523,7 @@ class MainWindow(QMainWindow):
                 scope="regions" if custom else "full_image",
                 concurrency=1 if single else self.concurrency.value(),
                 resolution=self.resolution.currentData(),
+                context=getattr(self,"processing_context",.6),
                 preset=self.preset.currentData() if single else "auto",
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
@@ -686,6 +687,7 @@ def default_ssh_program():
 
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
+    window.processing_context=getattr(args,"context",.6)
     mode=getattr(args,"first_pass_mode","whole")
     window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData(mode))
     window.resolution.setCurrentIndex(window.resolution.findData(getattr(args,"input_resolution",1024)))
@@ -722,11 +724,14 @@ def main():
     parser.add_argument("--preserve-background", action="store_true", help="Preselect original background protection")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
+    parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")
     args = parser.parse_args()
+    if not .1<=args.context<=2:
+        parser.error("--context must be finite and in 0.1..2")
     if args.quality_cross_review and not args.quality_check:
         parser.error("--quality-cross-review requires --quality-check")
     if args.quality_auto_retry and not args.quality_check:

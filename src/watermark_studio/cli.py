@@ -33,6 +33,7 @@ def main():
     parser.add_argument("--quality-max-attempts", type=int, default=3, help="0: until pass or cancel")
     parser.add_argument("--quality-retry-resolution", type=int, default=768)
     parser.add_argument("--preserve-background", action="store_true")
+    parser.add_argument("--context",type=float,default=.6,help="Reconstruction context factor, 0.1..2")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
@@ -40,6 +41,8 @@ def main():
     parser.add_argument("--quality-max-tokens", type=int, default=128)
     parser.add_argument("--quality-detail-patches", type=int, choices=range(9), default=4)
     args = parser.parse_args()
+    if not .1<=args.context<=2:
+        parser.error("--context must be finite and in 0.1..2")
     request(
         args.url,
         "/jobs",
@@ -49,6 +52,7 @@ def main():
             "options": {
                 "concurrency": args.concurrency,
                 "resolution": args.resolution,
+                "context":args.context,
                 "output_width": args.output_width,
                 "output_height": args.output_height,
                 "overwrite": args.overwrite,

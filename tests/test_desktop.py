@@ -179,3 +179,23 @@ def test_same_base_verifier_visibly_disables_cross_review_even_after_quality_tog
     assert window.quality_cross_review.isEnabled()
     app.processEvents()
     window.close()
+
+
+def test_tuned_launch_context_reaches_submission_without_adding_batch_regions():
+    from types import SimpleNamespace
+
+    from watermark_studio.desktop import apply_processing_defaults
+    _app=QApplication.instance() or QApplication([])
+    api=FakeApi()
+    window=MainWindow(api,{"capacity":20,"roots":["/home/zjh"],"backend":"mock","stage":"ready","job":None})
+    args=SimpleNamespace(context=.45,first_pass_mode="complete",input_resolution=1024,
+        repair_blending="harmonic",preserve_background=True,quality_check=False,
+        quality_auto_retry=False,quality_batch_size=2,input_dir="/home/zjh/input",
+        output_dir="/home/zjh/output")
+    apply_processing_defaults(window,args)
+    assert not any(c[0]=="submit" for c in api.calls)
+    window.start_job()
+    payload=api.calls[-1][3]
+    assert payload["options"]["context"]==.45
+    assert payload["options"]["scope"]=="full_image" and payload["options"]["regions"]==[]
+    window.close()
