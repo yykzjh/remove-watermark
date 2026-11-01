@@ -33,7 +33,8 @@ def test_source_core_fades_only_safety_margin_and_keeps_watermark_opaque():
 
 
 @pytest.mark.parametrize("oversized",[False,True])
-def test_protected_complete_scan_still_sends_one_full_photo_to_diffusion(tmp_path,monkeypatch,oversized):
+@pytest.mark.parametrize("profile",["fidelity","located"])
+def test_protected_complete_scan_still_sends_one_full_photo_to_diffusion(tmp_path,monkeypatch,oversized,profile):
     from watermark_studio.worker import process_batch
     source=tmp_path/"source.png";target=tmp_path/"out.png"
     image=Image.new("RGB",(800,600),"gray");image.save(source);before=source.read_bytes()
@@ -56,6 +57,10 @@ def test_protected_complete_scan_still_sends_one_full_photo_to_diffusion(tmp_pat
     monkeypatch.setattr("watermark_studio.batching.dimensions",lambda image,budget:(800,600))
     def generate(pipe,items,*args):
         observed.extend(item["image"].size for item in items)
+        for item in items:
+            assert ("自动定位提示" in item["prompt"]) is (profile=="located")
+            if profile=="located":
+                assert "相机标识及附属细小编码" in item["prompt"] and "真实铭牌" in item["prompt"]
         return [Image.new("RGB",(800,600),"gray") for _ in items]
     monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
     monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
@@ -63,7 +68,7 @@ def test_protected_complete_scan_still_sends_one_full_photo_to_diffusion(tmp_pat
         max_memory_reserved=lambda:0)))
     pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu")
     row=process_batch([{"source":str(source),"destination":str(target),"relative":"source.png"}],
-        ProcessingConfig(scope="full_image",preserve_background=True),
+        ProcessingConfig(scope="full_image",preserve_background=True,whole_prompt_profile=profile),
         DeploymentConfig(protection_detail_scan=True,protection_core_feather=True),pipe)[0]
     assert row["ok"] and row["model_inferences"]==1 and observed==[(800,600)]
     assert row["processing_path"]=="whole_composite" and row["source_detail_views"]==1

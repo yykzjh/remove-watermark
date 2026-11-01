@@ -325,6 +325,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 if config.prefill_overlays and focused_auto:
                     reference,prefilled=prefill_overlay_reference(source,box,crop,regions)
                 extra_prompt = options.extra_prompt
+                if state["whole_generation"] and options.whole_prompt_profile=="located":
+                    from .prompts import whole_location_guidance
+                    extra_prompt+=whole_location_guidance(state["protected_regions"] or [])
                 if state["whole_generation"] and options.whole_prompt_profile=="scene":
                     from .source_brief import guidance
                     extra_prompt+=guidance(source_briefs.get(task["relative"]))
@@ -463,6 +466,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "background_preserved": state["protected_regions"] is not None or options.scope == "regions",
             "first_pass_strategy_version":"2026-11-01.source-details-core-v2",
             "first_pass_mode":options.first_pass_mode,
+            "whole_location_guidance":bool(state["whole_generation"] and options.whole_prompt_profile=="located" and state["protected_regions"]),
             "processing_path":("whole_direct" if state["whole_generation"] and state["protected_regions"] is None
                                else "whole_composite" if state["whole_generation"] else "region_repair"),
             "source_detail_views":detail_counts.get(task["relative"],0),

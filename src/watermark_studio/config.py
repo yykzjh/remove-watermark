@@ -43,7 +43,7 @@ class ProcessingConfig(BaseModel):
     detection_resolution: int = Field(default=1280, ge=512, le=2048, multiple_of=32)
     preserve_background: bool = False
     first_pass_mode: Literal["whole", "focused", "thorough", "complete"] = "whole"
-    whole_prompt_profile: Literal["baseline","fidelity","scene"] = "fidelity"
+    whole_prompt_profile: Literal["baseline","fidelity","scene","located"] = "fidelity"
     repair_blending: Literal["feather", "harmonic", "harmonic-fine"] = "harmonic"
     quality_check: bool = False
     quality_cross_review: bool = False

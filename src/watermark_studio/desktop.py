@@ -322,7 +322,7 @@ class MainWindow(QMainWindow):
         for size in [512, 768, 1024, 1280, 1536, 2048]:
             self.resolution.addItem(f"{size} 档（约 {size} × {size} 像素预算）", size)
         self.resolution.setCurrentIndex(2)
-        self.resolution.setToolTip("保留送入模型的图像宽高比，并按模型网格对齐。较低档位省显存；更大 batch 需调整服务参数。")
+        self.resolution.setToolTip("保留送入模型的图像宽高比，并按模型网格对齐。较低档位省显存；更大 batch 需调整服务参数。服务启用文档精细档时，大文档可能自动升档；实际预算见任务记录。")
         form.addRow("模型输入分辨率", self.resolution)
         input_note = QLabel("输入档位影响效果、显存和可用 batch 大小；实际宽高保持输入比例并对齐模型网格，不决定最终整图尺寸。")
         input_note.setWordWrap(True)
@@ -753,7 +753,7 @@ def main():
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
-    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="fidelity: default; baseline: historical comparison; scene: experimental source-facts guidance")
+    parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="fidelity: default; baseline: historical comparison; scene/located: experimental source facts/location guidance")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")

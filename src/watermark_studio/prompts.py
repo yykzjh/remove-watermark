@@ -70,7 +70,7 @@ def build_prompt(
 
 def build_full_prompt(extra="", profile="fidelity"):
     if profile!="baseline":
-        prompt=WHOLE_PROMPTS["fidelity" if profile=="scene" else profile]
+        prompt=WHOLE_PROMPTS["fidelity" if profile in {"scene","located"} else profile]
         return prompt+("\nAdditional scene instruction: "+extra.strip() if extra.strip() else "")
     targets = TARGETS["panel"] + "; " + TARGETS["logo"]
     prompt = BASE_PROMPT.format(
@@ -179,3 +179,20 @@ WHOLE_PROMPTS = {
 不留深色或浅色矩形阴影、色块、边框、文字残影、模糊涂抹、重复纹理和拼接边。
 不臆造不可见的精确文字、测量读数或新物体。没有数字水印时完整保持原照片。""",
 }
+
+
+def whole_location_guidance(regions):
+    """Trusted per-photo positions; full original remains the only diffusion image."""
+    if not regions:
+        return ""
+    labels={"panel":"信息覆盖层","logo":"相机标识及附属细小编码","custom":"数字覆盖层"}
+    rows=[]
+    for index,region in enumerate(regions[:8],1):
+        x0,y0,x1,y1=region.box
+        rows.append(f"{index}. {labels[region.kind]}：x={x0*100:.1f}%..{x1*100:.1f}%，"
+                    f"y={y0*100:.1f}%..{y1*100:.1f}%。")
+    return ("\n自动定位提示（完整原图百分比坐标，左上角为原点）：\n"+"\n".join(rows)+
+        "\n这些位置只是待核实候选，不是修改实物文字的许可或免检清单。结合完整原图确认实际数字覆盖层，"
+        "完整去掉其文字、底板、描边、投影及最细小附属编码；仍检查其它实际数字水印。"
+        "真实铭牌、卷尺刻度、纸质证书与现场标牌必须保留。根据邻近真实材质自然续接人体、地表与植物，"
+        "保持原清晰度、颗粒、光照和边缘连续，不留矩形色差、模糊或重复纹理。")
