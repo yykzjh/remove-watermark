@@ -824,7 +824,9 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                 verdict["reason"] = (verdict["reason"]+" 修补边界存在沿矩形方向的明暗突变，需复核。").strip()[:400]
             if rectangle_guard:
                 from .rectangle_phase import rectangle_phase
+                phase_started=time.monotonic()
                 phase=rectangle_phase(before,seam_photo,regions)
+                phase["seconds"]=round(time.monotonic()-phase_started,6)
                 verdict["repair_rectangle_phase"]=phase
                 if phase["count"]:
                     verdict.update(status="review",natural=False,uncertain=True)
