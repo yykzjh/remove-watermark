@@ -45,7 +45,7 @@ def read(job):
 baseline,old=read(a.baseline_job);initialized,new=read(a.initialized_job)
 assert old.keys()==new.keys() and 1<=len(old)<=256
 for name in old:
-    assert old[name]["repair_regions"]==new[name]["repair_regions"],"Paired masks differ"
+    assert old[name].get("repair_regions",[])==new[name].get("repair_regions",[]),"Paired masks differ"
 model=Path.home()/".cache/watermark-models/models/Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 identity=compare_model_weights(model/"text_encoder",model/"text_encoder")
 assert identity["editor_sha256"]==baseline["quality_weight_identity"]["editor_sha256"]
