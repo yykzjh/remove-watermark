@@ -15,7 +15,7 @@ def _prepare_phase(before, after, resolution, blur_radius=1.2):
     return source,rgb,y,size
 
 
-def _single_phase(before, after, regions, resolution=1024, forced_sign=None, core_mapping=None, prepared=None):
+def _single_phase(before, after, regions, resolution=1024, forced_sign=None, core_mapping=None, prepared=None, core_radius=5):
     """Require a sharp, spatially coherent tone step on every available panel side."""
     panels=[r for r in regions if r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06]
     if not panels:
@@ -50,7 +50,7 @@ def _single_phase(before, after, regions, resolution=1024, forced_sign=None, cor
                                        inward) if 17<p<extent-18]
             if core is not None:
                 centre=round(coordinate*extent)
-                positions=[pos for pos in range(centre-5,centre+6) if 17<pos<extent-18]
+                positions=[pos for pos in range(centre-core_radius,centre+core_radius+1) if 17<pos<extent-18]
             if hi-lo<64 or len(positions)<5:
                 continue
             band=round(margin*extent*1.8)+18
@@ -157,14 +157,17 @@ def rectangle_phase_core(before, after, regions, core_boxes, resolution=1024):
     if mapping:
         # Additional evidence needs stronger side-to-side consistency. The
         # original v2 vetoes retain their exact thresholds and original pixels.
+        # The safety-expanded core includes .008 frame padding: at a 1024px
+        # comparison the actual photographed panel edge can be >5px inward.
+        # Probe a bounded 12px neighborhood; still require every usable side.
         core_prepared=_prepare_phase(before,after,resolution,blur_radius=3.)
         for sign in (-1,1):
-            result = _single_phase(before,after,regions,resolution,sign,mapping,core_prepared)
+            result = _single_phase(before,after,regions,resolution,sign,mapping,core_prepared,core_radius=12)
             for item in result["findings"]:
                 steps=[abs(v["log_tone_step"]) for v in item["side_evidence"].values()]
                 if max(steps)>2*min(steps):
                     continue
                 findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"source_core_search":True,
-                    "core_blur_radius":3.,"maximum_side_ratio":2.})
-    return baseline|{"method":"source_panel_phase_v3_core_experiment",
+                    "core_blur_radius":3.,"maximum_side_ratio":2.,"core_search_radius":12})
+    return baseline|{"method":"source_panel_phase_v4_core_experiment",
                      "findings":list(findings.values()),"count":len(findings)}
