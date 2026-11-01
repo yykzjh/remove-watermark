@@ -125,8 +125,11 @@ def test_document_detail_budget_routes_only_large_protected_whole_inputs(tmp_pat
         budgets.append(resolution)
         return (640,480)
     monkeypatch.setattr("watermark_studio.batching.dimensions",dimensions)
-    monkeypatch.setattr("watermark_studio.batching.independent_batch",
-        lambda pipe,items,*a:[Image.new("RGB",(640,480),"gray") for _ in items])
+    calls=[]
+    def generate(pipe,items,*a):
+        calls.append(len(items))
+        return [Image.new("RGB",(640,480),"gray") for _ in items]
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
     monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
         reset_peak_memory_stats=lambda:None,synchronize=lambda:None,max_memory_allocated=lambda:0,
         max_memory_reserved=lambda:0)))
@@ -135,4 +138,4 @@ def test_document_detail_budget_routes_only_large_protected_whole_inputs(tmp_pat
         DeploymentConfig(protected_document_resolution=1536),
         SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu"))[0]
     assert row["ok"] and budgets==[expected] and row["model_input_budgets"]==[expected]
-    assert Image.open(target).size==size
+    assert Image.open(target).size==size and calls==[1]

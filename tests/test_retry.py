@@ -414,3 +414,25 @@ def test_first_rejected_snapshot_survives_mixed_extension_retries(tmp_path):
         assert Path(row["first_rejected_candidate"]).read_bytes()==b"first"
         assert Path(task["destination"]).read_bytes()==b"second"
         assert row["quality"]["status"]=="passed" and len(row["attempt_history"])==2
+
+@pytest.mark.parametrize("changed",[False,True])
+def test_readonly_recheck_reuses_actual_repair_masks_only_for_unchanged_source(tmp_path,changed):
+    source=tmp_path/"source.png";source.write_bytes(b"source")
+    task={"source":str(source),"destination":str(tmp_path/"out.png"),"relative":"a.png"}
+    masks=[{"kind":"logo","box":[.8,.8,1.,1.]}]
+    cfg=DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state"))
+    options=ProcessingConfig(scope="full_image",preserve_background=True,quality_check=True,quality_auto_retry=True)
+    def first(tasks,*_):
+        Path(tasks[0]["destination"]).write_bytes(b"edited")
+        return [{"file":"a.png","ok":True,"quality":verdict(),
+                 "background_preserved":True,"repair_regions":masks,"source_scene":"outdoor"}]
+    row=process_attempts([task],options,cfg,None,{},"job",first)[0]
+    retry=row["_retry_task"]|{"_recheck":True}
+    if changed:source.write_bytes(b"changed-source")
+    def check(tasks,*_):
+        assert tasks[0]["reuse_existing"]
+        assert bool(tasks[0].get("_repair_provenance")) is (not changed)
+        if not changed:assert tasks[0]["_repair_provenance"]["regions"]==masks
+        return [{"file":"a.png","ok":True,"quality":verdict("passed",removed=True)}]
+    final=process_attempts([retry],options,cfg,None,{},"job",check)[0]
+    assert final["quality"]["status"]=="passed"

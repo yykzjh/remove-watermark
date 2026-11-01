@@ -127,17 +127,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                    (config.quality_phase_offload_above and options.resolution>config.quality_phase_offload_above))
                    and config.quality_backend=="independent"
                    and config.quality_quantization=="none" and hasattr(pipe,"_quality_encoder"))
-    if phase_offload and any(not t.get("reuse_existing") for t in tasks):
-        transfer_started=time.monotonic()
-        from .quality_loading import park_quality_encoder
-        pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
-        torch.cuda.empty_cache()
-        quality_transfer_seconds+=time.monotonic()-transfer_started
     detections, decoded = {}, {}
     detail_counts = {}
     edge_evidence = {}
     context_evidence = {}
     source_geometry_requeries = {}
+    physical_audits = {}
     needs_detection = cuda and (
         (options.scope == "full_image" and options.preserve_background)
         or (options.scope == "regions" and options.preset == "auto")
@@ -195,6 +190,19 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     ), text)
                 except (ValueError, TypeError, RuntimeError) as error:
                     found[index] = error
+        if (config.protection_physical_vet and options.scope=="full_image" and options.preserve_background
+                and options.first_pass_mode=="whole" and config.quality_backend=="independent"
+                and hasattr(pipe,"_quality_encoder")):
+            from .quality_loading import restore_quality_encoder
+            from .source_vetting import vet_small_panels
+            if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):
+                pipe._quality_encoder=restore_quality_encoder(pipe._quality_encoder,pipe._execution_device)
+            for index,task in enumerate(detect_tasks):
+                if not isinstance(found[index],Exception):
+                    found[index],physical_audits[task["relative"]]=vet_small_panels(
+                        decoded[task["relative"]][0],found[index],pipe.text_encoder,pipe.processor,
+                        pipe._quality_encoder,pipe._quality_processor,pipe._execution_device,
+                        getattr(pipe,"_quality_weights_relation","unknown"))
         elapsed = (time.monotonic()-started_detection)/max(1, len(detect_tasks))
         detections = {t["relative"]: (r, elapsed) for t, r in zip(detect_tasks, found)}
     source_briefs={}
@@ -229,6 +237,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 results[task["relative"]] = {
                     "file": task["relative"], "ok": True, "action": "existing_output_verified",
                     "regions": [], "detection_seconds": 0, "output_size": stored_size,
+                    **({"background_preserved":True,
+                        "repair_regions":task["_repair_provenance"]["regions"],
+                        "source_scene":task["_repair_provenance"].get("scene","unknown")}
+                       if task.get("_repair_provenance") else {}),
                 }
                 continue
             detection_start = time.monotonic()
@@ -368,9 +380,9 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         previous = edit["size"]
         key = (edit["resolution"],edit["size"]) if config.batch_bucketing else (run,edit["resolution"],edit["size"])
         buckets[key].append(edit)
-    if (phase_manage and not phase_offload and config.quality_phase_offload_above
-            and any(e["resolution"]>config.quality_phase_offload_above for e in edits)):
-        phase_offload=True
+    phase_offload=bool(phase_offload or (phase_manage and config.quality_phase_offload_above
+                        and any(e["resolution"]>config.quality_phase_offload_above for e in edits)))
+    if phase_offload and edits:
         from .quality_loading import park_quality_encoder
         transfer_started=time.monotonic()
         pipe._quality_encoder=park_quality_encoder(pipe._quality_encoder)
@@ -419,6 +431,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         offset = 0
         while offset < len(bucket):
             maximum = (config.small_batch_size if config.small_batch_size and bucket[0]["resolution"] <= 512
+                       else min(config.batch_size,config.large_batch_size) if config.large_batch_size and bucket[0]["resolution"]>1024
                        else config.batch_size)
             size = min(maximum, batch_limits.get((bucket[0]["resolution"],bucket[0]["size"]),maximum))
             execute(bucket[offset:offset + size])
@@ -541,6 +554,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     source_regions=[
                         detections[t["relative"]][0][0] if t["relative"] in detections
                         and not isinstance(detections[t["relative"]][0], Exception)
+                        else [Region.model_validate(r) for r in t["_repair_provenance"]["regions"]] if t.get("_repair_provenance")
                         else options.regions if options.scope == "regions" and options.preset == "custom"
                         else None for t in group
                     ],
@@ -585,7 +599,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         "oom_retries": oom_retries, "quality_oom_splits": quality_oom_splits,
         "quality_validation_splits":quality_validation_splits,
     }
-    return [results[task["relative"]] | metrics for task in tasks]
+    return [results[task["relative"]] | metrics | {"source_physical_vetting":physical_audits.get(task["relative"],[])} for task in tasks]
 
 
 def process_image(task, options, config, pipe):

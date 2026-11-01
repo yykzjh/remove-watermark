@@ -55,6 +55,14 @@ def retry_allowed(result, options, attempt):
     )
 
 
+def source_signature(path):
+    try:
+        stat=Path(path).stat()
+    except OSError:
+        return None
+    return [stat.st_dev,stat.st_ino,stat.st_size,stat.st_mtime_ns]
+
+
 def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
     """Runtime schedules rounds; this function performs exactly one attempt per input."""
     if not options.quality_auto_retry:
@@ -78,7 +86,8 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         candidate = folder / ("candidate" + suffix)
         best = folder / ("best" + suffix)
         history = folder / "attempts.json"
-        saved = json.loads(history.read_text()) if history.exists() else {"attempts": [], "best": None}
+        saved = json.loads(history.read_text()) if history.exists() else {"attempts": [], "best": None,
+            "source_signature":source_signature(task["source"])}
         verify_existing = bool(task.get("reuse_existing") and not task.get("_retry"))
         if verify_existing:
             atomic_copy(task["destination"], candidate, True)
@@ -109,6 +118,13 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         if tasks[0].get("_recheck"):
             prepared[0]["destination"] = str(records[0][1][2])
             prepared[0]["reuse_existing"] = True
+            best_saved=records[0][2].get("best") or {}
+            if (best_saved.get("background_preserved") and records[0][2].get("source_signature") and
+                    records[0][2].get("source_signature")==source_signature(tasks[0]["source"])):
+                prepared[0]["_repair_provenance"]={
+                    "regions":best_saved.get("repair_regions",[]),
+                    "scene":best_saved.get("source_scene","unknown")}
+
     results = process(prepared, settings, config, pipe, batch_limits)
     for (task, paths, saved), result in zip(records, results):
         if paths is None:
@@ -158,11 +174,15 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             except OSError as error:
                 saved["first_candidate_retention_error"]=str(error)[:240]
         record = {"attempt": current_attempt, "quality": result.get("quality"),
+                  "oom_retries":result.get("oom_retries",0),
+                  "peak_allocated_mib":result.get("peak_allocated_mib",0),
+                  "window_prefill_stats":result.get("window_prefill_stats",{}),
                   "model_inferences":result.get("model_inferences",0),
                   "model_input_budgets":result.get("model_input_budgets",[]),
                   "batch_sizes":result.get("batch_sizes",[]),
                   "model_prefill_batch_sizes":result.get("model_prefill_batch_sizes",[]),
                   "processing_path":result.get("processing_path"),
+                  "source_physical_vetting":result.get("source_physical_vetting",[]),
                   "source_scene":result.get("source_scene"),
                   "quality_weight_transfer_seconds":result.get("quality_weight_transfer_seconds",0),
                   "ok": result["ok"], "action": result.get("action"), "error": result.get("error"),

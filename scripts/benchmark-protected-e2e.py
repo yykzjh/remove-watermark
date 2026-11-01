@@ -103,6 +103,8 @@ summary={"scope":"automatic independent checks, not human-labelled accuracy","jo
     "best_attempt_counts":dict(collections.Counter(str(r.get("best_attempt",1)) for r in rows)),
     "attempt_counts":dict(collections.Counter(str(r.get("quality_attempts",1)) for r in rows)),
     "generation_attempt_errors":sum(not h["ok"] for h in histories),
+    "attempt_oom_retries":sum(h.get("oom_retries",0) for h in histories),
+    "peak_allocated_mib":max((h.get("peak_allocated_mib",0) for h in histories),default=0),
     "quality_attempt_errors":sum((h.get("quality") or {}).get("status")=="error" for h in histories),
     "retained_first_rejected":len(retained),"retained_first_unchanged":retained_ok,
     "source_inputs_unchanged":True,"unique_sources":len(set(hashes.values())),"bad_sizes":sizes,

@@ -108,6 +108,7 @@ class DeploymentConfig(BaseModel):
     gpus: list[int] = Field(default_factory=lambda: list(range(8)), min_length=1, max_length=16)
     parallelism: Literal["single", "data"] = "data"
     batch_size: int = Field(default=2, ge=1, le=16)
+    large_batch_size: int = Field(default=0, ge=0, le=16)
     small_batch_size: int = Field(default=0, ge=0, le=16)
     prefill_overlays: bool = False
     batch_window: int = Field(default=4, ge=1, le=8)
@@ -119,6 +120,7 @@ class DeploymentConfig(BaseModel):
     quality_verifier: bool = False
     protected_document_resolution: Literal[0,1024,1280,1536,2048] = 0
     retain_rejected_first: bool = False
+    protection_physical_vet: bool = False
     protection_detail_scan: bool = False
     protection_core_feather: bool = False
     separate_vae_decode: bool = False
