@@ -128,3 +128,48 @@ def recover_translucent_body(before, candidate, core):
     log.update(applied=True,reason="source_transmission_only",body_pixels=[l,top,r,b],
                recovered_fraction=float((trusted>.99).mean()))
     return Image.fromarray(np.rint(target).astype(np.uint8)),log
+
+
+def local_transmission_support(observed, predicted, *, valid=None):
+    """Diagnostic shared alpha support across separated tiles, not a repair.
+
+    A candidate is NOT a ground truth. These fits can reject a proposed physical
+    explanation, but cannot certify source detail, digital identity or QA success.
+    """
+    x = np.asarray(predicted, dtype=np.float32)
+    y = np.asarray(observed, dtype=np.float32)
+    if x.shape != y.shape or x.ndim != 3 or x.shape[2] != 3 or min(x.shape[:2]) < 64:
+        return {"supported":False, "reason":"insufficient_matching_body_pixels", "tiles":[]}
+    allowed = np.ones(x.shape[:2], bool) if valid is None else np.asarray(valid, bool)
+    if allowed.shape != x.shape[:2] or not np.isfinite(x).all() or not np.isfinite(y).all():
+        return {"supported":False, "reason":"invalid_body_or_mask", "tiles":[]}
+    height, width = x.shape[:2]
+    tiles = []
+    for top in range(0, height-63, 64):
+        for left in range(0, width-63, 64):
+            mask = allowed[top:top+64, left:left+64]
+            if mask.mean() < .55:
+                continue
+            fit = fit_transmission(x[top:top+64,left:left+64][mask], y[top:top+64,left:left+64][mask])
+            foreground = np.asarray(fit.get("foreground", [0,0,0]))
+            if (fit["ok"] and fit["r2"] >= .90 and fit["rmse"] <= 5
+                    and foreground.min() >= 220 and foreground.max() <= 267 and np.ptp(foreground) <= 15):
+                tiles.append({"box":[left,top,left+64,top+64], "fit":fit})
+    clusters = []
+    for seed in tiles:
+        members = [tile for tile in tiles
+                   if abs(tile["fit"]["transmission"]-seed["fit"]["transmission"]) <= .05
+                   and np.max(np.abs(np.asarray(tile["fit"]["foreground"])
+                                     - np.asarray(seed["fit"]["foreground"]))) <= 12]
+        clusters.append(members)
+    best = max(clusters, key=len, default=[])
+    spread = (max((tile["box"][0]-other["box"][0])**2/width**2
+                  + (tile["box"][1]-other["box"][1])**2/height**2
+                  for tile in best for other in best) if best else 0)
+    supported = len(best) >= 3 and spread >= .09 and len(best) >= .75*len(tiles)
+    return {"supported":supported,
+            "reason":"separated_local_fit_only_not_ground_truth" if supported else "no_consistent_separated_support",
+            "quality_permission":False, "tiles":tiles, "consensus_tiles":len(best),
+            "total_credible_tiles":len(tiles), "normalized_spread_squared":spread,
+            "transmission_median":float(np.median([r["fit"]["transmission"] for r in best])) if supported else None,
+            "foreground_median":np.median([r["fit"]["foreground"] for r in best],axis=0).tolist() if supported else None}

@@ -44,3 +44,38 @@ def test_source_transmission_recovery_preserves_glyph_candidate_and_outside():
     assert result.getpixel((5,5))==candidate.getpixel((5,5))
     assert photo.tobytes()==before
     assert result.size==photo.size
+
+
+def test_local_alpha_support_survives_a_wrong_candidate_half_but_never_certifies_pixels():
+    from watermark_studio.translucent_recovery import local_transmission_support
+    rng = np.random.default_rng(117)
+    clean = rng.uniform(30,220,(256,384,3))
+    observed = .6*clean+.4*250
+    candidate = clean.copy()
+    candidate[:,:192] = rng.uniform(30,220,candidate[:,:192].shape)
+    report = local_transmission_support(observed, candidate)
+    assert report["supported"] and not report["quality_permission"]
+    assert abs(report["transmission_median"]-.6) < .001
+    assert all(tile["box"][0]>=192 for tile in report["tiles"])
+
+
+def test_local_fit_rejects_opaque_wrong_identity_and_inconsistent_alpha():
+    from watermark_studio.translucent_recovery import local_transmission_support
+    rng = np.random.default_rng(118)
+    clean = rng.uniform(30,220,(256,384,3))
+    assert not local_transmission_support(np.full_like(clean,230),clean)["supported"]
+    assert not local_transmission_support(rng.uniform(30,220,clean.shape),clean)["supported"]
+    observed = .6*clean+.4*250
+    observed[:,:192] = .4*clean[:,:192]+.6*250
+    assert not local_transmission_support(observed,clean)["supported"]
+
+
+def test_local_alpha_support_requires_several_well_separated_visible_tiles():
+    from watermark_studio.translucent_recovery import local_transmission_support
+    rng = np.random.default_rng(119)
+    clean = rng.uniform(30,220,(256,384,3))
+    observed = .6*clean+.4*250
+    valid = np.zeros(clean.shape[:2],bool)
+    valid[:64,:128] = True
+    assert not local_transmission_support(observed,clean,valid=valid)["supported"]
+    assert not local_transmission_support(observed[:32],clean[:32])["supported"]
