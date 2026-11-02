@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import re
 import runpy
@@ -60,6 +59,7 @@ def main():
 
     from watermark_studio.batching import independent_batch
     from watermark_studio.config import DeploymentConfig
+    from watermark_studio.exact_metrics import reconstruction_metrics
     from watermark_studio.images import load_photo
     from watermark_studio.probe_schedules import configure_turbo_uniform_probe
     from watermark_studio.prompts import build_full_prompt
@@ -72,12 +72,6 @@ def main():
     began=time.monotonic();pipe=load_pipeline(cfg,str(a.model))
     uniform=configure_turbo_uniform_probe(pipe,a.uniform_steps) if a.uniform_steps else None
     load_seconds=time.monotonic()-began;began=time.monotonic();results=[]
-    def metrics(actual,expected,mask):
-        difference=np.mean((actual.astype(np.float32)-expected.astype(np.float32))**2,axis=2)
-        selected=difference[mask]
-        mse=float(np.mean(selected)) if selected.size else None
-        return {"mse":mse,"psnr":(-10*math.log10(max(mse,1e-8)/255**2)) if mse is not None else None,
-            "pixels":int(selected.size)}
     for row in rows:
         source=load_photo(row["input"])[0];clean=load_photo(row["target"])[0]
         seed=(row["seed"]+1000003)%(2**32)
@@ -95,8 +89,8 @@ def main():
         record={"id":row["id"],"source_original_sha256":row["source_original_sha256"],
             "kind":row["render"]["kind"],"generation_count":1,"seed":seed,"steps":len(pipe.scheduler.timesteps),
             "seconds":round(seconds,3),"image_size":list(output.size),
-            "before_overlay":metrics(before,expected,mask),"after_overlay":metrics(actual,expected,mask),
-            "unchanged_content":metrics(actual,expected,~mask),"whole_frame":metrics(actual,expected,np.ones_like(mask)),
+            "before_overlay":reconstruction_metrics(before,expected,mask),"after_overlay":reconstruction_metrics(actual,expected,mask),
+            "unchanged_content":reconstruction_metrics(actual,expected,~mask),"whole_frame":reconstruction_metrics(actual,expected,np.ones_like(mask)),
             "mask_used_as_model_input":False,"quality_accepted":None}
         destination=work/"output"/(row["id"]+".png");output.save(destination)
         record.update(output=str(destination),output_sha256=digest(destination))
