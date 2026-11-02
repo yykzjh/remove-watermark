@@ -15,7 +15,13 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from watermark_studio.artifact_pairs import CLASSES, build_guard, guard_input, synthetic_case
+from watermark_studio.artifact_pairs import (
+    CLASSES,
+    build_guard,
+    guard_input,
+    physical_shadow_background,
+    synthetic_case,
+)
 from watermark_studio.images import load_photo
 from watermark_studio.training_features import digest, validate_pairs
 
@@ -31,15 +37,22 @@ def main():
     p.add_argument("--learning-rate",type=float,default=1e-4)
     p.add_argument("--validate-every",type=int,default=50)
     p.add_argument("--seed",type=int,default=88120)
+    p.add_argument("--clean-fraction",type=float,default=.2)
+    p.add_argument("--clean-weight",type=float,default=1.)
+    p.add_argument("--source-shadow-negatives",action="store_true")
+    p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
     p.add_argument("--pretrained",action="store_true")
     p.add_argument("--tf32",action="store_true")
     p.add_argument("--preserved-markings",action="store_true",
         help="Augment paired unchanged scene-printing negatives; never authorizes watermark acceptance")
     a=p.parse_args()
     if (a.gpu<0 or not 50<=a.steps<=1000 or not 4<=a.batch_size<=64 or
-            not 1e-6<=a.learning_rate<=1e-3 or not 1<=a.validate_every<=a.steps):
+            not 1e-6<=a.learning_rate<=1e-3 or not 1<=a.validate_every<=a.steps or
+            not .2<=a.clean_fraction<=.7 or not 1<=a.clean_weight<=4):
         p.error("Explicit isolated GPU and bounded pilot settings required")
     data,_=validate_pairs(a.manifest)
+    if a.source_shadow_negatives and (not a.font.is_file() or digest(a.font)!=data["font_sha256"]):
+        p.error("Exact original overlay font required for causal shadow negatives")
     if a.target.resolve().parent!=a.manifest.resolve().parent:p.error("Stay inside pilot root")
     a.target.mkdir(exist_ok=False);work=a.target.resolve()
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
@@ -79,8 +92,24 @@ def main():
         if path not in masks:
             with Image.open(path) as image:masks[path]=image.convert("L")
         return masks[path]
-    def make(row,label,seed):
-        source,after,box,info=synthetic_case(photo(row["input"]),photo(row["target"]),mask(row["mask"]),
+    overlays={}
+    def make(row,label,seed,force_shadow=None):
+        original=photo(row["input"]);clean=photo(row["target"])
+        if a.source_shadow_negatives:
+            if row["id"] not in overlays:
+                from watermark_studio.training_pairs import render_pair
+                variant=int(row["id"].rsplit("-",1)[-1])
+                rendered,_,_,overlay=render_pair(clean,variant,random.Random(row["seed"]),a.font,return_overlay=True)
+                if rendered.tobytes()!=original.tobytes():
+                    raise ValueError("Overlay re-render does not reproduce exact original training source")
+                overlays[row["id"]]=overlay
+            use_shadow=random.Random(seed^0x7161).random()<.35 if force_shadow is None else force_shadow
+            if use_shadow:
+                bounds=row["render"].get("render",{}).get("panel") or mask(row["mask"]).getbbox()
+                if bounds is None:bounds=(clean.width*.2,clean.height*.2,clean.width*.7,clean.height*.7)
+                clean=physical_shadow_background(clean,bounds,seed^0x18E9)
+                original=Image.alpha_composite(clean.convert("RGBA"),overlays[row["id"]]).convert("RGB")
+        source,after,box,info=synthetic_case(original,clean,mask(row["mask"]),
             row["render"],label,seed,preserved_marks=a.preserved_markings)
         jitter=random.Random(seed^0x5319)
         l,t,r,b=box
@@ -95,8 +124,11 @@ def main():
     for row in validation:
         for label in range(len(CLASSES)):
             seed=(int(hashlib.sha256(row["id"].encode()).hexdigest()[:8],16)+label*7919+a.seed)%(2**32)
-            value,actual_label=make(row,label,seed)
+            value,actual_label=make(row,label,seed,False)
             validation_cases.append((value,actual_label,row["id"],label))
+            if a.source_shadow_negatives:
+                value,actual_label=make(row,label,seed,True)
+                validation_cases.append((value,actual_label,row["id"]+"/source_shadow",label))
     def record(value):
         with (work/"metrics.jsonl").open("a") as stream:stream.write(json.dumps(value)+"\n")
         print(json.dumps(value),flush=True)
@@ -135,14 +167,16 @@ def main():
     for step in range(1,a.steps+1):
         started=time.monotonic();batch=[];labels=[]
         for index in range(a.batch_size):
-            row=rng.choice(train);requested=(step*a.batch_size+index)%len(CLASSES)
+            row=rng.choice(train)
+            requested=0 if rng.random()<a.clean_fraction else rng.randrange(1,len(CLASSES))
             value,label=make(row,requested,rng.randrange(2**32))
             batch.append(value);labels.append(label)
         inputs=torch.from_numpy(np.stack(batch)).to("cuda:0")
         targets=torch.tensor(labels,device="cuda:0",dtype=torch.long)
         optimizer.zero_grad(set_to_none=True)
         logits=model(inputs)
-        loss=torch.nn.functional.cross_entropy(logits,targets)
+        weights=torch.tensor([a.clean_weight,1.,1.,1.,1.],device="cuda:0")
+        loss=torch.nn.functional.cross_entropy(logits,targets,weight=weights)
         if not torch.isfinite(loss):raise ValueError("Nonfinite guard training loss")
         loss.backward();torch.nn.utils.clip_grad_norm_(model.parameters(),1.,error_if_nonfinite=True)
         optimizer.step()

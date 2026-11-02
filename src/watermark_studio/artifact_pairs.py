@@ -126,3 +126,17 @@ def build_guard(pretrained=False):
         model.conv1.weight.zero_();model.conv1.weight[:,:3].copy_(original.weight)
     model.fc=nn.Linear(model.fc.in_features,len(CLASSES))
     return model
+
+def physical_shadow_background(clean,box,seed):
+    """Known pre-existing scene shade, applied BEFORE the original digital overlay."""
+    rng=random.Random(seed);l,t,r,b=box;w,h=clean.size
+    # The shade continues across the candidate, giving genuine scene context;
+    # it is not a post-repair rectangle with exactly the watermark boundary.
+    x0=max(0,l-rng.uniform(.1,.45)*(r-l));y0=max(0,t-rng.uniform(.1,.45)*(b-t))
+    x1=min(w,r+rng.uniform(.1,.45)*(r-l));y1=min(h,b+rng.uniform(.1,.45)*(b-t))
+    alpha=Image.new("L",clean.size,0)
+    points=[(x0,y0),(x1,min(h,y0+rng.uniform(-.1,.1)*h)),(x1,y1),(x0,max(0,y1+rng.uniform(-.1,.1)*h))]
+    ImageDraw.Draw(alpha).polygon(points,fill=round(rng.uniform(.07,.28)*255))
+    alpha=alpha.filter(ImageFilter.GaussianBlur(rng.uniform(1.,6.)))
+    shade=Image.new("RGB",clean.size,rng.choice([(0,0,0),(12,20,35),(35,30,20)]))
+    return Image.composite(shade,clean.convert("RGB"),alpha)

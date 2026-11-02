@@ -35,3 +35,18 @@ def test_synthetic_mask_contains_every_changed_pixel_and_identity_is_exact(monke
             assert not changed.any() and edited.tobytes()==before
     with pytest.raises(ValueError):
         render_pair(clean,4,random.Random(42),"unused")
+
+
+def test_reusable_overlay_exactly_replays_original_pairs_and_preserves_causal_layer_order(monkeypatch):
+    fallback=ImageFont.load_default()
+    monkeypatch.setattr("watermark_studio.training_pairs.ImageFont.truetype",lambda *a,**k:fallback)
+    from watermark_studio.artifact_pairs import physical_shadow_background
+    clean=Image.new("RGB",(576,448),(100,120,90))
+    for variant in range(4):
+        edited,mask,_,overlay=render_pair(clean,variant,random.Random(42),"unused",return_overlay=True)
+        assert Image.alpha_composite(clean.convert("RGBA"),overlay).convert("RGB").tobytes()==edited.tobytes()
+        shadowed=physical_shadow_background(clean,(100,120,350,330),84)
+        source=Image.alpha_composite(shadowed.convert("RGBA"),overlay).convert("RGB")
+        outside=np.asarray(mask)==0
+        assert np.array_equal(np.asarray(source)[outside],np.asarray(shadowed)[outside])
+        assert not np.array_equal(np.asarray(source),np.asarray(edited))

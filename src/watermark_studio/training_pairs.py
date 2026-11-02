@@ -37,7 +37,7 @@ def clean_crop(size,regions,aspect=4/3,padding=.04,min_side=384):
     return best if area>=.12*width*height else None
 
 
-def render_pair(clean,variant,rng,font_path):
+def render_pair(clean,variant,rng,font_path,*,return_overlay=False):
     """Draw only a known digital overlay; the target clean photograph is immutable."""
     if clean.mode!="RGB" or variant not in range(4):
         raise ValueError("RGB clean target and explicit 0..3 variant required")
@@ -46,7 +46,8 @@ def render_pair(clean,variant,rng,font_path):
     def font(size):return ImageFont.truetype(str(font_path),max(7,int(size)),index=2)
     stamp=max(8,round(height*.031))
     if variant==3:
-        return clean.copy(),Image.new("L",clean.size,0),{"kind":"identity","overlay_groups":0}
+        values=(clean.copy(),Image.new("L",clean.size,0),{"kind":"identity","overlay_groups":0})
+        return (*values,layer) if return_overlay else values
     if variant in (0,1):
         cw=round(width*rng.uniform(.36,.55));ch=round(height*rng.uniform(.24,.36))
         corners=[(.018,.98-ch/height),(.98-cw/width,.018),(.035,.035),(.97-cw/width,.97-ch/height)]
@@ -84,4 +85,5 @@ def render_pair(clean,variant,rng,font_path):
     result=Image.alpha_composite(clean.convert("RGBA"),layer).convert("RGB")
     if np.any(np.any(np.asarray(result)!=np.asarray(clean),axis=2)&(np.asarray(mask)==0)):
         raise ValueError("Synthetic edits escaped their exact overlay mask")
-    return result,mask,{"kind":kind,"overlay_groups":2,"render":render_meta}
+    values=(result,mask,{"kind":kind,"overlay_groups":2,"render":render_meta})
+    return (*values,layer) if return_overlay else values
