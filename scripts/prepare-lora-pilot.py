@@ -28,6 +28,8 @@ def main():
     p.add_argument("--train-originals",type=int,default=48)
     p.add_argument("--validation-originals",type=int,default=12)
     p.add_argument("--candidate-limit",type=int,default=320)
+    p.add_argument("--candidate-files-from",type=Path)
+    p.add_argument("--require-native-pixels",action="store_true")
     p.add_argument("--seed",type=int,default=2026110204)
     p.add_argument("--resolution",type=int,choices=[512,768],default=512)
     p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
@@ -64,6 +66,21 @@ def main():
         if (path.is_relative_to(data.resolve()) and path.is_file() and str(path) not in exposed
                 and path.suffix.lower() in {".jpg",".jpeg",".png",".webp",".bmp",".tif",".tiff"}):
             candidates.append(path)
+    selector_sha=None;expected_hashes={}
+    if a.candidate_files_from:
+        raw=a.candidate_files_from.read_bytes();selector=json.loads(raw)
+        entries=selector.get("sources",[])
+        if selector.get("version")!=1 or not 1<=len(entries)<=2048:
+            raise ValueError("Bounded versioned candidate source reservation required")
+        allowed={str(path):path for path in candidates};chosen=[]
+        for entry in entries:
+            path=Path(entry["path"]).resolve(strict=True);sha=entry["sha256"]
+            if (not path.is_relative_to(data.resolve()) or not re.fullmatch(r"[a-f0-9]{64}",sha)
+                    or str(path) in expected_hashes):
+                raise ValueError("Invalid or repeated candidate source identity")
+            expected_hashes[str(path)]=sha
+            if str(path) in allowed:chosen.append(allowed[str(path)])
+        candidates=chosen;selector_sha=hashlib.sha256(raw).hexdigest()
     rng=random.Random(a.seed);groups=defaultdict(list)
     for path in candidates:groups[path.relative_to(data).parts[0]].append(path)
     for group in groups.values():rng.shuffle(group)
@@ -72,6 +89,8 @@ def main():
     for path in ordered:
         if len(selected)>=a.candidate_limit:break
         sha=digest(path)
+        if expected_hashes and expected_hashes[str(path)]!=sha:
+            raise ValueError("Reserved original source bytes changed")
         if sha in forbidden or sha in parent_hashes:
             rejected["previously_exposed_or_duplicate"]+=1;continue
         selected.append((path,sha));parent_hashes.add(sha)
@@ -129,6 +148,9 @@ def main():
                 box=clean_crop(original.size,regions,aspect=aspect)
                 if box is None:raise ValueError("No sufficiently large clear source rectangle")
                 clean=original.crop(box)
+                size=dimensions(clean,a.resolution)
+                if a.require_native_pixels and (size[0]>clean.width or size[1]>clean.height):
+                    raise ValueError("Native clean crop has insufficient pixels for requested training resolution")
                 crop_checks=[]
                 for model,processor in [(editor,ep),(verifier,vp)]:
                     result=locate_watermarks_batch([clean],model,processor,"cuda:0",1280,1)[0]
@@ -180,7 +202,8 @@ def main():
             raise ValueError("Server GPU reservation changed")
     manifest={"version":1,"state":"completed","revision":revision,"resolution":a.resolution,
         "source_identity":identity,"train_originals":len(train_sha),"validation_originals":len(val_sha),
-        "source_overlap":0,"previous_exposure_overlap":0,"font_sha256":digest(a.font),"pairs":pairs,
+        "source_overlap":0,"previous_exposure_overlap":0,"candidate_selector_sha256":selector_sha,
+        "require_native_pixels":a.require_native_pixels,"font_sha256":digest(a.font),"pairs":pairs,
         "source_screening":"union original hypotheses + .04 frame padding; fresh dual crop localization empty + OCR clear"}
     path=work/"manifest.json";path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
     report={"state":"completed","train_pairs":sum(r["split"]=="train" for r in pairs),
