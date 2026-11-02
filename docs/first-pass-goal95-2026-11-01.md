@@ -1754,3 +1754,14 @@ diagnostics show zero glyph leaks. In the existing actual-Qwen synthetic6 output
 supports PSNR21.55496 ->24.69496dB,additional_generations=0. This is preliminary evidence
 of recoverable source detail, not native body certification or watermark-removal acceptance.
 Native source/foreground safety remains unresolved; no production application is enabled.
+
+Actual deployment-path native verification completed at code8e10a3a:
+12steps job5fc19867b2ba428fb1a7f45926fbc3c7,62.648s generation;
+24steps jobf932294ceb4942ca83a237f0ff78dbed,101.489s.
+For each six-image group,all6 actual VAE capture hashes,generated RGB hashes,final encoded
+output file hashes,and native output dimensions exactly match the previous explicit offline
+12/24-step reference jobs. Every image records one generation and the requested actual step count.
+No per-item offline step override is used in this deployment-route verification.
+Remote CPU sampling/probe/batching checks28 passed; WSL full suite677 passed32 optional
+Torch-dependent tests skipped. The existing API process has not been restarted by these probes.
+Current sealed1000 remains untouched and the>=95% first-pass goal is still unachieved.
