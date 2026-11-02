@@ -22,13 +22,15 @@ def make_swinir(profile):
                   mlp_ratio=2, resi_connection="1conv", **options[profile]).eval().requires_grad_(False)
 
 
-def load_swinir(path, expected_sha256, device, profile):
+def load_swinir(path, expected_sha256, device, profile, precision="float32"):
     """Restricted PyTorch state loading; never falls back to executable pickle."""
     import hashlib
     import re
 
     import torch
 
+    if precision not in ("float32", "float16") or (precision == "float16" and not str(device).startswith("cuda")):
+        raise ValueError("Explicit float32 or CUDA float16 SwinIR precision required")
     path = Path(path).resolve(strict=True)
     if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256) or not 0 < path.stat().st_size < 96 * 2**20:
         raise ValueError("Bounded SHA-pinned official checkpoint required")
@@ -49,7 +51,10 @@ def load_swinir(path, expected_sha256, device, profile):
     if any(v.is_floating_point() and not torch.isfinite(v).all().item() for v in values.values()):
         raise ValueError("Nonfinite SwinIR state")
     net.load_state_dict(values, strict=True)
-    return net.to(device=device, dtype=torch.float32)
+    net.to(device=device, dtype=getattr(torch, precision))
+    if any(v.is_floating_point() and not torch.isfinite(v).all().item() for v in net.state_dict().values()):
+        raise ValueError("SwinIR state overflow after precision conversion")
+    return net
 
 
 def upscale_swinir(image, net, tile=256, overlap=32):
@@ -62,8 +67,8 @@ def upscale_swinir(image, net, tile=256, overlap=32):
         raise ValueError("Bounded generated RGB canvas required")
     if tile != 0 and (not 32 <= tile <= 512 or tile % 8 or not 0 <= overlap < tile or overlap % 8):
         raise ValueError("Window-aligned tile and overlap required")
-    if tile == 0 and image.width * image.height > 65536:
-        raise ValueError("Untiled reference is limited to small equivalence fixtures")
+    if tile == 0 and image.width * image.height > 1310720:
+        raise ValueError("Untiled SwinIR is limited to the measured one-megapixel budget")
     param = next(net.parameters())
     source = torch.from_numpy(np.asarray(image.convert("RGB"), dtype=np.float32).copy() / 255).permute(2, 0, 1)[None]
     h, w = source.shape[-2:]

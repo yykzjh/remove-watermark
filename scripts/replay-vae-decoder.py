@@ -31,6 +31,9 @@ def main():
         help="Optional pinned RGB x4 operator applied directly to model-scale decoder pixels")
     p.add_argument("--super-resolution-sha256",default="")
     p.add_argument("--super-resolution-profile",choices=["rrdb","swinir-classical","swinir-lightweight"],default="rrdb")
+    p.add_argument("--super-resolution-precision",choices=["float32","float16"])
+    p.add_argument("--super-resolution-tile",type=int,choices=[0,256,512])
+    p.add_argument("--super-resolution-overlap",type=int,choices=[0,32,64,128])
     p.add_argument("--precision",choices=["bfloat16","float16"],default="bfloat16")
     a=p.parse_args()
     if a.gpu<0 or not re.fullmatch(r"[a-f0-9]{32}",a.job) or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
@@ -44,6 +47,9 @@ def main():
         p.error("Alternative decoder requires weights and SHA")
     if not a.super_resolution_weights and a.super_resolution_profile != "rrdb":
         p.error("An SR profile requires its pinned weights")
+    sr_options=(a.super_resolution_precision,a.super_resolution_tile,a.super_resolution_overlap)
+    if any(v is not None for v in sr_options) and (not a.super_resolution_weights or a.super_resolution_profile=="rrdb"):
+        p.error("Explicit SR precision/tile/overlap are for SwinIR comparisons only")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
         server=helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
@@ -90,8 +96,11 @@ def main():
         else:
             from watermark_studio.swinir_probe import load_swinir, upscale_swinir
             sr=load_swinir(a.super_resolution_weights,a.super_resolution_sha256,"cuda:0",
-                a.super_resolution_profile.removeprefix("swinir-"))
-            upscale=upscale_swinir
+                a.super_resolution_profile.removeprefix("swinir-"),a.super_resolution_precision or "float32")
+            from functools import partial
+            upscale=partial(upscale_swinir,
+                tile=a.super_resolution_tile if a.super_resolution_tile is not None else 256,
+                overlap=a.super_resolution_overlap if a.super_resolution_overlap is not None else 32)
     load_seconds=time.monotonic()-began
     work=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")/a.tag
     work.mkdir(exist_ok=False);out=work/"output";out.mkdir()
@@ -183,7 +192,11 @@ def main():
                         "model_scale_super_resolution":({
                             "artifact_sha256":a.super_resolution_sha256,
                             "input_size":sr_input_size,"decoded_native_pixels":True,"factor":4,
-                            "profile":a.super_resolution_profile,"original_decoder":a.original_decoder
+                            "profile":a.super_resolution_profile,"original_decoder":a.original_decoder,
+                            "precision":a.super_resolution_precision or ("float16" if a.super_resolution_profile=="rrdb" else "float32"),
+                            "tile":a.super_resolution_tile if a.super_resolution_tile is not None else 256,
+                            "overlap":(a.super_resolution_overlap if a.super_resolution_overlap is not None else 32) if a.super_resolution_profile!="rrdb" else None,
+                            "output_only":True
                         } if sr is not None else None)}}
                 with (folder/"results.jsonl").open("a") as f:
                     f.write(json.dumps(result,ensure_ascii=False)+"\n")

@@ -1878,3 +1878,37 @@ no weights or image payloads crossed SSH. Lightweight native6 replay is queued
 behind verified assembly, using the original decoder and exact baseline
 reproduction, then fresh QA. No SR or higher-step configuration is deployed.
 The frozen 1000 images and the user's full production queue remain untouched.
+
+
+### Output-only SwinIR first native screen and source-core critic ablation
+
+The official lightweight x4 checkpoint completed a verified-range download,
+17,225,941 bytes, SHA256
+09fad24e32ae62722e1a055efde9921328f4137981bab0a42a4a3a806306c58e.
+Restricted tensor-only loading and strict architecture validation succeeded.
+Same-latent replay job 317410130ead49c086d4c0604ca13eb6 reproduces all six
+baseline RGB hashes and encoded files exactly before applying SR. It uses the
+original decoder, adds zero Qwen generations, and preserves native dimensions
+and protected original pixels.
+
+Fresh identical QA: 5/6 passed; 0343 retains the texture-drop warning.
+The original uniform12 baseline was 3/6. The FP32 tiled replay takes 96.142s
+plus 6.311s loading; fresh QA takes20.763s. This is a candidate screen, not
+qualification or a throughput improvement. A permitted 408,053-byte native
+detail contact sheet for0153 confirms that SR changes the generated texture;
+it cannot establish the hidden ground truth. The next gate uses known clean
+synthetic targets, measuring RGB error and highpass correlation so sharp
+invented texture is not treated as recovery merely for avoiding blur warnings.
+
+New research parameters compare CUDA FP16 and bounded untiled inference.
+Production settings remain unchanged. The new known-target probe uses only
+existing1024 validation crops, makes one full-frame Qwen call per overlaid
+sample, and can replay saved raw generations for SR comparisons. Empty-overlay
+controls are exact source copies. Clean target pixels enter metrics only.
+
+The frozen shadow-only CNN was also tested with immutable source-core boxes
+rather than expanded masks on the existing322 comparisons. It flags29/81
+known defects versus21/81 previously, with0/27 clean control flags; however,
+it catches0/10 remaining known VLM false accepts and flags no native candidates.
+This geometry change therefore does not solve the critic qualification gap
+and is not deployed. GPU time0.535s and preprocessing31.738s for298 panels.

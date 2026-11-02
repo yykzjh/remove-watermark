@@ -48,3 +48,8 @@ def test_profile_validation_and_tile_bounds():
         make_swinir("gan")
     with pytest.raises(ValueError, match="Window-aligned"):
         upscale_swinir(Image.new("RGB", (32, 32)), Nearest4(), tile=33)
+
+
+def test_half_precision_rejected_on_cpu_before_checkpoint_load(tmp_path):
+    with pytest.raises(ValueError, match="CUDA float16"):
+        load_swinir(tmp_path / "unused", "0" * 64, "cpu", "lightweight", "float16")
