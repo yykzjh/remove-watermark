@@ -141,3 +141,14 @@ def test_wide_carrier_view_contains_surroundings_of_thin_strip():
         chat=source_carrier_chats(image,(0,.96,.35,1),wide=wide)[0][0]["content"]
         views.append([c["image"] for c in chat if c["type"]=="image"][1])
     assert views[1].height>views[0].height*3
+
+
+def test_wide_source_uncertainty_describes_identity_not_absence_of_physical_carrier():
+    from watermark_studio.source_vetting import source_carrier_chats
+    image=Image.new("RGB",(800,600))
+    normal=source_carrier_chats(image,(0,.9,.4,1))[0][0]["content"][-1]["text"]
+    wide=source_carrier_chats(image,(0,.9,.4,1),wide=True)[0][0]["content"][-1]["text"]
+    assert "载体或表面证据不足必须uncertain。" in normal
+    assert "不能仅因此标uncertain" in wide
+    assert "不能因缺少实物证据就自动断言是水印" in wide
+    assert "载体或表面证据不足必须uncertain。" not in wide

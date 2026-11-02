@@ -24,12 +24,19 @@ def source_carrier_chats(image,box,context=.9,*,wide=False):
            (box[1]*image.height-crop[1])/(crop[3]-crop[1]),
            (box[2]*image.width-crop[0])/(crop[2]-crop[0]),
            (box[3]*image.height-crop[1])/(crop[3]-crop[1])]
+    instruction=SOURCE_CARRIER_CONTEXT
+    if wide:
+        instruction=instruction.replace("载体或表面证据不足必须uncertain。",
+            "uncertain表示数字覆盖层与实物文字的身份仍无法确定。若声称实物，但载体或表面证据不足，必须uncertain=true。"
+            "若明确观察到数字叠加层，则没有实物载体/表面是分类证据，不能仅因此标uncertain；"
+            "仍需实际可见的数字覆盖层依据，不能因缺少实物证据就自动断言是水印。"
+            "无法分辨文字是否贴在真实物体上时仍必须uncertain=true。")
     return [[{"role":"user","content":[
         {"type":"text","text":f"原图完整视野；只核实0..1坐标{list(box)}的候选文字。全图只用于辨认候选所附物体，不要把别处水印当成此候选。"},
         {"type":"image","image":preview(image,640)},
         {"type":"text","text":f"同一原图候选的局部，目标位于此局部0..1范围{[round(v,4) for v in local]}。观察实际物体材质、边缘、透视，不要求读出文字。"},
         {"type":"image","image":preview(image.crop(crop),640)},
-        {"type":"text","text":CLASSIFY_PROMPT+"\n"+SOURCE_CARRIER_CONTEXT}]}]]
+        {"type":"text","text":CLASSIFY_PROMPT+"\n"+instruction}]}]]
 
 
 def vet_small_panels(image, detection, editor, editor_processor, verifier, verifier_processor, device,
