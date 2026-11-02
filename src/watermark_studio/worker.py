@@ -30,7 +30,7 @@ from .prompts import (
 )
 
 
-def load_pipeline(config, model_path):
+def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
     import torch
     from diffusers import QwenImage21Pipeline
 
@@ -46,6 +46,8 @@ def load_pipeline(config, model_path):
         rim_detector._engine()  # Fail before loading GPU weights if the extra is missing.
     dtype = getattr(torch, config.dtype)
     pipe = QwenImage21Pipeline.from_pretrained(model_path, dtype=dtype, local_files_only=True)
+    if _allow_unconfigured_sampling and getattr(pipe.config,"sample_sigmas",None):
+        raise ValueError("A base-only probe cannot replace the stored Turbo sampling grid")
     pipe._image_adapter = {}
     if config.lora_path:
         from .adapters import fuse_cpu_adapter
@@ -115,7 +117,7 @@ def load_pipeline(config, model_path):
             compile_fn = (pipe.transformer.compile_repeated_blocks if config.compile_scope == "blocks"
                           else pipe.transformer.compile)
             compile_fn(mode=config.compile_mode, dynamic=config.compile_dynamic)
-    if not getattr(pipe.config, "sample_sigmas", None):
+    if not getattr(pipe.config, "sample_sigmas", None) and not _allow_unconfigured_sampling:
         raise RuntimeError("模型缺少 Turbo sample_sigmas；请检查模型及 Diffusers 版本")
     return pipe
 

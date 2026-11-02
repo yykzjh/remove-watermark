@@ -162,12 +162,14 @@ def independent_batch(pipe, items, resolution, kv_cache):
         with encoder_generation_phase(pipe, items):
             with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents), schedule_scope:
                 separate=getattr(pipe,"_watermark_separate_vae_decode",False)
+                from .probe_schedules import probe_inference_step_options
+                step_options=probe_inference_step_options(items)
                 output=pipe(
                     prompt=[item["prompt"] for item in items], image=items[0]["image"],
                     height=height, width=width, output_resolution=resolution,
                     true_cfg_scale=1.0, use_kv_cache=kv_cache, generator=generators,
                     output_type="latent" if separate else "pil",
-                    **callback_options,
+                    **callback_options, **step_options,
                 ).images
             if context is not None:
                 context.finish()

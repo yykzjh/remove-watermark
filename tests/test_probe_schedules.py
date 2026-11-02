@@ -37,3 +37,23 @@ def test_midpoint_probes_keep_trained_nodes_and_exact_forward_budget():
 def test_published_three_step_grid_is_not_a_tail_refinement():
     original=[1.,.978453,.95418,.926626,.89508,.845148,.704534,.414568]
     assert tail_sigma_grid(original,"turturbo3")==[1.,.845148,.414568]
+
+
+def test_base_probe_steps_cannot_mix_runtime_batches_or_replace_turbo(tmp_path):
+    import json
+
+    from watermark_studio.probe_schedules import (
+        probe_inference_step_options,
+        validate_base_probe,
+    )
+    assert probe_inference_step_options([{},{}])=={}
+    assert probe_inference_step_options([{"_probe_num_inference_steps":16}]*2)=={"num_inference_steps":16}
+    for values in ([16,None],[16,20],[True],[16.0],[0],[8]):
+        with pytest.raises(ValueError):
+            probe_inference_step_options([{"_probe_num_inference_steps":v} for v in values])
+    index=tmp_path/"model_index.json"
+    index.write_text(json.dumps({"_class_name":"QwenImage21Pipeline"}))
+    assert validate_base_probe(tmp_path,40)["requested_steps"]==40
+    index.write_text(json.dumps({"_class_name":"QwenImage21Pipeline","sample_sigmas":[1.,.5]}))
+    with pytest.raises(ValueError):
+        validate_base_probe(tmp_path,40)

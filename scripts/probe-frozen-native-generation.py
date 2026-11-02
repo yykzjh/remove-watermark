@@ -26,6 +26,8 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--base-steps",type=int,choices=[0,12,16,20,24,40],default=0,
+        help="Offline original Qwen2.1 family checkpoint only; never overrides a Turbo grid")
     p.add_argument("--foveation-mass",type=float,default=0.,
         help="Offline reversible complete-frame sampling mass in0..0.35; 0 keeps native input")
     p.add_argument("--hint-transmission",type=float,default=0.,
@@ -69,6 +71,18 @@ def main():
         p.error("Explicit resolution override cannot be combined with frozen budgets")
     if a.generation_encoder_offload and a.transformer_phase_offload:
         p.error("Select one encoder residency mechanism")
+    base_probe=None
+    if a.base_steps:
+        if a.sigma_profile!="native" or a.lora_path or a.hint_transmission or a.foveation_mass:
+            p.error("Base comparison cannot mix adapters, Turbo grids or experimental conditioning")
+        from watermark_studio.probe_schedules import validate_base_probe
+        base_probe=validate_base_probe(a.model,a.base_steps)
+        base_probe["transformer_files_sha256"]={}
+        for weight in sorted((a.model/"transformer").glob("*.safetensors")):
+            with weight.open("rb") as stream:
+                base_probe["transformer_files_sha256"][weight.name]=hashlib.file_digest(stream,"sha256").hexdigest()
+        if not base_probe["transformer_files_sha256"]:
+            p.error("Exact downloaded base transformer artifacts required")
     h=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
         isolation=h["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
@@ -127,7 +141,7 @@ def main():
         separate_vae_decode=a.separate_vae_decode,vae_tiling=a.vae_tiling,
         vae_tile_size=1024,vae_tile_stride=768,lora_path=str(a.lora_path) if a.lora_path else "",
         lora_sha256=a.lora_sha256,lora_alpha=a.lora_alpha,lora_scale=a.lora_scale)
-    began=time.monotonic();pipe=load_pipeline(cfg,str(a.model))
+    began=time.monotonic();pipe=load_pipeline(cfg,str(a.model),_allow_unconfigured_sampling=bool(a.base_steps))
     if a.generation_encoder_offload:
         from watermark_studio.source_residency import prepare_transformer_host_mirror
         pipe.text_encoder.to("cpu")
@@ -137,8 +151,10 @@ def main():
         pipe._watermark_phase_offload=True
     load_seconds=time.monotonic()-began
     from watermark_studio.probe_schedules import tail_sigma_grid
-    original_sigmas=list(pipe.config.sample_sigmas)
-    experimental_sigmas=tail_sigma_grid(original_sigmas,a.sigma_profile)
+    original_sigmas=list(getattr(pipe.config,"sample_sigmas",None) or [])
+    if a.base_steps and original_sigmas:
+        raise ValueError("Base probe cannot discard a stored Turbo schedule")
+    experimental_sigmas=(None if a.base_steps else tail_sigma_grid(original_sigmas,a.sigma_profile))
     if a.sigma_profile!="native":
         pipe.register_to_config(sample_sigmas=experimental_sigmas)
     options=ProcessingConfig.model_validate(summary["options"])
@@ -181,6 +197,8 @@ def main():
         item={"image":model_source,"prompt":prompt,"seed":seed}
         if any(r["applied"] for r in hint_audits):
             item["_semantic_reference"]=source
+        if a.base_steps:
+            item["_probe_num_inference_steps"]=a.base_steps
         if a.source_flow_context:
             item["_denoising_context_regions"]=[r.model_dump() for r in model_regions]
         capture={};original_decode=pipe.vae.decode
@@ -231,7 +249,7 @@ def main():
             source_rim_composition={"regions":[r.model_dump() for r in scoped],"cores":cores},
             native_generation_probe={"model_input_size":[width,height],"seed":seed,"whole_frame":True,
                 "seconds":round(time.monotonic()-started,4),"kv_cache":a.kv_cache,
-                "encoder_residency":item.get("_encoder_generation_log"),"sigma_profile":a.sigma_profile,"steps":len(pipe.scheduler.timesteps),
+                "base_model":base_probe,"encoder_residency":item.get("_encoder_generation_log"),"sigma_profile":a.sigma_profile,"steps":len(pipe.scheduler.timesteps),
                 "full_frame_sampling":sampling})
         with (folder/"results.jsonl").open("a") as f:f.write(json.dumps(result,ensure_ascii=False)+"\n")
         print(json.dumps({"completed":index+1,"total":len(rows),"job":job}),flush=True)
@@ -242,7 +260,7 @@ def main():
     report={"state":"completed","job":job,"source_job":a.source_job,"input_dir":str(source_root),"output_dir":str(outputs),
         "total":len(rows),"options":options.model_dump(),"code_revision":revision,"sources_sha256":hashes,
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
-        "native_settings":{"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
+        "native_settings":{"base_model":base_probe,"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
             "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"foveation_mass":a.foveation_mass,"resolution_override":a.resolution,
             "generation_encoder_offload":a.generation_encoder_offload,"vae_tiling":a.vae_tiling,

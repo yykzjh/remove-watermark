@@ -144,6 +144,10 @@ def propose_card_side_rims(photo,regions,top_records,feather=12,*,verify_body_si
         lower=_body_bottom(blurred,header,bottom)
         side_bodies=({side:_body_side(blurred,header,bottom,side) for side in ("left","right")}
                      if verify_body_sides else {})
+        # One real scene edge can imitate a faint matte edge. Require both
+        # independent body boundaries before proposing any original-pixel band.
+        if verify_body_sides and not all(side_bodies.values()):
+            continue
         candidates=[]
         for side in ("left","right"):
             body=side_bodies.get(side)

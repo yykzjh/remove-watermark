@@ -74,3 +74,11 @@ def test_missing_body_edge_withholds_side_proposals_instead_of_trusting_header()
     ImageDraw.Draw(source).rectangle((451,540,520,739),fill=(220,220,220))
     props=propose_card_side_rims(source,[region],[anchor],verify_body_sides=True)
     assert not any(p["side"]=="right" for p in props)
+
+
+def test_one_visible_body_edge_cannot_authorize_the_other_side_or_bottom():
+    source,region,anchor=fixture()
+    # The left body blends into a same-color real surface; the right is sharp.
+    ImageDraw.Draw(source).rectangle((0,540,29,739),fill=(220,220,220))
+    assert propose_card_side_rims(source,[region],[anchor])  # Header still measurable.
+    assert not propose_card_side_rims(source,[region],[anchor],verify_body_sides=True)

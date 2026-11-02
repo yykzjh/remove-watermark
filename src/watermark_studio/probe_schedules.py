@@ -22,3 +22,29 @@ def tail_sigma_grid(original,profile="native"):
         return sorted(values+added,reverse=True)
     count={"native":0,"tail9":1,"tail10":2,"tail12":4}[profile]
     return values+[values[-1]*.5**i for i in range(1,count+1)]
+
+
+def probe_inference_step_options(items):
+    """Only explicit homogeneous offline base-model batches can change step count."""
+    values=[item.get("_probe_num_inference_steps") for item in items]
+    if all(value is None for value in values):
+        return {}
+    if (not values or any(type(value) is not int or value not in (12,16,20,24,40) for value in values)
+            or len(set(values))!=1):
+        raise ValueError("Homogeneous explicit base-model probe step counts required")
+    return {"num_inference_steps":values[0]}
+
+
+def validate_base_probe(model,steps):
+    """Never discard a Turbo checkpoint's saved schedule to imitate a base model."""
+    import hashlib
+    import json
+    from pathlib import Path
+    if type(steps) is not int or steps not in (12,16,20,24,40):
+        raise ValueError("Explicit base-model probe step count required")
+    path=Path(model)/"model_index.json"
+    raw=path.read_bytes();config=json.loads(raw)
+    if config.get("_class_name")!="QwenImage21Pipeline" or config.get("sample_sigmas"):
+        raise ValueError("Base-family checkpoint without a saved Turbo schedule required")
+    return {"model_index_sha256":hashlib.sha256(raw).hexdigest(),"requested_steps":steps,
+        "sampling":"official_pipeline_uniform_schedule","quality_permission":False}

@@ -20,6 +20,7 @@ def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--controls",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
+    p.add_argument("--profile",choices=["base","geometry-stress"],default="base")
     a=p.parse_args()
     h=runpy.run_path(str(Path(__file__).with_name("calibrate-source-side-proof.py")))
     labels=json.loads((a.controls/"fixture.json").read_text())
@@ -34,10 +35,11 @@ def main():
         photo=load_photo(original)[0].convert("RGB");w,hgt=photo.size
         for variant in range(12):
             # Exact source geometry varies; model prompts receive neither labels nor alpha.
-            alpha=(.18,.35,.60,.85)[variant%4]
-            extra=(0,16,40)[variant//4]
+            alpha=((.12,.22,.42,.72) if a.profile=="geometry-stress" else (.18,.35,.60,.85))[variant%4]
+            extra=((24,64,96) if a.profile=="geometry-stress" else (0,16,40))[variant//4]
             cardw=round(w*(.30+.04*(variant%3)));cardh=round(hgt*.24)
-            l=round(w*(.07+.12*(variant%4)));t=round(hgt*(.07+.21*((variant//2)%3)))
+            l=round(w*((.10 if a.profile=="geometry-stress" else .07)+.12*(variant%4)))
+            t=round(hgt*((.10 if a.profile=="geometry-stress" else .07)+.21*((variant//2)%3)))
             r=l+cardw;b=t+cardh;header=t+round(cardh*.24)
             gray_right=min(w-48,r+extra)
             card=Image.new("RGBA",photo.size,(0,0,0,0));draw=ImageDraw.Draw(card)
@@ -70,7 +72,7 @@ def main():
                     "source_file_sha256":sha})
     if any(digest(path)!=sha for path,sha in source_hashes.items()):
         raise ValueError("Clean source changed")
-    manifest={"version":1,"seed":seed,"images":108,"cases":cases,
+    manifest={"version":1,"seed":seed,"profile":a.profile,"images":108,"cases":cases,
         "known_clean_source_sha256":source_hashes,"quality_permission":False,
         "scope":"Offline source-band challenge only; never training or production data"}
     path=a.target/"fixture.json";path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
