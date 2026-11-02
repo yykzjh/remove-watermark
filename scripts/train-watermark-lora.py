@@ -36,9 +36,12 @@ def main():
     p.add_argument("--prefix-weight",type=float,default=1.)
     p.add_argument("--terminal-velocity-supervision",action="store_true")
     p.add_argument("--on-policy-prefix",action="store_true")
+    p.add_argument("--prefix-kv-cache",action="store_true")
     p.add_argument("--pixel-supervision",action="store_true")
     p.add_argument("--pixel-weight",type=float,default=1.)
     a=p.parse_args()
+    if a.prefix_kv_cache and not a.on_policy_prefix:
+        p.error("Prefix KV reuse requires explicit on-policy prefix rollouts")
     if a.on_policy_prefix and not a.trajectory_cache:
         p.error("Current-prefix training requires frozen teacher regularization trajectories")
     if a.terminal_velocity_supervision and not a.trajectory_cache:
@@ -197,8 +200,22 @@ def main():
             support=context_support(values,row["height"],row["width"],
                 trajectory["arguments"]["context_margin_cells"]) if a.source_flow_context else None
             prefix_rollouts["training" if torch.is_grad_enabled() else "validation"]+=1
-            terminal_state=current_prefix(lambda current,sigma,_:forward_mixed(current,sigma),
-                noise,values["source_latents"],sigmas,support)
+            prefix_cache=None
+            if a.prefix_kv_cache:
+                from diffusers.models.transformers.transformer_qwenimage21 import QwenImage21KVCache
+                prefix_cache=QwenImage21KVCache(len(model.transformer_blocks))
+            def prefix_prediction(current,sigma,index):
+                kwargs["kv_cache"]=prefix_cache
+                kwargs["kv_cache_mode"]=("extract" if index==0 else "cached") if prefix_cache is not None else None
+                return forward_mixed(current,sigma)
+            try:
+                terminal_state=current_prefix(prefix_prediction,
+                    noise,values["source_latents"],sigmas,support)
+            finally:
+                # Final supervised and regularization forwards must recompute the
+                # complete source prefix with gradients; never reuse no-grad KV.
+                kwargs["kv_cache"]=None;kwargs["kv_cache_mode"]=None
+                prefix_cache=None
         terminal_prediction=forward_mixed(terminal_state,float(sigmas[-2]))
         terminal=terminal_objective(terminal_prediction,terminal_state,clean,
             float(sigmas[-2]),values["edit_mask"],normalize_velocity=a.terminal_velocity_supervision)
