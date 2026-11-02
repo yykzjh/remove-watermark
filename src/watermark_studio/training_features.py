@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -73,3 +76,25 @@ def editing_kwargs(tensors,height,width,vae_scale_factor=16):
         "img_shapes":[[(1,height//vae_scale_factor,width//vae_scale_factor)]*2 for _ in range(batch)],
         "img_mask":tensors["image_pad_mask"],"attention_kwargs":None,
         "kv_cache":None,"kv_cache_mode":None,"return_dict":False}
+
+
+def clone_pair_assets(rows,destination):
+    """Link immutable PNG assets into a derived root while preserving source roles."""
+    root=Path(destination).resolve();assets=root/"assets";assets.mkdir(parents=True,exist_ok=True)
+    cloned=[]
+    for row in rows:
+        value=dict(row)
+        for key in ("input","target","mask"):
+            expected=row[key+"_sha256"]
+            if not isinstance(expected,str) or not re.fullmatch("[a-f0-9]{64}",expected):
+                raise ValueError("Content-addressed source asset hash required")
+            source=Path(row[key]).resolve(strict=True)
+            if digest(source)!=expected:raise ValueError("Parent asset bytes changed")
+            target=assets/expected[:2]/(expected+".png");target.parent.mkdir(exist_ok=True)
+            if not target.exists():
+                try:os.link(source,target)
+                except OSError:shutil.copyfile(source,target)
+            if digest(target)!=expected:raise ValueError("Derived asset bytes differ")
+            value[key]=str(target)
+        cloned.append(value)
+    return cloned
