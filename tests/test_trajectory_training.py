@@ -52,3 +52,24 @@ def test_terminal_velocity_units_remove_sigma_squared_gradient_attenuation():
     a=torch.autograd.grad(ordinary,prediction,retain_graph=True)[0]
     b=torch.autograd.grad(normalized,prediction)[0]
     torch.testing.assert_close(b,a/(sigma*sigma))
+
+
+def test_on_policy_prefix_tracks_current_student_and_preserves_source_context_without_graph():
+    torch=pytest.importorskip("torch")
+    from watermark_studio.trajectory_training import current_prefix, terminal_objective
+    noise=torch.randn(1,12,4);clean=torch.randn_like(noise);reference=torch.randn_like(noise)
+    support=torch.zeros(1,12,1);support[:,:6]=1;sigmas=[1.,.8,.4,0.]
+    calls=[]
+    def predict(state,sigma,index):
+        calls.append(index);assert not torch.is_grad_enabled()
+        return noise-clean
+    state=current_prefix(predict,noise,reference,sigmas,support)
+    assert calls==[0,1] and not state.requires_grad
+    expected=support*(.4*noise+.6*clean)+(1-support)*(.4*noise+.6*reference)
+    torch.testing.assert_close(state,expected)
+    assert terminal_objective((state-clean)/.4,state,clean,.4,torch.ones(1,12))<1e-12
+    shifted=current_prefix(lambda state,sigma,index:noise-clean+1,noise,reference,sigmas,support)
+    assert not torch.equal(state[:,:6],shifted[:,:6])
+    torch.testing.assert_close(state[:,6:],shifted[:,6:])
+    with pytest.raises(ValueError):
+        current_prefix(predict,noise,reference,[1.,.4,.8,0.],support)

@@ -35,9 +35,12 @@ def main():
     p.add_argument("--initial-lora-sha256",default="")
     p.add_argument("--prefix-weight",type=float,default=1.)
     p.add_argument("--terminal-velocity-supervision",action="store_true")
+    p.add_argument("--on-policy-prefix",action="store_true")
     p.add_argument("--pixel-supervision",action="store_true")
     p.add_argument("--pixel-weight",type=float,default=1.)
     a=p.parse_args()
+    if a.on_policy_prefix and not a.trajectory_cache:
+        p.error("Current-prefix training requires frozen teacher regularization trajectories")
     if a.terminal_velocity_supervision and not a.trajectory_cache:
         p.error("Terminal velocity supervision requires frozen sampling trajectories")
     if (a.pixel_supervision and not a.trajectory_cache) or (a.pixel_weight!=1 and not a.pixel_supervision):
@@ -136,7 +139,7 @@ def main():
     optimizer=torch.optim.AdamW(parameters,lr=a.learning_rate,betas=(.9,.999),weight_decay=.01)
     if {id(v) for group in optimizer.param_groups for v in group["params"]}!={id(v) for v in parameters}:
         raise ValueError("Optimizer escaped adapter-only training")
-    vae=None;pixel_cache={};pixel_gradient_check={}
+    vae=None;pixel_cache={};pixel_gradient_check={};prefix_rollouts={"training":0,"validation":0}
     pair_rows={r["id"]:r for r in pair_data["pairs"]}
     if a.pixel_supervision:
         from diffusers import AutoencoderKLQwenImage21
@@ -174,22 +177,36 @@ def main():
                 or sigmas.shape!=(states.shape[0]+1,) or float(sigmas[-1])!=0):
             raise ValueError("Complete aligned frozen sampling trajectory required")
         kwargs=editing_kwargs(values,row["height"],row["width"])
-        def predict(index):
-            index=index%states.shape[0]
-            mixed=states[index].to("cuda:0")
-            time_value=float(sigmas[index])
+        def forward_mixed(mixed,time_value):
             with model.cache_context("cond"):
                 return model(hidden_states=torch.cat([values["source_latents"],mixed],dim=1),
                     timestep=torch.tensor([time_value*1000],device="cuda:0",dtype=torch.bfloat16)/1000,
                     **kwargs)[0][:,-clean.shape[1]:]
-        terminal_prediction=predict(-1)
-        terminal=terminal_objective(terminal_prediction,states[-1].to("cuda:0"),clean,
+        def predict(index):
+            index=index%states.shape[0]
+            return forward_mixed(states[index].to("cuda:0"),float(sigmas[index]))
+        terminal_state=states[-1].to("cuda:0")
+        if a.on_policy_prefix:
+            from watermark_studio.trajectory_training import (
+                context_support,
+                cpu_packed_noise,
+                current_prefix,
+            )
+            seed=int(torch.randint(2**31-1,(1,),device="cuda:0",generator=generator).item())
+            noise=cpu_packed_noise(row["height"],row["width"],clean.shape[-1],seed,clean.dtype).to("cuda:0")
+            support=context_support(values,row["height"],row["width"],
+                trajectory["arguments"]["context_margin_cells"]) if a.source_flow_context else None
+            prefix_rollouts["training" if torch.is_grad_enabled() else "validation"]+=1
+            terminal_state=current_prefix(lambda current,sigma,_:forward_mixed(current,sigma),
+                noise,values["source_latents"],sigmas,support)
+        terminal_prediction=forward_mixed(terminal_state,float(sigmas[-2]))
+        terminal=terminal_objective(terminal_prediction,terminal_state,clean,
             float(sigmas[-2]),values["edit_mask"],normalize_velocity=a.terminal_velocity_supervision)
         pixel_loss=None
         if vae is not None:
             from watermark_studio.pixel_training import decode_exact_pixels, exact_pixel_objective
             from watermark_studio.trajectory_training import context_support
-            endpoint=(states[-1].to("cuda:0").float()-float(sigmas[-2])*terminal_prediction.float()).to(clean.dtype)
+            endpoint=(terminal_state.float()-float(sigmas[-2])*terminal_prediction.float()).to(clean.dtype)
             if a.source_flow_context:
                 support=context_support(values,row["height"],row["width"],
                     trajectory["arguments"]["context_margin_cells"])
@@ -269,7 +286,9 @@ def main():
         "initial_adapter":initialization,
         "pixel_supervision":"exact_RGB_L1_plus_0.25_local_texture_amplitude" if a.pixel_supervision else None,
         "pixel_gradient_check":pixel_gradient_check,
-        "training_generations":0,"source_overlap":0,"production_changed":False,
+        "training_generations":0,"offline_prefix_rollouts":prefix_rollouts,
+        "prefix_policy":"current_student_fresh_noise_truncated_gradient" if a.on_policy_prefix else "frozen_teacher",
+        "source_overlap":0,"production_changed":False,
         "train_pairs":len(train),"validation_pairs":len([r for r in rows if r["split"]=="validation"]),
         "load_seconds":round(load_seconds,3)}
     (work/"report.json").write_text(json.dumps(provenance,indent=2))
@@ -302,7 +321,8 @@ def main():
                 "model_index_sha256":signature["model_index.json"],
                 "dataset_manifest_sha256":cached["dataset_manifest_sha256"],
                 "code_revision":revision,"steps":str(step),"objective":provenance["objective"],
-                "terminal_loss_units":provenance["terminal_loss_units"],"pixel_supervision":str(a.pixel_supervision)})
+                "terminal_loss_units":provenance["terminal_loss_units"],"pixel_supervision":str(a.pixel_supervision),
+                "prefix_policy":provenance["prefix_policy"]})
             saved.append({"path":str(path),"sha256":digest(path),"step":step,"alpha":a.alpha})
         if step%25==0 and (reserved!=isolation() or revision!=subprocess.check_output(
                 ["git","rev-parse","--short","HEAD"],text=True).strip()):
@@ -314,7 +334,10 @@ def main():
     if reserved!=isolation():raise ValueError("GPU reservation changed")
     if a.pixel_supervision and not pixel_gradient_check.get("passed"):
         raise ValueError("Pixel supervision never verified its actual DiT gradient")
-    provenance.update(state="completed",seconds=round(time.monotonic()-began,3),checkpoints=saved,
+    provenance.update(training_generations=prefix_rollouts["training"],
+        validation_generations=prefix_rollouts["validation"],
+        generation_scope="Offline synthetic-pair optimization only; excluded from native first-pass acceptance",
+        state="completed",seconds=round(time.monotonic()-began,3),checkpoints=saved,
         peak_gpu_bytes=torch.cuda.max_memory_allocated())
     (work/"report.json").write_text(json.dumps(provenance,indent=2))
     print(json.dumps({"state":"completed","seconds":provenance["seconds"],"checkpoints":saved}),flush=True)
