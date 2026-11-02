@@ -1939,3 +1939,74 @@ SR-only time is now measured separately from baseline VAE reproduction,
 composition and file verification. Previous96.142s is a complete experiment
 replay duration, not a measured96.142s addition to a production batch.
 Current local full suite684passed/34skipped; full Ruff clean.
+
+
+### Completed SwinIR fidelity/cost decision and critic diagnosis
+
+The shared geometry cache retains the two official shift variants for one
+current size/device/dtype. Latest remote actual-network Torch checks pass5/5.
+All six FP32 cached encoded outputs are byte-identical to the uncached SR run;
+no Qwen generation is repeated. Tiled FP16 changes the final decoded JPEG RGB
+by at most0.09861 mean absolute RGB levels across the six files, but automatic
+QA is not invariant to those changes. No tolerance or frozen veto was relaxed.
+
+| Native6 candidate | QA passes | Whole replay seconds | SR-only seconds |
+|---|---:|---:|---:|
+| uniform12 baseline |3/6|not an SR replay|0|
+| FP32 tiled, cached |5/6|33.965|14.9476|
+| FP16 tiled, cached |3/6|28.584|9.1597|
+| FP16 untiled, cached |4/6|29.468|11.1444|
+
+Matched fresh24-pair QA takes154.392s on one idle GPU. Original FP32 uncached
+replay was96.142s (also including baseline reproduction/composition/validation).
+These are measured experiment times, not claimed production throughput.
+FP16 is not treated as interchangeable simply because average pixel drift is
+small; the FP325/6 automatic score is not a fidelity certificate either.
+
+Exact-target tests use4 already-exposed held-out development originals with
+3 overlay variants and1 genuinely clean copy each. Each inference setting has
+12 one-generation overlaid samples plus4 exact source copies. The512 run
+resumes the six saved generations, makes only the missing six calls, and seals
+all12 raw outputs. Later FP32 comparisons replay these exact outputs with zero
+additional Qwen generations. The1024/12 and1024/24 comparisons each generate
+once per sample; these are tuning comparisons, never sealed first-pass trials.
+
+| Input budget / steps | Baseline mean masked PSNR | FP32 SR PSNR | Baseline / SR highpass correlation |
+|---|---:|---:|---:|
+|512 /12|17.32203|17.09689|0.143950 /0.130427|
+|1024 /12|17.72596|17.64043|0.294775 /0.291833|
+
+At both input budgets, FP32 SR improves neither PSNR nor highpass correlation
+in any of the12 paired samples. The same4 source originals recur across these
+settings; they are not24 independent sources. FP16 also worsens mean PSNR at
+all three tested settings. Therefore output-only SwinIR is rejected for default
+adoption despite the higher native6 automatic score. Sharpened generated
+texture is not demonstrated recovery of the original hidden detail.
+
+Before SR,1024/24 mean PSNR17.30193 is below1024/12's17.72596, and improves
+only1/12 matched samples. Summed generation time183.7378s versus102.4994s is
+79.3% higher. This further does not support increasing steps unconditionally.
+All selected synthetic output sizes and protected original pixels are checked;
+no sealed1000 or production image was inferred.
+
+Read-only branch tracing on9 remaining shadow false accepts and3 correct
+document controls identifies specific critic gaps. Cases00,01,02,04,05 retain
+two or three coherent boundary sides but fail the existing all-observable-sides
+condition due local texture/coherence. Case07's two shadow levels have strong
+top/bottom evidence but no observable vertical side at the fixed comparison
+size; the orthogonal-side condition vetoes the cue. The three correct document
+controls produce no rectangle finding. No condition was removed and no critic
+result was altered. This diagnosis supports a separately tested additional
+source-boundary hypothesis; it is not evidence for loosening existing QA.
+
+Remote evidence:
+- .run/goal95-swinir-native6-cache-equivalence-v1.json
+- .run/goal95-swinir-gt-fidelity-summary-v1.json
+- .run/goal95-swinir-native-and-gt-decision-v1.json
+- .run/goal95-phase-missed-controls-diagnostic-v1.json
+
+All experiment handles in this section are terminal. The loaded service remains
+73b2a34 on GPU1, all unqualified SR/LoRA/step changes remain disabled, and the
+WSL desktop stays closed pending actual goal completion. The critic's original
+ten false accepts/three false reviews still require resolution. First-pass95%
+on the isolated1000 remains unproven and is not marked achieved.
