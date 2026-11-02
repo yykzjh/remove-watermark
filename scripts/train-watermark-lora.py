@@ -30,6 +30,8 @@ def main():
     p.add_argument("--seed",type=int,default=9417)
     p.add_argument("--gradient-checkpointing",action="store_true")
     p.add_argument("--source-flow-context",action="store_true")
+    p.add_argument("--sample-profile",choices=["uniform","lower-balanced"],default="uniform")
+    p.add_argument("--sigma-profile",choices=["continuous","turbo8","uniform12","uniform24","uniform40"],default="continuous")
     p.add_argument("--trajectory-cache",type=Path)
     p.add_argument("--initial-lora-path",type=Path)
     p.add_argument("--initial-lora-sha256",default="")
@@ -74,7 +76,19 @@ def main():
         p.error("Dataset manifest changed")
     if a.target.resolve().parent!=dataset.parent.resolve():
         p.error("Training folder must remain under pilot root")
+    from watermark_studio.training_sampling import (
+        explicit_training_sigmas,
+        lower_balanced_cycle,
+        lower_balanced_validation,
+    )
+    if a.sigma_profile!="continuous" and a.trajectory_cache:
+        p.error("Explicit flow-time grids cannot be mixed with fixed trajectory supervision")
     model_path=Path(cached["model"])
+    explicit_sigmas=explicit_training_sigmas(a.sigma_profile,
+        json.loads((model_path/"scheduler/scheduler_config.json").read_text()),
+        json.loads((model_path/"model_index.json").read_text()))
+    pair_metadata=pair_data["pairs"];pair_kind={r["id"]:("lower" if r.get("training_crop_kind")=="lower" else "parent") for r in pair_metadata}
+    sampled_crop_counts={"lower":0,"parent":0}
     signature=model_signature(model_path)
     if signature!=cached["model_signature"]:p.error("Feature cache backbone changed")
     rows=cached["rows"]
@@ -253,7 +267,7 @@ def main():
         if trajectory is not None:return trajectory_loss(row,generator)
         values=tensors(row);clean=values["clean_latents"]
         noise=torch.randn(clean.shape,device="cuda:0",dtype=torch.float32,generator=generator).to(clean.dtype)
-        choices=cached["sigma_tables"][row["shape"]]
+        choices=explicit_sigmas or cached["sigma_tables"][row["shape"]]
         position=int(torch.randint(len(choices),(1,),device="cuda:0",generator=generator).item())
         sigma=float(choices[position])
         mixed=(1-sigma)*clean+sigma*noise
@@ -270,7 +284,8 @@ def main():
             prediction=model(hidden_states=hidden,timestep=timestep,**kwargs)[0][:,-clean.shape[1]:]
         return flow_objective(prediction,noise,clean,values["edit_mask"])
     import hashlib
-    validation=sorted(validation,key=lambda r:hashlib.sha256(r["id"].encode()).hexdigest())[:a.validation_limit]
+    validation=(lower_balanced_validation(validation,pair_metadata,a.validation_limit) if a.sample_profile=="lower-balanced"
+        else sorted(validation,key=lambda r:hashlib.sha256(r["id"].encode()).hexdigest())[:a.validation_limit])
     def validate(step):
         model.eval()
         gen=torch.Generator("cuda:0").manual_seed(a.seed+8191)
@@ -284,6 +299,10 @@ def main():
         result={"stage":"validation","step":step,"mean_loss":sum(values)/len(values),
             "cases":len(values),"seconds":round(time.monotonic()-started,3),
             "not_image_quality_acceptance":True}
+        crop_losses={}
+        for row,value in zip(validation,values,strict=True):
+            crop_losses.setdefault(pair_kind[row["id"]],[]).append(value)
+        result["crop_groups"]={kind:{"cases":len(group),"mean_loss":sum(group)/len(group)} for kind,group in crop_losses.items()}
         if trajectory:
             result.update({key:sum(part[key] for part in parts)/len(parts)
                 for key in loss_components})
@@ -305,16 +324,22 @@ def main():
         "pixel_gradient_check":pixel_gradient_check,
         "training_generations":0,"offline_prefix_rollouts":prefix_rollouts,
         "prefix_policy":"current_student_fresh_noise_truncated_gradient" if a.on_policy_prefix else "frozen_teacher",
-        "source_overlap":0,"production_changed":False,
+        "source_overlap":0,"production_changed":False,"sample_profile":a.sample_profile,
+        "training_sigma_profile":a.sigma_profile,"explicit_training_sigmas":explicit_sigmas,
+        "sampled_crop_counts":sampled_crop_counts,
         "train_pairs":len(train),"validation_pairs":len([r for r in rows if r["split"]=="validation"]),
         "load_seconds":round(load_seconds,3)}
     (work/"report.json").write_text(json.dumps(provenance,indent=2))
     model.train();record(validate(0));began=time.monotonic()
     gen=torch.Generator("cuda:0").manual_seed(a.seed)
     order=list(train);random.shuffle(order);saved=[]
+    balanced=(lower_balanced_cycle(train,pair_metadata,a.seed^0x5191) if a.sample_profile=="lower-balanced" else None)
     for step in range(1,a.steps+1):
-        if (step-1)%len(order)==0 and step>1:random.shuffle(order)
-        row=order[(step-1)%len(order)]
+        if balanced is None:
+            if (step-1)%len(order)==0 and step>1:random.shuffle(order)
+            row=order[(step-1)%len(order)]
+        else:row=next(balanced)
+        sampled_crop_counts[pair_kind[row["id"]]]+=1
         lr=a.learning_rate*min(1.,step/max(1,a.warmup))
         for group in optimizer.param_groups:group["lr"]=lr
         optimizer.zero_grad(set_to_none=True)
@@ -329,7 +354,7 @@ def main():
         if not any(v.grad is not None for v in parameters):raise ValueError("Disconnected adapter gradients")
         optimizer.step()
         record({"stage":"training","step":step,"loss":float(value.detach()),"gradient_norm":float(norm),
-            "learning_rate":lr,"pair":row["id"],**loss_components,"seconds":round(time.monotonic()-started,3),
+            "learning_rate":lr,"pair":row["id"],"training_crop_kind":pair_kind[row["id"]],**loss_components,"seconds":round(time.monotonic()-started,3),
             "peak_gpu_bytes":torch.cuda.max_memory_allocated()})
         if step%a.validate_every==0 or step==a.steps:record(validate(step))
         if step%a.save_every==0 or step==a.steps:
@@ -339,7 +364,7 @@ def main():
                 "dataset_manifest_sha256":cached["dataset_manifest_sha256"],
                 "code_revision":revision,"steps":str(step),"objective":provenance["objective"],
                 "terminal_loss_units":provenance["terminal_loss_units"],"pixel_supervision":str(a.pixel_supervision),
-                "prefix_policy":provenance["prefix_policy"]})
+                "prefix_policy":provenance["prefix_policy"],"sample_profile":a.sample_profile,"training_sigma_profile":a.sigma_profile})
             saved.append({"path":str(path),"sha256":digest(path),"step":step,"alpha":a.alpha})
         if step%25==0 and (reserved!=isolation() or revision!=subprocess.check_output(
                 ["git","rev-parse","--short","HEAD"],text=True).strip()):
