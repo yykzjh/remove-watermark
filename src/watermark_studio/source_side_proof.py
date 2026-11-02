@@ -233,8 +233,34 @@ def _observed_band_assessment(chats,encoder,processor,device,*,native_labels=Fal
         tokenizer.padding_side=previous
 
 
+def paired_band_scope(photo,proposal,source_card_proof):
+    """Only source-derived, paired-body exterior bands can reach the VLM gate."""
+    from .config import Region
+    from .source_card_edges import propose_card_side_rims
+    from .source_panel_rims import full_source_binding, restore_proven_rims
+    if (not source_card_proof or
+            not full_source_binding(photo,source_card_proof) or
+            restore_proven_rims(photo,photo,[source_card_proof])[1]!=1):
+        raise ValueError("Fresh complete source-card proof required for paired geometry")
+    if (tuple(proposal.get("mask",[]))!=tuple(source_card_proof.get("mask",[])) or
+            tuple(proposal.get("core",[]))!=tuple(source_card_proof.get("core",[]))):
+        raise ValueError("Paired geometry cannot change the source-card identity")
+    candidates=propose_card_side_rims(photo,[Region(kind="panel",box=proposal["mask"])],
+        [source_card_proof],verify_body_sides=True)
+    target=proposal.get("restore_pixels",[])
+    if len(target)!=4 or any(type(v) is not int for v in target):
+        raise ValueError("Exact native candidate band required")
+    for candidate in candidates:
+        a,b,c,d=candidate["restore_pixels"];l,t,r,bottom=target
+        if (candidate["side"]==proposal.get("side") and a<=l<r<=c and b<=t<bottom<=d):
+            return {"method":"paired_source_body_exterior_v1",
+                "candidate_pixels":target,"source_band_pixels":candidate["restore_pixels"],
+                "source_geometry":candidate["source_geometry"],"quality_permission":False}
+    raise ValueError("Candidate is not inside a source-derived paired-body exterior band")
+
+
 def diagnose_observed_band(photo,proposal,editor,editor_processor,verifier,verifier_processor,
-                            device,weights_relation,text_detector,*,_source_card_proof=None):
+                            device,weights_relation,text_detector,*,_source_card_proof=None,_require_paired_geometry=False):
     """Observe-first diagnostic; cannot grant restoration or waive quality checks."""
     stale={"approved","editor","independent","editor_band","independent_band","source_rim_sha256",
            "source_rgb_sha256","reason","seconds","band_consensus"}
@@ -245,6 +271,8 @@ def diagnose_observed_band(photo,proposal,editor,editor_processor,verifier,verif
         if weights_relation!="different_weights" or editor is verifier:
             raise ValueError("Independent source-band checkpoints required")
         chats=side_proof_chats(photo,proposal)
+        if _require_paired_geometry:
+            row["paired_geometry"]=paired_band_scope(photo,proposal,_source_card_proof)
         prompt=OBSERVED_BAND_PROMPT
         if _source_card_proof is not None:
             from .source_panel_rims import full_source_binding, restore_proven_rims

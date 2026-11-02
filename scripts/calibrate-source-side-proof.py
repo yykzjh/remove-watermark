@@ -28,7 +28,7 @@ def labelled_proposal(photo,mask,core,native):
 
 def main():
     p=argparse.ArgumentParser(__doc__)
-    p.add_argument("--mode",choices=["side","top","band","observed-band","bound-band"],default="side")
+    p.add_argument("--mode",choices=["side","top","band","observed-band","bound-band","paired-bound-band"],default="side")
     p.add_argument("--proposals",type=Path,required=True)
     p.add_argument("--controls",type=Path,required=True)
     p.add_argument("--physical-fixtures",type=Path)
@@ -49,7 +49,7 @@ def main():
     data=json.loads(a.proposals.read_text())
     if data.get("version")!=1 or data.get("quality_permission") is not False:
         p.error("Unapproved immutable source-geometry artifact required")
-    if a.mode=="bound-band" and not a.top_proofs:
+    if a.mode in {"bound-band","paired-bound-band"} and not a.top_proofs:
         p.error("Bound-band diagnosis requires exact-source fresh digital-card proofs")
     cases=[]
     if a.files and (len(set(a.files))!=len(a.files) or not set(a.files).issubset({c["file"] for c in data["cases"]})):
@@ -182,10 +182,11 @@ def main():
             proof=(inspect_photo_rims(photo,proposed,editor,ep,verifier,vp,"cuda:0",
                 identity["relation"],ocr)[0] if proposed else
                 {"approved":False,"reason":"no_source_top_geometry"})
-        elif a.mode=="bound-band":
+        elif a.mode in {"bound-band","paired-bound-band"}:
             bound=top.get((str(Path(c["source"]).resolve()),tuple(c["proposal"]["mask"])))
             proof=(diagnose_observed_band(photo,c["proposal"],editor,ep,verifier,vp,"cuda:0",
-                identity["relation"],ocr,_source_card_proof=bound) if bound else
+                identity["relation"],ocr,_source_card_proof=bound,
+                _require_paired_geometry=a.mode=="paired-bound-band") if bound else
                 {"approved":False,"band_consensus":False,"reason":"no_fresh_source_card_identity"})
         elif a.mode=="observed-band":
             proof=diagnose_observed_band(photo,c["proposal"],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)

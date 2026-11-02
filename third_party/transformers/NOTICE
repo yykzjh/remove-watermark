@@ -1,0 +1,5 @@
+SAM2 checkpoint conversion helpers derived from Hugging Face Transformers.
+Copyright 2025 The HuggingFace Inc. team. Apache-2.0.
+Source: https://raw.githubusercontent.com/huggingface/transformers/main/src/transformers/models/sam2/convert_sam2_to_hf.py
+Source SHA256: a795a7645f117e9602b87669fe5a0b2e3e7b062fa3b7d9300585ecc4ff869f6d
+Changes: retain configuration/key conversion only; lazy optional imports; omit network examples and publishing.
