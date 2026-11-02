@@ -28,7 +28,7 @@ def labelled_proposal(photo,mask,core,native):
 
 def main():
     p=argparse.ArgumentParser(__doc__)
-    p.add_argument("--mode",choices=["side","top","band"],default="side")
+    p.add_argument("--mode",choices=["side","top","band","observed-band"],default="side")
     p.add_argument("--proposals",type=Path,required=True)
     p.add_argument("--controls",type=Path,required=True)
     p.add_argument("--physical-fixtures",type=Path)
@@ -119,7 +119,11 @@ def main():
     from watermark_studio.model_identity import compare_model_weights
     from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
     from watermark_studio.source_panel_rims import inspect_photo_rims, propose_blue_card_rims
-    from watermark_studio.source_side_proof import diagnose_unoccluded_band, inspect_side_rims
+    from watermark_studio.source_side_proof import (
+        diagnose_observed_band,
+        diagnose_unoccluded_band,
+        inspect_side_rims,
+    )
     from watermark_studio.text_presence import TargetTextPresence
     torch.set_num_threads(1)
     root=Path.home()/".cache/watermark-models/models"
@@ -144,6 +148,8 @@ def main():
             proof=(inspect_photo_rims(photo,proposed,editor,ep,verifier,vp,"cuda:0",
                 identity["relation"],ocr)[0] if proposed else
                 {"approved":False,"reason":"no_source_top_geometry"})
+        elif a.mode=="observed-band":
+            proof=diagnose_observed_band(photo,c["proposal"],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)
         elif a.mode=="band":
             proof=diagnose_unoccluded_band(photo,c["proposal"],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)
         else:

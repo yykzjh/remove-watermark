@@ -85,3 +85,35 @@ def test_band_diagnostic_consensus_can_never_restore_pixels_or_approve_source(mo
     assert "digital_card" not in row["editor_band"] and "source_rim_sha256" not in row
     _result,count=restore_proven_rims(source,source,[row])
     assert count==0
+
+
+def test_observe_first_band_parser_requires_complete_ordered_evidence():
+    import pytest
+
+    from watermark_studio.source_side_proof import parse_observed_band
+    assert parse_observed_band('{"observation":"R显示连续草地，无数字覆盖。","band_state":"unoccluded"}')["band_state"]=="unoccluded"
+    for raw in (
+        '{"band_state":"unoccluded","observation":"连续草地，无覆盖"}',
+        '{"observation":"连续草地","observation":"无覆盖","band_state":"unoccluded"}',
+        '{"observation":"R可能是原图草地","band_state":"unoccluded"}',
+        '{"observation":"R仍有卡片底色","band_state":"unoccluded"}',
+        '{"observation":"清晰","band_state":"unoccluded"}',
+        '{"observation":"连续草地，无覆盖","band_state":"clear"}',
+        chr(96)*3+'json'+chr(10)+'{"observation":"连续草地，无覆盖","band_state":"unoccluded"}'+chr(10)+chr(96)*3,
+    ):
+        with pytest.raises(ValueError):
+            parse_observed_band(raw)
+
+
+def test_observe_first_consensus_never_approves_source_pixels(monkeypatch):
+    from watermark_studio.source_panel_rims import restore_proven_rims
+    from watermark_studio.source_side_proof import diagnose_observed_band
+    monkeypatch.setattr("watermark_studio.source_side_proof._observed_band_assessment",lambda *a:
+        {"evidence":"R显示连续草地，无数字覆盖。","band_state":"unoccluded",
+         "generation_tokens":40,"max_tokens":160})
+    source=Image.new("RGB",(400,300),(80,110,60))
+    row=diagnose_observed_band(source,proposal(),object(),None,object(),None,
+        "cpu","different_weights",OCR())
+    assert row["band_consensus"] and row["approved"] is False
+    assert "source_rim_sha256" not in row
+    assert restore_proven_rims(source,source,[row])[1]==0
