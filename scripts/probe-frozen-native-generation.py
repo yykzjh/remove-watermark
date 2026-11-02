@@ -26,6 +26,7 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--files",nargs="+")
+    p.add_argument("--files-from",type=Path,help="Bounded JSON filename list, avoids large command lines")
     p.add_argument("--base-steps",type=int,choices=[0,12,16,20,24,40],default=0,
         help="Offline original Qwen2.1 family checkpoint only; never overrides a Turbo grid")
     p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0,
@@ -56,6 +57,14 @@ def main():
     p.add_argument("--compile-projections",action="store_true")
     p.add_argument("--separate-vae-decode",action="store_true")
     a=p.parse_args()
+    selector_sha=None
+    if a.files_from:
+        if a.files:p.error("Select one filename-list mechanism")
+        raw=a.files_from.read_bytes();a.files=json.loads(raw)
+        if not isinstance(a.files,list) or not 1<=len(a.files)<=64 or any(
+                not isinstance(value,str) or not value for value in a.files):
+            p.error("JSON must contain 1..64 nonempty source filenames")
+        selector_sha=hashlib.sha256(raw).hexdigest()
     if a.gpu<0 or not re.fullmatch(r"[a-f0-9]{32}",a.source_job) or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
         p.error("Explicit completed source job, GPU and simple new tag required")
     if not 0<=a.foveation_mass<=.35:
@@ -268,7 +277,7 @@ def main():
     if revision!=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip():
         raise ValueError("Code changed during probe")
     report={"state":"completed","job":job,"source_job":a.source_job,"input_dir":str(source_root),"output_dir":str(outputs),
-        "total":len(rows),"options":options.model_dump(),"code_revision":revision,"sources_sha256":hashes,
+        "total":len(rows),"file_selector_sha256":selector_sha,"options":options.model_dump(),"code_revision":revision,"sources_sha256":hashes,
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
         "native_settings":{"base_model":base_probe,"uniform_turbo":uniform_probe,"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
