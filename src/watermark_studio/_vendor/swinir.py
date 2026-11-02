@@ -1,6 +1,6 @@
 # Vendored research-only SwinIR network; Apache-2.0.
 # Source revision: 6545850fbf8df298df73d81f3e8cba638787c8bd
-# Changes: inference-only timm compatibility import; removed executable demo.
+# Changes: inference-only helpers; dtype-safe shared dynamic mask; removed executable demo.
 # See third_party/SwinIR/NOTICE.txt and LICENSE.txt.
 # -----------------------------------------------------------------------------------
 # SwinIR: Image Restoration Using Swin Transformer, https://arxiv.org/abs/2108.10257
@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from .swinir_compat import DropPath, to_2tuple, trunc_normal_
+from .swinir_compat import DropPath, inference_mask, to_2tuple, trunc_normal_
 
 
 class Mlp(nn.Module):
@@ -263,7 +263,7 @@ class SwinTransformerBlock(nn.Module):
         if self.input_resolution == x_size:
             attn_windows = self.attn(x_windows, mask=self.attn_mask)  # nW*B, window_size*window_size, C
         else:
-            attn_windows = self.attn(x_windows, mask=self.calculate_mask(x_size).to(x.device))
+            attn_windows = self.attn(x_windows, mask=inference_mask(self, x_size, x))
 
         # merge windows
         attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)

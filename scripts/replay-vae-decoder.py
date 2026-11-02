@@ -107,7 +107,7 @@ def main():
     source_root=Path(summary["input_dir"]).resolve();base_root=Path(summary["output_dir"]).resolve()
     (work/"sources.json").write_text(json.dumps([str(source_root/r["file"]) for r in rows],ensure_ascii=False))
     job=uuid.uuid4().hex;folder=state/job;folder.mkdir(exist_ok=False)
-    options=ProcessingConfig.model_validate(summary["options"]);hashes={};began=time.monotonic()
+    options=ProcessingConfig.model_validate(summary["options"]);hashes={};began=time.monotonic();sr_seconds_sum=0.
     for row in rows:
         name=Path(row["file"]);source=(source_root/name).resolve();base=(base_root/name).resolve()
         if name.is_absolute() or not source.is_relative_to(source_root) or not base.is_relative_to(base_root):
@@ -162,8 +162,14 @@ def main():
                 frame=decode_latents(pipe,latent,height,width)[0]
             frame=frame.convert("RGB")
             sr_input_size=list(frame.size)
+            sr_seconds=0.
             if label=="modified" and sr is not None:
+                torch.cuda.synchronize()
+                sr_started=time.monotonic()
                 frame=upscale(frame,sr)
+                torch.cuda.synchronize()
+                sr_seconds=round(time.monotonic()-sr_started,4)
+                sr_seconds_sum+=sr_seconds
             frame=restore_full_frame(frame,before.size,sampling)
             if label=="baseline" and hashlib.sha256(frame.tobytes()).hexdigest()!=capture["native_generated_rgb_sha256"]:
                 raise ValueError("Original decoder does not reproduce captured GEN RGB exactly")
@@ -196,7 +202,7 @@ def main():
                             "precision":a.super_resolution_precision or ("float16" if a.super_resolution_profile=="rrdb" else "float32"),
                             "tile":a.super_resolution_tile if a.super_resolution_tile is not None else 256,
                             "overlap":(a.super_resolution_overlap if a.super_resolution_overlap is not None else 32) if a.super_resolution_profile!="rrdb" else None,
-                            "output_only":True
+                            "output_only":True,"sr_seconds":sr_seconds
                         } if sr is not None else None)}}
                 with (folder/"results.jsonl").open("a") as f:
                     f.write(json.dumps(result,ensure_ascii=False)+"\n")
@@ -210,7 +216,7 @@ def main():
         "scope":"Same original target latent, decoder/SR A/B, fresh strict QA required",
         "super_resolution_sha256":a.super_resolution_sha256 or None,
         "super_resolution_profile":a.super_resolution_profile if sr is not None else None,
-        "original_decoder":a.original_decoder,
+        "original_decoder":a.original_decoder,"sr_seconds_sum":round(sr_seconds_sum,4),
         "seconds":round(time.monotonic()-began,3),"decoder_load_seconds":round(load_seconds,3),
         "decoder_sha256":a.sha256,"decoder_precision":a.precision,"additional_generations":0,
         "quality_evaluated":False,"all_baseline_rgb_and_bytes_reproduced":True}

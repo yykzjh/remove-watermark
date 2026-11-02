@@ -3,5 +3,5 @@ Originally written by Ze Liu, modified by Jingyun Liang.
 Source: https://github.com/JingyunLiang/SwinIR
 Revision: 6545850fbf8df298df73d81f3e8cba638787c8bd
 License: Apache-2.0 (accompanying LICENSE.txt).
-Vendored network_swinir.py changes: replace three timm helpers with Torch-only evaluation equivalents; remove executable demo. Network equations and state keys retained.
+Vendored network_swinir.py changes: replace three timm helpers with Torch-only evaluation equivalents; remove executable demo. Dynamic inference masks are cast to the feature dtype and share one bounded geometry-only cache across blocks. FP32 mask values and network equations/state keys are retained.
 This research integration does not change production defaults or quality decisions.

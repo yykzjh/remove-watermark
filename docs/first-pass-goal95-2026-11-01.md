@@ -1912,3 +1912,30 @@ known defects versus21/81 previously, with0/27 clean control flags; however,
 it catches0/10 remaining known VLM false accepts and flags no native candidates.
 This geometry change therefore does not solve the critic qualification gap
 and is not deployed. GPU time0.535s and preprocessing31.738s for298 panels.
+
+
+### Dtype-safe geometry mask and lossless generation resume
+
+The first FP16 SR attempts failed before producing candidate outputs: upstream
+dynamic shifted-window masks were FP32 while attention values were FP16.
+The vendored integration now casts those zero/-100 masks to the feature dtype.
+All shifted blocks also share one bounded current-geometry mask cache; it is
+independent of image pixels and weights, and cannot retain image content.
+FP32 cached-versus-uncached and actual shifted-window FP16 forward tests were
+added. A real FP32 same-latent byte-equivalence replay is required as well.
+
+The synthetic probe produced8 records (6 actual one-time generations and
+2 empty-overlay copies), then stopped because one valid1024-budget crop is
+896x1184 rather than square. This is a test harness geometry assumption, not
+a failed image result. The harness now validates the one-megapixel area budget
+and aligned source/mask dimensions. It can resume a SHA-verified exact prefix
+with the same sources, seed, model, schedule and inference geometry, so prior
+images are not regenerated. Generation-stage evidence is sealed independently
+before SR, and SR-only replays need zero new Qwen calls. The failed legacy
+prefix requires an explicitly reconstructed, validated generation configuration
+from its recorded pinned command plan; it is never labeled a completed SR run.
+
+SR-only time is now measured separately from baseline VAE reproduction,
+composition and file verification. Previous96.142s is a complete experiment
+replay duration, not a measured96.142s addition to a production batch.
+Current local full suite684passed/34skipped; full Ruff clean.

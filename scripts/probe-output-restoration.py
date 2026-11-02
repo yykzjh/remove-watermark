@@ -108,7 +108,7 @@ def main():
     os.environ.pop("WATERMARK_REPAIR_CAPTURE", None)
     import torch
 
-    from watermark_studio.batching import independent_batch
+    from watermark_studio.batching import dimensions, independent_batch
     from watermark_studio.config import DeploymentConfig
     from watermark_studio.prompts import build_full_prompt
     from watermark_studio.swinir_probe import load_swinir, upscale_swinir
@@ -121,27 +121,63 @@ def main():
     selected = [r["id"] for r in rows]
     generated = []
     additional_generations = 0
+    generation_config = {"dataset_manifest_sha256": manifest_sha, "selected_ids": selected,
+        "resolution": args.resolution, "uniform_steps": args.uniform_steps, "seed": args.seed,
+        "model": str(args.model.resolve()) if args.model else None,
+        "prompt": "neutral", "quantization": "float8_tensor", "context": "known_synthetic_source_regions"}
     if args.generation_experiment:
-        previous = json.loads((args.generation_experiment / "report.json").read_text())
-        if previous["state"] != "completed" or previous["dataset_manifest_sha256"] != manifest_sha or previous["selected_ids"] != selected:
-            raise ValueError("Exact completed generation cohort required")
-        if previous["resolution"] != args.resolution or previous["uniform_steps"] != args.uniform_steps:
-            raise ValueError("Frozen inference geometry/steps cannot change in replay")
-        generated = list(map(json.loads, (args.generation_experiment / "generations.jsonl").read_text().splitlines()))
-        if [r["id"] for r in generated] != selected:
-            raise ValueError("Every frozen generation record is required")
-    else:
+        previous_root = args.generation_experiment.resolve(strict=True)
+        previous_config = json.loads((previous_root / "generation-config.json").read_text())
+        if generation_config["model"] is None:
+            generation_config["model"] = previous_config["model"]
+        if previous_config != generation_config:
+            raise ValueError("Frozen generation configuration cannot change in replay/resume")
+        previous_selection = json.loads((previous_root / "source-selection.json").read_text())
+        expected_sources = {r["source_original"]: r["source_original_sha256"] for r in rows}
+        if previous_selection["selected_ids"] != selected or previous_selection["source_sha256"] != expected_sources:
+            raise ValueError("Frozen source order cannot change")
+        prior = list(map(json.loads, (previous_root / "generations.jsonl").read_text().splitlines()))
+        if len(prior) > len(rows) or [r["id"] for r in prior] != selected[:len(prior)]:
+            raise ValueError("Only the exact completed prefix can be resumed")
+        for row, record in zip(rows, prior, strict=False):
+            with Image.open(row["mask"]) as im:
+                empty = im.convert("L").getbbox() is None
+            if record["generation_count"] == 0:
+                if not empty:
+                    raise ValueError("An overlaid source cannot be replaced by a source copy")
+            else:
+                raw = Path(record["raw"]).resolve(strict=True)
+                source = load_photo(row["input"])[0]
+                if (record["generation_count"] != 1 or empty or
+                    record["source_sha256"] != digest(row["input"]) or
+                    record["seed"] != (row["seed"] + 1000003) % 2**32 or
+                    record["actual_steps"] != args.uniform_steps or
+                    record["raw_size"] != list(dimensions(source, args.resolution)) or
+                    not raw.is_relative_to(previous_root / "raw") or raw.stat().st_size > 16 * 2**20 or
+                    digest(raw) != record["raw_sha256"]):
+                    raise ValueError("One immutable full-source generation is required for every resumed image")
+                destination = work / "raw" / raw.name
+                shutil.copyfile(raw, destination)
+                if digest(destination) != record["raw_sha256"]:
+                    raise ValueError("Raw replay copy changed")
+                record = record | {"raw": str(destination), "replayed_from": str(raw)}
+            generated.append(record)
+    if len(generated) < len(rows) and args.model is None:
+        parser.error("A partial generation prefix requires the same local model to finish")
+    (work / "generation-config.json").write_text(json.dumps(generation_config, indent=2))
+    (work / "generations.jsonl").write_text("".join(json.dumps(r) + "\n" for r in generated))
+    if len(generated) < len(rows):
         cfg = DeploymentConfig(model=str(args.model), gpus=[args.gpu], quantization="float8",
             float8_granularity="tensor", prompt_encoder="lean", compile=True,
             compile_scope="projections", compile_dynamic=True, separate_vae_decode=True,
             uniform_steps=args.uniform_steps)
         pipe = load_pipeline(cfg, str(args.model))
-        for row in rows:
+        for row in rows[len(generated):]:
             source = load_photo(row["input"])[0]
             with Image.open(row["mask"]) as im:
                 mask = im.convert("L")
-            if source.size != (1024, 1024) or mask.size != source.size:
-                raise ValueError("Exact existing 1024 crop canvas required")
+            if not 950000 <= source.width * source.height <= 1310720 or mask.size != source.size:
+                raise ValueError("Exact existing one-megapixel crop canvas required")
             seed = (row["seed"] + 1000003) % 2**32
             if mask.getbbox() is None:
                 record = {"id": row["id"], "generation_count": 0, "reason": "known_empty_synthetic_overlay"}
@@ -168,8 +204,12 @@ def main():
         gc.collect()
         torch.cuda.empty_cache()
     generation_phase_seconds = time.monotonic() - began
-    if args.generation_experiment:
-        (work / "generations.jsonl").write_text("".join(json.dumps(r) + "\n" for r in generated))
+    (work / "generation-report.json").write_text(json.dumps({
+        "state": "completed", "stage": "generation_only", "code_revision": revision,
+        "dataset_manifest_sha256": manifest_sha, "selected_ids": selected,
+        "resolution": args.resolution, "uniform_steps": args.uniform_steps,
+        "generations_this_run": additional_generations, "total_original_generations": sum(r["generation_count"] for r in generated),
+        "generation_records_sha256": digest(work / "generations.jsonl"), "restoration_completed": False}, indent=2))
     began = time.monotonic()
     net = load_swinir(args.upscaler, args.upscaler_sha256, "cuda:0", "lightweight", args.sr_precision)
     load_seconds = time.monotonic() - began
@@ -233,6 +273,7 @@ def main():
               "sr_sha256": args.upscaler_sha256, "sr_precision": args.sr_precision, "sr_tile": args.sr_tile,
               "sr_overlap": args.sr_overlap, "sr_input_source": "generated_RGB_only", "quality_permission": False,
               "generation_phase_seconds": round(generation_phase_seconds, 3),
+              "all_generation_seconds_sum": sum(r.get("seconds",0) for r in generated),
               "sr_load_seconds": round(load_seconds, 3), "restoration_phase_seconds": round(time.monotonic()-began, 3),
               "psnr_improved": sum(r["restored"]["psnr"] > r["baseline"]["psnr"] for r in positives),
               "detail_correlation_improved": sum(r["restored_detail"]["highpass_correlation"] > r["baseline_detail"]["highpass_correlation"] for r in comparable),

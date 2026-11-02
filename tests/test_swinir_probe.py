@@ -53,3 +53,22 @@ def test_profile_validation_and_tile_bounds():
 def test_half_precision_rejected_on_cpu_before_checkpoint_load(tmp_path):
     with pytest.raises(ValueError, match="CUDA float16"):
         load_swinir(tmp_path / "unused", "0" * 64, "cpu", "lightweight", "float16")
+
+
+def test_real_shifted_windows_half_and_cached_float_equivalence():
+    from watermark_studio._vendor.swinir import SwinTransformerBlock
+
+    torch.set_num_threads(2)
+    torch.manual_seed(1)
+    net = make_swinir("lightweight")
+    values = torch.rand(1, 3, 16, 24)
+    with torch.inference_mode():
+        cached = net(values)
+        for block in net.modules():
+            if isinstance(block, SwinTransformerBlock):
+                block._inference_mask_cache = None
+        reference = net(values)
+        assert torch.equal(cached, reference)
+        half = net.half()(values.half())
+    assert half.shape == (1, 3, 64, 96)
+    assert torch.isfinite(half).all()

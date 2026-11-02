@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def make_swinir(profile):
-    from ._vendor.swinir import SwinIR
+    from ._vendor.swinir import SwinIR, SwinTransformerBlock
 
     options = {
         "classical": {"depths": [6] * 6, "embed_dim": 180, "num_heads": [6] * 6,
@@ -18,8 +18,13 @@ def make_swinir(profile):
     }
     if profile not in options:
         raise ValueError("Only pinned classical/lightweight x4 research profiles")
-    return SwinIR(upscale=4, in_chans=3, img_size=64, window_size=8, img_range=1.0,
+    net = SwinIR(upscale=4, in_chans=3, img_size=64, window_size=8, img_range=1.0,
                   mlp_ratio=2, resi_connection="1conv", **options[profile]).eval().requires_grad_(False)
+    cache = {}
+    for module in net.modules():
+        if isinstance(module, SwinTransformerBlock):
+            module._inference_mask_cache = cache
+    return net
 
 
 def load_swinir(path, expected_sha256, device, profile, precision="float32"):
