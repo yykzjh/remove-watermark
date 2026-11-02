@@ -4,26 +4,58 @@ from __future__ import annotations
 import numpy as np
 
 MODEL_TYPE="detail_foreground_unet_v1"
+MODEL_TYPES={"raw":MODEL_TYPE,"affine":"detail_foreground_unet_affine_v2"}
 TILE=256
 THRESHOLD=.01
 DILATION=4
 
 
-def build_foreground_model():
+def paired_affine_features(values):
+    """Remove an estimated neutral affine field without using true opacity or clean pixels."""
+    import torch
+    from torch.nn import functional
+
+    if values.ndim!=4 or values.shape[1]!=6 or min(values.shape[-2:])<16:
+        raise ValueError("Native source/reference RGB tiles required for affine features")
+    low=functional.avg_pool2d(values,16,stride=16).flatten(2)
+    source,reference=low[:,:3],low[:,3:]
+    weights=torch.ones_like(source[:,:1])
+    def fit(weight):
+        count=weight.sum(-1,keepdim=True).clamp_min(1)
+        ms=(source*weight).sum(-1,keepdim=True)/count
+        mr=(reference*weight).sum(-1,keepdim=True)/count
+        y,x=source-ms,reference-mr
+        t=(x*y*weight).sum((1,2),keepdim=True)/(x.square()*weight).sum((1,2),keepdim=True).clamp_min(1e-8)
+        t=t.clamp(.1,.85)
+        return t,ms-t*mr
+    transmission,offset=fit(weights)
+    errors=(source-transmission*reference-offset).abs().mean(1)
+    cutoff=torch.quantile(errors.detach(),.7,dim=1,keepdim=True)
+    weights=(errors<=cutoff).unsqueeze(1).to(values.dtype)
+    transmission,offset=fit(weights)
+    transmission=transmission.unsqueeze(-1);offset=offset.unsqueeze(-1)
+    residual=((values[:,:3]-transmission*values[:,3:]-offset)*4).clamp(-2,2)
+    cue=(2*transmission-1).expand(-1,1,values.shape[2],values.shape[3])
+    return torch.cat([values,residual,cue],dim=1)
+
+
+def build_foreground_model(feature_profile="raw"):
     import torch
     from torch import nn
     from torch.nn import functional as F
 
+    if feature_profile not in MODEL_TYPES:raise ValueError("Unknown foreground feature profile")
     def block(before,after):
         return nn.Sequential(nn.Conv2d(before,after,3,padding=1),nn.GroupNorm(4,after),nn.SiLU(),
             nn.Conv2d(after,after,3,padding=1),nn.GroupNorm(4,after),nn.SiLU())
     class ForegroundUNet(nn.Module):
         def __init__(self):
             super().__init__()
-            self.a=block(6,24);self.b=block(24,48);self.c=block(48,96);self.mid=block(96,128)
+            self.a=block(10 if feature_profile=="affine" else 6,24);self.b=block(24,48);self.c=block(48,96);self.mid=block(96,128)
             self.u2=block(224,96);self.u1=block(144,48);self.u0=block(72,24)
             self.head=nn.Conv2d(24,1,1)
         def forward(self,values):
+            if feature_profile=="affine":values=paired_affine_features(values)
             a=self.a(values);b=self.b(F.avg_pool2d(a,2));c=self.c(F.avg_pool2d(b,2))
             mid=self.mid(F.avg_pool2d(c,2))
             up=lambda value,skip:F.interpolate(value,size=skip.shape[-2:],mode="bilinear",align_corners=False)

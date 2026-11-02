@@ -19,7 +19,7 @@ from PIL import Image, ImageFilter
 from watermark_studio.detail_foreground import STYLES, encoded_photo, foreground_challenge
 from watermark_studio.detail_foreground_model import (
     DILATION,
-    MODEL_TYPE,
+    MODEL_TYPES,
     THRESHOLD,
     TILE,
     build_foreground_model,
@@ -39,6 +39,7 @@ def main():
     p.add_argument("--learning-rate",type=float,default=.0002)
     p.add_argument("--seed",type=int,default=2026110212)
     p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
+    p.add_argument("--feature-profile",choices=["raw","affine"],default="raw")
     p.add_argument("--tf32",action="store_true")
     a=p.parse_args()
     if (a.gpu<0 or not 100<=a.steps<=3000 or not 1<=a.batch_size<=32
@@ -62,7 +63,8 @@ def main():
     validation={r["source_original_sha256"] for r in data["pairs"] if r["split"]=="validation"}
     if not selected or set(groups)&validation:raise ValueError("Training original roles overlap validation")
     a.target.mkdir(exist_ok=False);revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
-    report={"state":"preparing","model_type":MODEL_TYPE,"manifest":str(a.manifest.resolve()),
+    model_type=MODEL_TYPES[a.feature_profile]
+    report={"state":"preparing","model_type":model_type,"feature_profile":a.feature_profile,"manifest":str(a.manifest.resolve()),
         "manifest_sha256":manifest_sha,"font_sha256":digest(a.font),"code_revision":revision,
         "train_originals":len(selected),"validation_originals_excluded":len(validation),
         "inference_threshold":THRESHOLD,"inference_dilation":DILATION,"tile_size":TILE,
@@ -72,7 +74,7 @@ def main():
         "arguments":{k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()},
         "source_isolation":isolation}
     (a.target/"report.json").write_text(json.dumps(report,indent=2))
-    began=time.monotonic();photos={};examples=[];provenance=[]
+    began=time.monotonic();photos={};examples=[];provenance=[];cache_hash=hashlib.sha256()
     # Equal original rotation, then deterministic shuffle; truth controls training crops only.
     for i in range(a.samples):
         row=selected[i%len(selected)]
@@ -93,15 +95,16 @@ def main():
         mask=Image.fromarray(foreground.astype(np.uint8)*255).filter(ImageFilter.MaxFilter(5)).crop(box)
         image=np.concatenate([np.asarray(im.crop(box)) for im in (source,reference)],axis=2).transpose(2,0,1).copy()
         label=(np.asarray(mask)>0).astype(np.uint8)[None].copy()
+        cache_hash.update(image.tobytes());cache_hash.update(label.tobytes())
         examples.append((image,label));provenance.append({"source_original_sha256":row["source_original_sha256"],
             "target_sha256":row["target_sha256"],"seed":seed,"style":style,"encoding":meta["quality"],"box":box})
         if (i+1)%128==0:print(json.dumps({"stage":"preparing","samples":i+1,"total":a.samples}),flush=True)
     raw=json.dumps(provenance,sort_keys=True);(a.target/"training-samples.json").write_text(raw)
     report.update(state="training",preparation_seconds=round(time.monotonic()-began,3),
-        samples_sha256=hashlib.sha256(raw.encode()).hexdigest(),
+        samples_sha256=hashlib.sha256(raw.encode()).hexdigest(),cached_examples_sha256=cache_hash.hexdigest(),
         cached_numpy_bytes=sum(x.nbytes+y.nbytes for x,y in examples))
     (a.target/"report.json").write_text(json.dumps(report,indent=2))
-    model=build_foreground_model().to("cuda:0").train()
+    model=build_foreground_model(a.feature_profile).to("cuda:0").train()
     optimizer=torch.optim.AdamW(model.parameters(),lr=a.learning_rate,weight_decay=.0001)
     positive=torch.tensor([20.],device="cuda:0").reshape(1,1,1)
     began=time.monotonic()
@@ -126,7 +129,7 @@ def main():
             print(json.dumps(event),flush=True)
     path=a.target/f"foreground-step{a.steps:04d}.safetensors";tmp=path.with_suffix(".tmp")
     save_file({k:v.detach().cpu().contiguous() for k,v in model.state_dict().items()},str(tmp),
-        metadata={"model_type":MODEL_TYPE,"inference_threshold":str(THRESHOLD),"tile_size":str(TILE)})
+        metadata={"model_type":model_type,"inference_threshold":str(THRESHOLD),"tile_size":str(TILE)})
     tmp.replace(path)
     if digest(a.manifest)!=manifest_sha:raise ValueError("Training manifest changed")
     validate_pairs(a.manifest)

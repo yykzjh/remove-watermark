@@ -56,14 +56,16 @@ def main():
         if a.gpu<0:p.error("Explicit disjoint classifier GPU required")
         from watermark_studio.detail_foreground_model import (
             DILATION,
-            MODEL_TYPE,
+            MODEL_TYPES,
             THRESHOLD,
             TILE,
             build_foreground_model,
             foreground_scores,
         )
         training=json.loads(a.mask_model_report.read_text())
-        if (training.get("state")!="completed" or training["model_type"]!=MODEL_TYPE
+        feature_profile=training.get("feature_profile","raw")
+        if (training.get("state")!="completed" or feature_profile not in MODEL_TYPES
+                or training["model_type"]!=MODEL_TYPES[feature_profile]
                 or training["inference_threshold"]!=THRESHOLD or training["inference_dilation"]!=DILATION
                 or training["tile_size"]!=TILE or training["checkpoint_sha256"]!=a.mask_model_sha256
                 or digest(training["checkpoint"])!=a.mask_model_sha256
@@ -83,12 +85,12 @@ def main():
         torch.backends.cuda.matmul.allow_tf32=training["arguments"].get("tf32",False)
         torch.backends.cudnn.allow_tf32=training["arguments"].get("tf32",False)
         with safe_open(training["checkpoint"],framework="pt") as weights:
-            if weights.metadata().get("model_type")!=MODEL_TYPE:
+            if weights.metadata().get("model_type")!=MODEL_TYPES[feature_profile]:
                 raise ValueError("Classifier architecture metadata differs")
-        model=build_foreground_model().eval().requires_grad_(False).to("cuda:0")
+        model=build_foreground_model(feature_profile).eval().requires_grad_(False).to("cuda:0")
         model.load_state_dict(load_file(training["checkpoint"]),strict=True)
         model_identity={"checkpoint_sha256":a.mask_model_sha256,"train_source_overlap":0,
-            "threshold":THRESHOLD,"dilation":DILATION,"quality_permission":False}
+            "threshold":THRESHOLD,"dilation":DILATION,"feature_profile":feature_profile,"quality_permission":False}
     selection_raw=json.dumps({"version":1,"sources":[{"path":r["source_original"],
         "sha256":r["source_original_sha256"]} for r in selected],"derived_targets":selection,
         "scope":"Existing screened source-original roles, no new source selection by quality"},
