@@ -165,7 +165,9 @@ def load_appeal_baseline(revision):
 def compare_appeals(pair,case,value,baseline,current,*args,**kwargs):
     old,new=deepcopy(value),deepcopy(value)
     for function,verdict in ((baseline,old),(current,new)):
-        function(*pair,verdict,*args,**kwargs)
+        selected_kwargs=dict(kwargs)
+        if function is baseline:selected_kwargs.pop("native_geometry_mode",None)
+        function(*pair,verdict,*args,**selected_kwargs)
         if case.get("frozen_vetoes"):
             if verdict["status"]!="error":
                 verdict["status"]="review"
@@ -175,7 +177,7 @@ def compare_appeals(pair,case,value,baseline,current,*args,**kwargs):
     return new
 
 
-def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, proof_profile, proof_identity, uniform_guard, ocr_guard, baseline_revision, ready, start):
+def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relation, cross, batch, rectangle_guard, full_context, paired_context, resolution, text_free_consensus, frozen_disputes, text_free_scope, inspection_profile, proof_profile, proof_identity, uniform_guard, ocr_guard, baseline_revision, native_geometry_mode, ready, start):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu)
     os.environ["TOKENIZERS_PARALLELISM"]="false"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -233,7 +235,7 @@ def grade_worker(gpu, cases, model, mode, editor_model, editor_processor, relati
                         from watermark_studio.cross_review import reconsider
                         values=[compare_appeals(pair,case,value,baseline_appeal,reconsider,
                             editor,ep,encoder,processor,"cuda:0",resolution,128,12,case_context(case),
-                            weights_relation=relation,full_context=context)
+                            weights_relation=relation,full_context=context,native_geometry_mode=native_geometry_mode)
                             for pair,case,value in zip(pairs,group,values,strict=True)]
                     if len(values)!=len(group):
                         raise RuntimeError("Verifier response count differs from frozen pairs")
@@ -324,6 +326,8 @@ def main():
     parser.add_argument("--frozen-disputes",action="store_true",help="Only adjudicate SHA-validated immutable first verdicts; do not rerun first VQA")
     parser.add_argument("--text-free-consensus",action="store_true",help="Experimental evidence-based adjudication; cannot override frozen vetoes")
     parser.add_argument("--cross-review",action="store_true")
+    parser.add_argument("--native-geometry-mode",choices=["strict","anchored_physical"],default="strict",
+        help="Offline matched appeal experiment only; strict preserves the deployed protocol")
     parser.add_argument("--appeal-baseline-revision",help="Matched old/new appeals on the exact same fresh initial VQA, trusted Git SHA")
     parser.add_argument("--rectangle-guard",action="store_true")
     parser.add_argument("--cross-full-context",action="store_true")
@@ -361,6 +365,9 @@ def main():
         parser.error("Exact completed source job ID required")
     if args.appeal_baseline_revision and (not args.cross_review or not re.fullmatch(r"[a-f0-9]{7,40}",args.appeal_baseline_revision)):
         parser.error("Matched appeal comparison requires --cross-review and an explicit Git SHA")
+    if args.native_geometry_mode!="strict" and (not args.appeal_baseline_revision or
+            not args.cross_review or not args.cross_full_context or args.quality_batch_size!=1):
+        parser.error("Experimental native geometry requires matched baseline, full context and singleton QA")
     gpus=[int(v) for v in args.gpus.split(",")]
     if len(set(gpus))!=len(gpus) or not gpus or min(gpus)<0:
         parser.error("Distinct nonnegative GPU indices required")
@@ -416,7 +423,7 @@ def main():
             process=ctx.Process(target=grade_worker,args=(gpu,cases[rank::len(gpus)],str(model),mode,
                 str(editor_root/"text_encoder"),str(editor_root/"processor"),identity["relation"],
                 args.cross_review,args.quality_batch_size,args.rectangle_guard,
-                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,args.text_free_proof_profile,proof_identity,args.text_free_uniform_guard,args.text_free_ocr_guard,args.appeal_baseline_revision,events,start))
+                args.cross_full_context,args.paired_context,args.quality_resolution,args.text_free_consensus,args.frozen_disputes,args.text_free_scope,args.inspection_profile,args.text_free_proof_profile,proof_identity,args.text_free_uniform_guard,args.text_free_ocr_guard,args.appeal_baseline_revision,args.native_geometry_mode,events,start))
             process.start();workers.append(process)
         pending=len(workers)
         while pending:
@@ -485,7 +492,7 @@ def main():
                 "quality_resolution":args.quality_resolution,"text_free_consensus":args.text_free_consensus,"frozen_disputes":args.frozen_disputes,"text_free_scope":args.text_free_scope,
                 "select_review":args.select_review,"rectangle_guard":args.rectangle_guard,
                 "identity_overlay_challenge":args.identity_overlay_challenge,
-                "appeal_baseline_revision":args.appeal_baseline_revision,"file_sha256":before,
+                "appeal_baseline_revision":args.appeal_baseline_revision,"native_geometry_mode":args.native_geometry_mode,"file_sha256":before,
                 "pair_manifest":str(args.pair_manifest) if args.pair_manifest else None,
                 "source_mask_origin":"frozen_original_source_snapshot_and_synthetic_annotation",
                 "weight_identity":identity,"cross_review_requested":args.cross_review,

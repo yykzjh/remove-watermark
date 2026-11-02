@@ -525,3 +525,34 @@ def test_unknown_source_glyphs_or_excessive_proposals_cannot_open_an_appeal(monk
     proposal={"box":[.55,.3,.7,.45]}
     assert review.refine_native_hypotheses(before,after,[proposal],q,12)["findings"]==[]
     assert review.refine_native_hypotheses(before,after,[proposal]*3,q,12)["findings"]==[]
+
+
+@pytest.mark.parametrize("failure",[None,"carrier","global","residual","guard"])
+def test_opt_in_native_overlap_still_requires_every_independent_and_global_check(monkeypatch,failure):
+    import watermark_studio.cross_review as review
+    class Detector:
+        def inspect(self,image,boxes):
+            return {"status":"text_present","regions":[{"textlike_boxes":[[.44,.66,.5,.7]]}]}
+    monkeypatch.setattr(review,"_APPEAL_TEXT_DETECTOR",Detector())
+    before=Image.new("RGB",(1000,1000),"gray")
+    ImageDraw.Draw(before).rectangle((0,600,400,999),fill="blue")
+    after=before.copy();ImageDraw.Draw(after).rectangle((0,600,400,999),fill="gray")
+    q={"status":"review","watermark_removed":False,"natural":True,"content_preserved":True,"uncertain":False,
+        "source_regions":[{"kind":"panel","box":[0,.6,.4,1]}],
+        "evidence":[{"issue":"physical_text","box":[.3,.65,.55,.72]}],"seconds":0}
+    reports=[report(),report(digital_overlay=True)] if failure=="carrier" else None
+    history=calls(monkeypatch,reports,residuals=[Region(kind="panel",box=(0,.6,.4,1))] if failure=="residual" else (),
+        recheck={"watermark_removed":True,"natural":False,"uncertain":False} if failure=="global" else None)
+    strict=deepcopy(q)
+    run(before,after,strict,full_context=True)
+    assert strict["status"]=="review" and not history
+    if failure=="guard":q["guard_codes"]=["repair_rectangle_phase"]
+    reconsider(before,after,q,object(),None,object(),None,"cpu",weights_relation="different_weights",
+        full_context=True,native_geometry_mode="anchored_physical")
+    if failure is None:
+        assert q["status"]=="passed" and len(history)==2
+        assert q["pre_cross_review"]["status"]=="review"
+        assert q["cross_review"]["overlapping_physical_geometry"]["quality_permission"] is False
+    else:
+        assert q["status"]=="review"
+        if failure=="guard":assert not history and q["guard_codes"]==["repair_rectangle_phase"]

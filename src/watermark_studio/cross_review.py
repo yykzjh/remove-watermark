@@ -377,9 +377,13 @@ def refine_native_hypotheses(before,after,proposals,verdict,feather):
 
 
 def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,processor,device,
-               resolution=768,max_tokens=128,feather=12,editor_context=None,weights_relation="unknown",full_context=False):
+               resolution=768,max_tokens=128,feather=12,editor_context=None,weights_relation="unknown",full_context=False,
+               native_geometry_mode="strict"):
     """One appeal. Real defect vetoes remain; clean identity needs independent proof."""
-    log={"attempted":False,"status":"skipped","editor_context":editor_context or {},
+    if native_geometry_mode not in ("strict","anchored_physical"):
+        raise ValueError("Unknown explicit native physical-geometry experiment")
+    log={"attempted":False,"status":"skipped","native_geometry_mode":native_geometry_mode,
+         "editor_context":editor_context or {},
          "weights_relation":weights_relation,"full_context":full_context,
          "protocol_version":"native-glyph-hypotheses-v2" if full_context else "local-physical-v1"}
     verdict["cross_review"]=log
@@ -445,6 +449,16 @@ def reconsider(before,after,verdict,editor_encoder,editor_processor,encoder,proc
     if full_context and reason=="location_too_broad":
         refined=refine_native_hypotheses(before,after,coarse_proposals,verdict,feather)
         log["native_hypothesis_refinement"]=refined
+        if refined["findings"]:
+            boxes,reason=candidate_boxes(verdict|{"residual_regions":refined["findings"]},before.size,feather)
+    if full_context and native_geometry_mode=="anchored_physical" and reason=="overlaps_original_overlay_or_feather":
+        from .glyph_hypotheses import overlapping_physical_candidates
+        global _APPEAL_TEXT_DETECTOR
+        if _APPEAL_TEXT_DETECTOR is None:
+            from .text_presence import TargetTextPresence
+            _APPEAL_TEXT_DETECTOR=TargetTextPresence(upsample_small=True)
+        refined=overlapping_physical_candidates(before,after,coarse_proposals,verdict,_APPEAL_TEXT_DETECTOR,feather)
+        log["overlapping_physical_geometry"]=refined
         if refined["findings"]:
             boxes,reason=candidate_boxes(verdict|{"residual_regions":refined["findings"]},before.size,feather)
     if reason:
