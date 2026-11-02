@@ -79,3 +79,30 @@ def grouped_prompt(boxes, crop, scene, extra=""):
         + scene_instruction(scene)
         + ("\nAdditional scene instruction: "+extra.strip() if extra.strip() else "")
     )
+
+
+def blend_group(original, patch, edit, feather, blending, *, reference_original, exclude_regions):
+    """Align a shared generated crop once, then apply each disconnected mask."""
+    from PIL import Image
+
+    from .config import Region
+    from .images import blend_patch, harmonize_repair, pixel_box
+
+    crop=edit["crop"];cw,ch=crop[2]-crop[0],crop[3]-crop[1]
+    generated=patch.convert("RGB").resize((cw,ch),Image.Resampling.LANCZOS)
+    local=[]
+    for region in exclude_regions:
+        x0,y0,x1,y1=pixel_box(region.box,original.size)
+        l,t,r,b=max(crop[0],x0),max(crop[1],y0),min(crop[2],x1),min(crop[3],y1)
+        if l<r and t<b:
+            local.append(Region(box=((l-crop[0])/cw,(t-crop[1])/ch,(r-crop[0])/cw,(b-crop[1])/ch)))
+    if blending in {"harmonic","harmonic-fine"}:
+        generated=harmonize_repair(reference_original.crop(crop),generated,local,
+                                   1024 if blending=="harmonic-fine" else 512)
+    result=original
+    for member in edit["_roi_members"]:
+        result=blend_patch(result,generated,member["box"],crop,feather,"feather",
+                           core_box=member.get("core_box"))
+    if "harmonization" in generated.info:
+        result.info["harmonization"]=generated.info["harmonization"]
+    return result

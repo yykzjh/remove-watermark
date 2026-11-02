@@ -102,3 +102,42 @@ def test_source_batch_protocol_failure_splits_without_guessing_classifications(m
     assert sizes==[2,1,1]
     assert all(d[0]==[region] for d in output)
     assert all(a[0]["primary_batch_size"]==1 for a in audits.values())
+
+
+@pytest.mark.parametrize("last",["digital","physical","uncertain","missing","error"])
+def test_wide_recheck_needs_two_explicit_digital_proofs(monkeypatch,last):
+    digital=verdict(physical_scene_text=False,digital_overlay=True,object_attachment=False,surface_evidence=False)
+    final={"digital":digital,"physical":verdict(),"uncertain":digital|{"uncertain":True},
+           "missing":{"digital_overlay":True},"error":RuntimeError("unavailable")}[last]
+    answers=iter([verdict(),digital,digital,final])
+    def classify(*args):
+        report=next(answers)
+        if isinstance(report,Exception):raise report
+        return [report]
+    monkeypatch.setattr("watermark_studio.source_vetting._classify",classify)
+    region=Region(kind="panel",box=(0,.95,.4,1))
+    result,audit=vet_small_panels(Image.new("RGB",(2000,1500)),([region],"raw"),
+        None,None,None,None,"cuda","different_weights",recheck=True)
+    assert (region in result[0]) is (last=="digital")
+    assert bool(audit[0].get("requires_review")) is (last!="digital")
+
+
+def test_failure_after_physical_claim_does_not_authorize_destructive_edit(monkeypatch):
+    def classify(chats,encoder,*args):
+        if encoder=="editor":return [verdict()]
+        raise RuntimeError("verifier unavailable")
+    monkeypatch.setattr("watermark_studio.source_vetting._classify",classify)
+    region=Region(kind="panel",box=(.4,.4,.5,.5))
+    result,audit=vet_small_panels(Image.new("RGB",(800,600)),([region],"raw"),
+        "editor",None,"verifier",None,"cuda","different_weights")
+    assert result[0]==[] and audit[0]["requires_review"]
+
+
+def test_wide_carrier_view_contains_surroundings_of_thin_strip():
+    from watermark_studio.source_vetting import source_carrier_chats
+    image=Image.new("RGB",(2000,1500))
+    views=[]
+    for wide in (False,True):
+        chat=source_carrier_chats(image,(0,.96,.35,1),wide=wide)[0][0]["content"]
+        views.append([c["image"] for c in chat if c["type"]=="image"][1])
+    assert views[1].height>views[0].height*3

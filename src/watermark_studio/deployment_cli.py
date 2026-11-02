@@ -41,6 +41,7 @@ HELP = {
     "quality_verifier": "Enable post-removal review using the selected quality backend",
     "protected_document_resolution": "Optional full-frame document budget, 0 disables; protected whole requests >=1024 only, never downsizes chosen budget",
     "retain_rejected_first": "Keep an immutable first rejected candidate for audit; adds disk use only for rejected first attempts",
+    "source_carrier_recheck": "Recheck only ambiguous source carriers with wider original context and two independent explicit digital proofs; failure keeps protected original and review",
     "source_vet_batch_size": "Independent source carrier classifications per editor forward, 1..4; does not batch independent verifier proofs",
     "protection_physical_vet": "Before protected whole editing, vet small physical text and reconcile broad outdoor masks with distinct source detectors and digital/carrier proofs",
     "protection_detail_scan": "Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs",

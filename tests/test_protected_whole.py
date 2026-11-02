@@ -155,7 +155,7 @@ def test_ambiguous_source_copy_is_review_and_advice_preserves_physical_text(tmp_
     monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a:[(parse_detection(raw),raw)])
     evidence={"box":[.4,.4,.5,.5],"status":"uncertain_physical_carrier","requires_review":True}
     if broad:evidence["version"]="source-broad-consensus-v1"
-    monkeypatch.setattr("watermark_studio.source_vetting.vet_sources",lambda images,found,*a:(
+    monkeypatch.setattr("watermark_studio.source_vetting.vet_sources",lambda images,found,*a,**kw:(
         [([],raw)],{0:[evidence]}))
     monkeypatch.setattr("watermark_studio.batching.independent_batch",lambda *a:pytest.fail("ambiguous source cannot be repainted"))
     monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
@@ -218,7 +218,7 @@ def test_source_scan_offloads_unused_verifier_and_restores_it_before_source_proo
         assert pipe.transformer.device == ("cpu" if dit_offload else "cuda:0")
         assert encoder.device == ("cpu" if active else "cuda:0")
         return [(parse_detection(raw), raw)]
-    def vet(images, found, *args):
+    def vet(images, found, *args, **kwargs):
         events.append("vet")
         assert encoder.device == "cuda:0"
         return found, {}

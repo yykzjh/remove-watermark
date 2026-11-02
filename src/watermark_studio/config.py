@@ -144,6 +144,7 @@ class DeploymentConfig(BaseModel):
     retain_rejected_first: bool = False
     source_vet_batch_size: int = Field(default=1,ge=1,le=4)
     protection_physical_vet: bool = False
+    source_carrier_recheck: bool = False
     protection_detail_scan: bool = False
     protection_core_feather: bool = False
     separate_vae_decode: bool = False
@@ -194,6 +195,9 @@ class DeploymentConfig(BaseModel):
             raise ValueError("半透明背景输入实验需要protect-source-rims且不能同时使用prefill-overlays")
         if self.transformer_phase_offload and (self.quantization!="none" or self.offload!="none"):
             raise ValueError("源图阶段停放扩散模型目前仅支持quantization=none、offload=none")
+        if self.source_carrier_recheck and (not self.protection_physical_vet
+                or not self.quality_verifier or self.quality_backend!="independent"):
+            raise ValueError("Source carrier recheck requires physical vetting and independent verifier")
         if self.protect_source_rims and (not self.quality_verifier or self.quality_backend!="independent"):
             raise ValueError("原图边沿保护需要quality-verifier和独立检验模型")
         if self.protect_denoising_context and self.prefill_overlays:

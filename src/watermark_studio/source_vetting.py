@@ -10,11 +10,16 @@ SOURCE_CARRIER_CONTEXT = """这是尚未去水印的原图全貌与同位置局�
 """
 
 
-def source_carrier_chats(image,box,context=.9):
+def source_carrier_chats(image,box,context=.9,*,wide=False):
     from .images import context_box, pixel_box
     from .quality import preview
 
     crop=context_box(pixel_box(box,image.size),image.size,context)
+    if wide:
+        x0,y0,x1,y1=pixel_box(box,image.size)
+        pad=max(48,min((x1-x0)*.6,min(image.size)*.3))
+        crop=(max(0,int(x0-pad)),max(0,int(y0-pad)),
+              min(image.width,int(x1+pad)),min(image.height,int(y1+pad)))
     local=[(box[0]*image.width-crop[0])/(crop[2]-crop[0]),
            (box[1]*image.height-crop[1])/(crop[3]-crop[1]),
            (box[2]*image.width-crop[0])/(crop[2]-crop[0]),
@@ -28,7 +33,7 @@ def source_carrier_chats(image,box,context=.9):
 
 
 def vet_small_panels(image, detection, editor, editor_processor, verifier, verifier_processor, device,
-                     weights_relation, first_reports=None):
+                     weights_relation, first_reports=None,*,recheck=False):
     regions,raw=detection
     audit=[]
     if weights_relation!="different_weights":
@@ -58,17 +63,35 @@ def vet_small_panels(image, detection, editor, editor_processor, verifier, verif
                     kept.remove(region)
                     record["status"]="protected_physical_text"
                 else:
-                    kept.remove(region)
-                    record["status"]="uncertain_physical_carrier"
-                    record["requires_review"]=True
-        except Exception as error:  # noqa: BLE001 - ambiguity cannot discharge a detected overlay
+                    proof=None
+                    if recheck:
+                        try:
+                            chats=source_carrier_chats(image,region.box,wide=True)
+                            again=_classify(chats,editor,editor_processor,device)[0]
+                            independent=_classify(chats,verifier,verifier_processor,device)[0]
+                            proof={"editor":again,"independent":independent,"view":"wide_original_context_v1"}
+                            record["carrier_recheck"]=proof
+                        except Exception as error:  # noqa: BLE001 - failed evidence keeps the original protected
+                            record["carrier_recheck"]={"error":f"{type(error).__name__}: {error}"[:200]}
+                    if proof and all(confirmed_digital(proof[k]) for k in ("editor","independent")):
+                        record["status"]="confirmed_digital_recheck"
+                    else:
+                        kept.remove(region)
+                        record["status"]="uncertain_physical_carrier"
+                        record["requires_review"]=True
+        except Exception as error:  # noqa: BLE001 - ambiguity cannot authorize erasing possible physical text
             record["error"]=f"{type(error).__name__}: {error}"[:300]
+            prior=record.get("editor",{})
+            if physical(prior) or prior.get("object_attachment") or prior.get("physical_scene_text"):
+                if region in kept:
+                    kept.remove(region)
+                record.update(status="uncertain_physical_carrier",requires_review=True)
         audit.append(record)
     return (kept,raw),audit
 
 
 def vet_sources(images,detections,editor,editor_processor,verifier,verifier_processor,device,
-                weights_relation,batch_size=1):
+                weights_relation,batch_size=1,*,recheck=False):
     """Batch only independent editor-side source claims; keep per-image carrier proofs."""
     if len(images)!=len(detections):
         raise ValueError("Source vet image/detection counts differ")
@@ -125,6 +148,13 @@ def vet_sources(images,detections,editor,editor_processor,verifier,verifier_proc
             continue
         result,audit=vet_small_panels(image,detection,editor,editor_processor,verifier,
             verifier_processor,device,weights_relation,cache[index] if batch_size>1 and
-            weights_relation=="different_weights" else None)
+            weights_relation=="different_weights" else None,recheck=recheck)
         output.append(result);audits[index]=broad_audits.get(index,[])+audit
     return output,audits
+
+
+def confirmed_digital(report):
+    """All fields need explicit agreement; missing/uncertain never grants edit authority."""
+    return (report.get("digital_overlay") is True
+            and all(report.get(k) is False for k in
+                    ("physical_scene_text","object_attachment","surface_evidence","uncertain")))

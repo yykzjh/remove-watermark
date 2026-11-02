@@ -80,3 +80,21 @@ def test_worker_shared_reference_does_not_paste_between_masks(tmp_path,monkeypat
         assert output.getpixel((200,800))==(0,128,0)
         assert output.getpixel((1100,880))==(0,128,0)
     assert source.read_bytes()==before
+
+
+def test_shared_harmonic_alignment_excludes_all_watermark_pixels():
+    from watermark_studio.roi_grouping import blend_group
+    source=Image.new("RGB",(1200,900),(150,145,130))
+    regions=[Region(box=(0,.7,.55,1)),Region(box=(.8,.933333,1,1))]
+    for region in regions:
+        from watermark_studio.images import pixel_box
+        b=pixel_box(region.box,source.size)
+        ImageDraw.Draw(source).rectangle((b[0],b[1],b[2]-1,b[3]-1),fill="blue")
+    edits=fixtures()
+    for edit in edits:edit["state"]["source"]=source
+    joined=coalesce_edits(edits,"adaptive")[0]
+    output=blend_group(source,Image.new("RGB",(300,200),(90,85,70)),joined,0,"harmonic",
+                       reference_original=source,exclude_regions=regions)
+    assert output.getpixel((200,800))==(150,145,130)
+    assert output.getpixel((1100,880))==(150,145,130)
+    assert output.getpixel((800,800))==source.getpixel((800,800))

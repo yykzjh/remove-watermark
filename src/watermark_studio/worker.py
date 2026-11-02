@@ -257,7 +257,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 found,vet_audits=vet_sources(
                     [decoded[t["relative"]][0] for t in detect_tasks],found,pipe.text_encoder,pipe.processor,
                     pipe._quality_encoder,pipe._quality_processor,execution_device,
-                    getattr(pipe,"_quality_weights_relation","unknown"),config.source_vet_batch_size)
+                    getattr(pipe,"_quality_weights_relation","unknown"),config.source_vet_batch_size,
+                    recheck=config.source_carrier_recheck)
                 physical_audits={t["relative"]:vet_audits.get(index,[]) for index,t in enumerate(detect_tasks)}
             if config.protect_source_rims and options.scope=="full_image" and options.preserve_background and options.first_pass_mode=="whole":
                 from .detection import source_core_boxes
@@ -609,11 +610,14 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         core_boxes=state["composition_cores"],
                     )
             else:
-                # Shared model input does not grant authority to edit between masks.
-                for member in edit.get("_roi_members",[edit]):
+                if edit.get("_roi_members"):
+                    from .roi_grouping import blend_group
+                    state["result"]=blend_group(state["result"],edit["patch"],edit,options.feather,
+                        options.repair_blending,reference_original=state["source"],exclude_regions=state["regions"])
+                else:
                     state["result"] = blend_patch(
-                        state["result"],edit["patch"],member["box"],edit["crop"],options.feather,options.repair_blending,
-                        reference_original=state["source"],exclude_regions=state["regions"],core_box=member.get("core_box")
+                        state["result"],edit["patch"],edit["box"],edit["crop"],options.feather,options.repair_blending,
+                        reference_original=state["source"],exclude_regions=state["regions"],core_box=edit.get("core_box")
                     )
     for state in states:
         task = state["task"]
