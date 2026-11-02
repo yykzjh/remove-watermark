@@ -39,7 +39,9 @@ cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent")
 cache=Path.home()/".cache/watermark-models/models"
 model=cache/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 editor=load_quality_encoder(model/"text_encoder",cfg,"cuda:0")
-editor_processor=load_quality_processor(model/"processor")
+from transformers import Qwen3VLProcessor
+
+editor_processor=Qwen3VLProcessor.from_pretrained(model/"processor",local_files_only=True)
 quality=cache/"Qwen--Qwen3-VL-4B-Instruct/snapshots/master"
 verifier=load_quality_encoder(quality,cfg,"cuda:0")
 verifier_processor=load_quality_processor(quality)
