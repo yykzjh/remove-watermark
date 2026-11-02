@@ -71,6 +71,12 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
                 if key_valid is not None:
                     valid = key_valid[:,None,None,:end]
                     mask = valid if mask is None else mask & valid
+                if getattr(self,"_watermark_exclude_prefix_keys",False):
+                    keep=getattr(self,"_watermark_target_key_keep",None)
+                    if keep is None or keep.shape!=(key.shape[0],key.shape[1]):
+                        raise ValueError("Prefix reference exclusion lacks the full joint key mask")
+                    valid=keep[:,None,None,:end]
+                    mask=valid if mask is None else mask & valid
                 outputs.append(attention(query[:,start:end],key[:,:end],value[:,:end],mask,self._attention_backend))
             prefix = segments[-1][1] if segments else 0
             mask = None if key_valid is None else key_valid[:,None,None,:]

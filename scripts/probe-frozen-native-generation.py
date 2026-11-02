@@ -59,6 +59,8 @@ def main():
     p.add_argument("--compile-projections",action="store_true")
     p.add_argument("--exclude-reference-keys",action="store_true",
         help="Offline target-only attention probe; complete original source pixels still enter both encoders")
+    p.add_argument("--exclude-prefix-reference-keys",action="store_true",
+        help="Offline all-query reference ablation, including constant source/text prefix; implies neither an extra generation nor changed source pixels")
     p.add_argument("--separate-vae-decode",action="store_true")
     a=p.parse_args()
     selector_sha=None
@@ -90,6 +92,8 @@ def main():
         p.error("Select one encoder residency mechanism")
     if a.uniform_steps and (a.base_steps or a.sigma_profile!="native" or a.hint_transmission or a.foveation_mass):
         p.error("Uniform Turbo comparison cannot mix base mode, custom grids or conditioning")
+    if a.exclude_prefix_reference_keys and not a.exclude_reference_keys:
+        p.error("Prefix exclusion requires --exclude-reference-keys")
     if a.exclude_reference_keys and (not a.source_flow_context or not a.fresh_rim_reports):
         p.error("Offline reference exclusion requires source flow context and fresh original rim proofs")
     base_probe=None
@@ -243,7 +247,8 @@ def main():
         started=time.monotonic()
         from watermark_studio.reference_exclusion import reference_exclusion
         with override_methods(pipe.vae,decode=decode), reference_exclusion(
-                pipe,[item],enabled=a.exclude_reference_keys) as reference_audit:
+                pipe,[item],enabled=a.exclude_reference_keys,
+                exclude_prefix=a.exclude_prefix_reference_keys) as reference_audit:
             generated=restore_full_frame(independent_batch(pipe,[item],budget,a.kv_cache)[0],source.size,sampling)
         if (a.base_steps or a.uniform_steps) and len(pipe.scheduler.timesteps)!=(a.base_steps or a.uniform_steps):
             raise ValueError("Actual diffusion forward count differs from explicit requested steps")
@@ -304,7 +309,8 @@ def main():
             "fresh_rim_reports":[str(v) for v in a.fresh_rim_reports or []],
             "image_adapter":getattr(pipe,"_image_adapter",None),"caption_job":a.caption_job,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
             "source_flow_context":a.source_flow_context,"context_margin_cells":a.context_margin_cells,
-            "exclude_reference_keys":a.exclude_reference_keys,"separate_vae_decode":a.separate_vae_decode},
+            "exclude_reference_keys":a.exclude_reference_keys,
+            "exclude_prefix_reference_keys":a.exclude_prefix_reference_keys,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))

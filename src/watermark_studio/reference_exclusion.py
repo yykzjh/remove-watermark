@@ -1,4 +1,4 @@
-"""Offline target-only reference-key exclusion; full source pixels and prefix computation are unchanged."""
+"""Offline reference-key ablations; complete source pixels always enter the image encoders."""
 from __future__ import annotations
 
 import inspect
@@ -46,10 +46,12 @@ def target_key_keep(transformer,items,img_mask,img_shapes,device):
 
 
 @contextmanager
-def reference_exclusion(pipe,items,*,enabled=False):
+def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False):
     """Apply only to an explicit offline probe and restore every processor/method on exit."""
-    audit={"enabled":enabled,"whole_source_pixels_unchanged":True,"prefix_computation_unchanged":True,
+    audit={"enabled":enabled,"whole_source_pixels_unchanged":True,"prefix_computation_unchanged":not exclude_prefix,
         "extra_model_forwards":0,"forward_calls":0,"quality_permission":False}
+    if exclude_prefix and not enabled:
+        raise ValueError("Prefix exclusion requires explicit reference exclusion")
     if not enabled:
         yield audit
         return
@@ -64,7 +66,7 @@ def reference_exclusion(pipe,items,*,enabled=False):
         for block in transformer.transformer_blocks}.values())
     if not processors or any(not isinstance(proc,IndependentSDPAProcessor) for proc in processors):
         raise ValueError("Only the verified independent SDPA processor supports this probe")
-    names=("_watermark_target_key_keep","_watermark_target_query_count")
+    names=("_watermark_target_key_keep","_watermark_target_query_count","_watermark_exclude_prefix_keys")
     previous=[{name:(hasattr(proc,name),getattr(proc,name,None)) for name in names} for proc in processors]
     original=transformer.forward;signature=inspect.signature(original);layout={}
     def forward(*args,**kwargs):
@@ -73,7 +75,8 @@ def reference_exclusion(pipe,items,*,enabled=False):
         if not layout:
             keep,count,fractions=target_key_keep(transformer,items,img_mask,shapes,hidden.device)
             layout.update(mask=img_mask.detach().clone(),shapes=shapes,keep=keep,count=count)
-            audit.update(method="target_only_reference_key_exclusion_v1",
+            audit.update(method=("all_query_reference_key_exclusion_v1" if exclude_prefix
+                else "target_only_reference_key_exclusion_v1"),
                 excluded_source_fractions=fractions,target_tokens=count,joint_key_tokens=keep.shape[1])
         elif (shapes!=layout["shapes"] or img_mask.device!=layout["mask"].device
                 or not torch.equal(img_mask,layout["mask"])):
@@ -81,6 +84,7 @@ def reference_exclusion(pipe,items,*,enabled=False):
         for proc in processors:
             proc._watermark_target_key_keep=layout["keep"]
             proc._watermark_target_query_count=layout["count"]
+            proc._watermark_exclude_prefix_keys=exclude_prefix
         audit["forward_calls"]+=1
         return original(*args,**kwargs)
     try:
