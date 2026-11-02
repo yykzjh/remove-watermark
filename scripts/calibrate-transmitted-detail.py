@@ -30,12 +30,16 @@ def main():
     p.add_argument("--pixel-veto-only",action="store_true")
     p.add_argument("--estimate-transmission",action="store_true")
     p.add_argument("--attenuation-aware-detail",action="store_true")
+    p.add_argument("--low-transmission-experiment",action="store_true",
+        help="Offline0.10..0.85 transmission hypothesis; keeps all fit/noise/support/QA gates and delta bounds")
     p.add_argument("--reference-blur-clean",action="store_true")
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--transmission",type=float,default=.5)
     p.add_argument("--radius",type=int,default=16)
     p.add_argument("--dark-channel",action="store_true")
     a=p.parse_args()
+    if a.low_transmission_experiment and (not a.estimate_transmission or not a.attenuation_aware_detail):
+        p.error("Low-transmission calibration requires an estimated fit and the conservative source noise floor")
     if a.attenuation_aware_detail and not a.estimate_transmission:
         p.error("Attenuation-aware detail evidence requires explicit transmission estimation")
     if a.pixel_veto_only and not a.strict_neutral_support:
@@ -106,7 +110,8 @@ def main():
         if cropped.mean()<.1:trace["skip_reason"]="too_little_text_excluded_body";continue
         tvalue=a.transmission
         if a.estimate_transmission:
-            inferred=estimate_patch_transmission(source.crop(box),generated.crop(box),cropped.astype(float),attenuation_aware=a.attenuation_aware_detail)
+            inferred=estimate_patch_transmission(source.crop(box),generated.crop(box),cropped.astype(float),attenuation_aware=a.attenuation_aware_detail,
+                low_transmission_experiment=a.low_transmission_experiment)
             trace["transmission_estimate"]=inferred
             trace["diagnostic_true_transmission"]=1-alpha/255
             if not inferred["eligible"]:
@@ -118,7 +123,8 @@ def main():
             minimum=np.min(src[valid],axis=1)
             tvalue=float(np.clip(1-np.quantile(minimum,.01)/235.,.25,.85))
         patched,audit=recover_patch_detail(source.crop(box),generated.crop(box),cropped.astype(float),
-            transmission=tvalue,radius=a.radius,max_delta=24)
+            transmission=tvalue,radius=a.radius,max_delta=24,
+            low_transmission_experiment=a.low_transmission_experiment)
         after=generated.copy();after.paste(patched,box)
         trace.update(audit=audit,assumed_transmission=tvalue,true_synthetic_transmission=1-alpha/255,
             before=reconstruction_metrics(np.asarray(generated),np.asarray(clean),valid),

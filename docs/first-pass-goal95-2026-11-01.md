@@ -1682,3 +1682,51 @@ historical inference inputs. Parent lineage, its source-only directory contents,
 of API job exposure are required; all other history catalogs and API inputs stay in the audit.
 The first v2 audit was explicitly stopped before completion to add this lineage check;
 it is not qualification evidence. The separate v3 audit is running; no sealed inference.
+
+### 2026-11-02 Completed wider reference ablation and verification controls
+
+The full matched256-case QA finished635.654s with unchanged strict criteria:
+base12=50/64,uniform24=50/64,target-only reference exclusion24=47/64,
+all-query reference exclusion12=47/64. Both ablations are rejected as deployment defaults.
+The earlier5/6 hard-case improvement did not generalize. Each method contains60 generated
+images plus4 unchanged source-copy cases (one physical ambiguity still needs review).
+The new manifest explicitly records actual zero model calls for source copies; historical
+generation_attempts defaults must not be interpreted as real diffusion call counts.
+
+Optional lossless compact-prefix native six job7c089795f0664fcca724588f2b305ab4
+matches the uncompressed all-query12 job42febfe20a054651be01f79024d36e21 exactly:
+all6 actual VAE capture file hashes and generated RGB hashes agree. Cache prefix length
+reduces10.65%..19.49% according to per-image token metadata. Generation62.117s versus
+62.252s is effectively unchanged in this single cold-process comparison; no throughput
+improvement is claimed. This is an optional optimization of an unqualified quality method.
+Real Torch SDPA, independent B2 padding, causal prefix, cache, and cleanup tests passed.
+
+Reference margin2 gives5/6 but swaps the failure from0343 to0012; margin4 gives4/6.
+A global larger margin is not adopted. An offline scheduled target-only experiment now
+keeps the complete constant prefix, uses all reference keys during early/coarse steps,
+and suppresses selected watermark-reference keys only at sigma<=cutoff during later steps.
+Default cutoff1 preserves the original fixed ablation. This scheduled mode forbids prefix
+exclusion/compaction and verifies actual normalized homogeneous model timesteps.
+It does not add denoising calls or image generations; it is not a quality approval.
+
+The new boundary CNN trained on96 new original source identities,with24 validation parents,
+800steps/355.400s,peak680,568,832B,checkpoint
+a477c543d4a0085781f0edd1703d15379cd48a583e47f4121bbac6c0390c71a1.
+Threshold remains.995. Internal224 correct controls have0 false vetoes,67/224 defects
+flagged. External-to-this-CNN legacy12 originals: exact96 correct0 false vetoes,
+69/144 defects caught;padded96 correct0 false vetoes,26/144 defects caught.
+These are globally development-exposed controls, not an untouched final QA test.
+Fixed322:27 correct0 false vetoes,21/81 defects caught. Critically it catches0/10 known
+VLM false accepts, so it does not resolve the verifier qualification gap and is not deployed.
+
+The fresh source isolation v3 audit completed981.486s and is qualified within its documented
+fingerprint scope:1000 unique sealed inputs,20,281 historical paths,623 catalogs,two recovered
+initial user references included,0 exact or declared near matches,0 missing/errors/unresolved
+source paths,and0 known history gaps. No sealed image has been inferred or previewed.
+
+A separate low-transmission detail calibration explicitly tests0.10..0.85 rather than the
+default0.25..0.85 affine hypothesis. It preserves the2-RGB source uncertainty floor,
+coarse/spatial fit checks,foreground exclusions,24-level correction limit,and immutable
+outside-support pixels. It changes no quality acceptance rules. Synthetic calibration
+cannot certify a real image's neutral foreground/body; native application is not authorized
+by this diagnostic and remains absent from deployment.

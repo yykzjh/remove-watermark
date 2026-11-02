@@ -83,3 +83,31 @@ def test_attenuation_aware_evidence_compares_background_detail_without_accepting
     with Image.open(stream) as encoded:
         healthy=encoded.convert("RGB")
     assert not estimate_patch_transmission(source,healthy,support,radius=24,attenuation_aware=True)["eligible"]
+
+
+def test_low_transmission_is_explicit_and_retains_noise_fit_and_pixel_scope_bounds():
+    import pytest
+
+    y,x=np.mgrid[:192,:256]
+    base=70+.25*x+.18*y+35*np.sin(x*.7)+12*np.cos(y*.5)
+    clean=Image.fromarray(np.repeat(np.clip(np.rint(base),0,255).astype(np.uint8)[...,None],3,axis=2))
+    original=Image.fromarray(np.rint(.15*np.asarray(clean).astype(float)+.85*220).astype(np.uint8))
+    generated=clean.filter(ImageFilter.GaussianBlur(2))
+    support=np.ones((192,256));support[:10]=0;support[-10:]=0
+    from watermark_studio.transmitted_detail import estimate_patch_transmission
+    default=estimate_patch_transmission(original,generated,support,attenuation_aware=True)
+    assert not default["eligible"] and default["transmission_lower_bound"]==.25
+    trial=estimate_patch_transmission(original,generated,support,attenuation_aware=True,
+        low_transmission_experiment=True)
+    assert trial["eligible"] and .12<trial["transmission"]<.18
+    assert trial["source_rgb_uncertainty_floor"]==2 and trial["quality_permission"] is False
+    with pytest.raises(ValueError,match="bounded"):
+        recover_patch_detail(original,generated,support,transmission=.15)
+    after,audit=recover_patch_detail(original,generated,support,transmission=trial["transmission"],
+        low_transmission_experiment=True)
+    before=np.asarray(generated).astype(float);actual=np.asarray(after).astype(float)
+    assert np.array_equal(actual[support==0],before[support==0])
+    assert np.max(np.abs(actual-before))<=24.5
+    target=np.asarray(clean).astype(float)
+    assert np.square(actual-target).mean()<np.square(before-target).mean()
+    assert audit["quality_permission"] is False

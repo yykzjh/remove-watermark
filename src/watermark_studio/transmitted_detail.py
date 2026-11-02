@@ -20,7 +20,8 @@ def masked_mean(values,weights,radius):
     return box_sum(values.astype(np.float64)*weight)/np.maximum(count,1e-12)
 
 
-def recover_patch_detail(source,generated,support,*,transmission=.5,radius=12,max_delta=24.):
+def recover_patch_detail(source,generated,support,*,transmission=.5,radius=12,max_delta=24.,
+                         low_transmission_experiment=False):
     """Replace detail only inside explicit support; no extra diffusion inference.
 
     For an assumed constant-field overlay S=t*B+(1-t)*F,
@@ -28,8 +29,9 @@ def recover_patch_detail(source,generated,support,*,transmission=.5,radius=12,ma
     Text/opaque/uncertain pixels MUST have zero support; this function cannot
     identify them, certify the assumption, or authorize QA acceptance.
     """
+    lower=.1 if low_transmission_experiment else .25
     if (source.size!=generated.size or not math.isfinite(transmission) or
-            not .25<=transmission<=.85 or type(radius) is not int or not 2<=radius<=64 or
+            not lower<=transmission<=.85 or type(radius) is not int or not 2<=radius<=64 or
             not math.isfinite(max_delta) or not 0<max_delta<=32):
         raise ValueError("Common size and bounded explicit detail experiment required")
     src=np.asarray(source.convert("RGB"),dtype=np.float64)
@@ -46,6 +48,7 @@ def recover_patch_detail(source,generated,support,*,transmission=.5,radius=12,ma
         raise ValueError("Detail experiment changed pixels outside explicit support")
     return Image.fromarray(result),{"applied":True,"method":"masked_transmitted_detail_v1",
         "transmission_assumption":transmission,"radius":radius,"max_delta":max_delta,
+        "low_transmission_experiment":low_transmission_experiment,
         "support_pixels":int((weight>0).sum()),"mean_abs_delta":float(np.abs(result.astype(float)-gen).mean()),
         "quality_permission":False,"extra_diffusion_inferences":0}
 
@@ -59,7 +62,8 @@ def neutral_detail_candidates(source):
     return ~(dark|bright|chromatic)
 
 
-def estimate_patch_transmission(source,generated,support,*,radius=32,attenuation_aware=False):
+def estimate_patch_transmission(source,generated,support,*,radius=32,attenuation_aware=False,
+                                low_transmission_experiment=False):
     """Offline coarse affine hypothesis; no GT opacity or approval is used."""
     if source.size!=generated.size or type(radius) is not int or not 8<=radius<=64:
         raise ValueError("Aligned bounded coarse-transmission diagnostic required")
@@ -67,7 +71,10 @@ def estimate_patch_transmission(source,generated,support,*,radius=32,attenuation
     gen=np.asarray(generated.convert("RGB"),dtype=np.float64);weight=np.asarray(support,dtype=float)
     if weight.shape!=src.shape[:2] or not np.isfinite(weight).all() or not ((weight>=0)&(weight<=1)).all():
         raise ValueError("Explicit text-excluded support required")
-    record={"method":"masked_coarse_transmission_v2_attenuation" if attenuation_aware else "masked_coarse_transmission_v1","eligible":False,"quality_permission":False}
+    lower=.1 if low_transmission_experiment else .25
+    record={"method":"masked_coarse_transmission_v2_attenuation" if attenuation_aware else "masked_coarse_transmission_v1",
+        "eligible":False,"quality_permission":False,"transmission_lower_bound":lower,
+        "low_transmission_experiment":low_transmission_experiment}
     selected=weight>.5
     if selected.sum()<256:return record|{"reason":"insufficient_support"}
     low_src=masked_mean(src,weight,radius);low_gen=masked_mean(gen,weight,radius)
@@ -84,7 +91,7 @@ def estimate_patch_transmission(source,generated,support,*,radius=32,attenuation
     full=fit(selected)
     if full is None:return record|{"reason":"coarse_field_unobservable"}
     record.update(full)
-    if not .25<=full["transmission"]<=.85 or full["r2"]<.9:
+    if not lower<=full["transmission"]<=.85 or full["r2"]<.9:
         return record|{"reason":"coarse_affine_hypothesis_not_established"}
     height,width=selected.shape;parts=[]
     for top,bottom,left,right in [(0,height//2,0,width//2),(0,height//2,width//2,width),
