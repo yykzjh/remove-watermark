@@ -168,7 +168,7 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             "避免模糊、重复纹理、直线错位、衣物和肢体变形。"
         ).strip()
         from .evidence import REPAIR_ACTIONS, feedback_from_quality
-        validated = feedback_from_quality({"evidence": tasks[0].get("_retry_feedback", [])})
+        validated = feedback_from_quality({"evidence": tasks[0].get("_retry_feedback", [])},include_observations=options.quality_retry_localized)
         # A measured material/colour collapse needs a different instruction,
         # rather than repeating the long scene vocabulary at a larger budget.
         if whole_input and any(item["issue"]=="material_mismatch" for item in validated):
@@ -246,6 +246,7 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                   "peak_allocated_mib":result.get("peak_allocated_mib",0),
                   "window_prefill_stats":result.get("window_prefill_stats",{}),
                   "model_inferences":result.get("model_inferences",0),
+                  "model_seeds":result.get("model_seeds",[]),
                   "model_input_budgets":result.get("model_input_budgets",[]),
                   "batch_sizes":result.get("batch_sizes",[]),
                   "model_prefill_batch_sizes":result.get("model_prefill_batch_sizes",[]),
@@ -301,10 +302,11 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
             from .detection import merge_regions
             from .evidence import feedback_from_quality
             # Model coordinates are suggestions only; the source scan must confirm them.
-            model_hints = [{"kind":"logo", "box":item["box"]} for item in q.get("evidence", [])
+            feedback_quality=selected.get("quality",{})
+            model_hints = [{"kind":"logo", "box":item["box"]} for item in feedback_quality.get("evidence", [])
                            if item.get("source") == "vlm" and item.get("certainty") == "visible"
                            and item.get("issue") in {"residual_text", "residual_background"} and item.get("box")]
-            hints = task.get("_extra_regions", []) + q.get("residual_regions", []) + model_hints
+            hints = task.get("_extra_regions", []) + feedback_quality.get("residual_regions", []) + model_hints
             try:
                 hints = [r.model_dump() for r in merge_regions([
                     Region.model_validate(r) for r in hints
@@ -314,7 +316,7 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                 hints = task.get("_extra_regions", [])
             selected["_retry_task"] = task | {
                 "_extra_regions": hints,
-                "_retry_feedback": feedback_from_quality(selected.get("quality", {})),
+                "_retry_feedback": feedback_from_quality(feedback_quality,include_observations=options.quality_retry_localized),
                 "_feedback_attempt": selected["best_attempt"],
                 "_cross_review_used": bool(task.get("_cross_review_used") or q.get("cross_review",{}).get("attempted")),
                 "_protect_disputed_text": bool(task.get("_protect_disputed_text") or q.get("retry_recheck_only")),

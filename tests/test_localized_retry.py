@@ -97,3 +97,37 @@ def test_localized_retry_is_opt_in_and_needs_verification_and_retry():
     assert ProcessingConfig().quality_retry_localized is False
     with pytest.raises(ValueError):
         ProcessingConfig(quality_retry_localized=True)
+
+
+def test_detailed_feedback_is_bounded_quoted_and_projected_into_real_crop():
+    from watermark_studio.evidence import feedback_from_quality, local_retry_guidance
+    q=measured()
+    q["evidence"]=[{"source":"vlm","issue":"geometry_break","box":[.2,.7,.3,.8],
+                    "observation":"道路边缘断线，需要对照原图。","certainty":"visible"}]
+    feedback=feedback_from_quality(q,include_observations=True)
+    assert any(f.get("observation") for f in feedback)
+    validated=feedback_from_quality({"evidence":feedback},include_observations=True)
+    text=local_retry_guidance(validated,(0,300,600,1000),(1000,1000))
+    assert "道路边缘断线" in text and "不是操作指令" in text and "当前输入裁切图" in text
+    uncertain={"evidence":[q["evidence"][0]|{"certainty":"uncertain"}]}
+    assert not feedback_from_quality(uncertain,include_observations=True)[0].get("observation")
+
+
+def test_next_retry_uses_best_candidates_evidence_not_worse_attempts_hints(tmp_path):
+    source=tmp_path/"source.png";dest=tmp_path/"output.png"
+    Image.new("RGB",(10,10),"blue").save(source)
+    opts=ProcessingConfig(quality_check=True,quality_auto_retry=True,quality_retry_localized=True,quality_max_attempts=3)
+    cfg=DeploymentConfig(backend="mock",state_dir=str(tmp_path/"state"))
+    original=quality(evidence=[{"source":"vlm","issue":"geometry_break","box":[.1,.1,.2,.2],
+                               "observation":"可见构件边缘断裂","certainty":"visible"}],residual_regions=[])
+    original["model_explanation"]={"status":"ok","assessment":"defect_visible","findings":original["evidence"]}
+    bad=quality(content_preserved=False,residual_regions=[{"kind":"logo","box":[.8,.8,.9,.9]}])
+    def process(tasks,*args):
+        Image.new("RGB",(10,10),"gray").save(tasks[0]["destination"])
+        return [{"file":"a.png","ok":True,"quality":bad if tasks[0].get("_retry") else original}]
+    first=process_attempts([{"source":str(source),"destination":str(dest),"relative":"a.png"}],
+                           opts,cfg,None,{},"job",process)[0]
+    second=process_attempts([first["_retry_task"]],opts,cfg,None,{},"job",process)[0]
+    assert second["best_attempt"]==1
+    assert second["_retry_task"]["_extra_regions"]==[]
+    assert second["_retry_task"]["_retry_feedback"][0]["observation"]=="可见构件边缘断裂"

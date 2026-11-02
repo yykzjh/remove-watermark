@@ -635,6 +635,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "source_edge_completion":edge_evidence.get(task["relative"],[]),
             "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
             "model_inferences":sum(e["state"] is state for e in edits),
+            "model_seeds":[e["seed"] for e in edits if e["state"] is state],
             "roi_grouping":options.roi_grouping,
             "roi_groups":[{"members":[list(m["box"]) for m in e.get("_roi_members",[e])],
                            "crop":list(e["crop"]),"budget":e["resolution"]}
