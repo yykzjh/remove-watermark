@@ -30,11 +30,14 @@ def main():
     p.add_argument("--seed",type=int,default=9417)
     p.add_argument("--gradient-checkpointing",action="store_true")
     p.add_argument("--source-flow-context",action="store_true")
+    p.add_argument("--trajectory-cache",type=Path)
+    p.add_argument("--prefix-weight",type=float,default=1.)
     a=p.parse_args()
     if (a.gpu<0 or not 1<=a.steps<=2000 or not 0<=a.warmup<a.steps or
             not 1<=a.save_every<=a.steps or not 1<=a.validate_every<=a.steps or
             not 4<=a.validation_limit<=64 or not 0<a.learning_rate<=2e-4 or
-            not math.isfinite(a.alpha) or not 0<a.alpha<=32):
+            not math.isfinite(a.alpha) or not 0<a.alpha<=32 or
+            not math.isfinite(a.prefix_weight) or not .1<=a.prefix_weight<=4):
         p.error("Explicit disjoint GPU and bounded pilot settings required")
     from watermark_studio.training_features import (
         digest,
@@ -63,6 +66,22 @@ def main():
     if (not train or not validation or
             {r["source_original_sha256"] for r in train}&{r["source_original_sha256"] for r in validation}):
         p.error("Source-level disjoint train and validation features required")
+    trajectory=None;trajectory_rows={}
+    if a.trajectory_cache:
+        trajectory=json.loads(a.trajectory_cache.read_text())
+        if (trajectory.get("state")!="completed" or trajectory.get("version")!=1
+                or trajectory.get("feature_cache_sha256")!=digest(a.cache)
+                or trajectory.get("model_signature")!=signature
+                or trajectory.get("dataset_manifest_sha256")!=cached["dataset_manifest_sha256"]
+                or trajectory.get("arguments",{}).get("source_flow_context")!=a.source_flow_context):
+            p.error("Completed matching trajectory/cache/model/context required")
+        trajectory_rows={r["id"]:r for r in trajectory["rows"]}
+        if (set(trajectory_rows)!={r["id"] for r in rows}
+                or len(trajectory_rows)!=len(trajectory["rows"])
+                or any(trajectory_rows[r["id"]]["feature_sha256"]!=r["sha256"] for r in rows)
+                or any(not Path(r["path"]).resolve().is_relative_to(a.trajectory_cache.resolve().parent)
+                    or digest(r["path"])!=r["sha256"] for r in trajectory_rows.values())):
+            p.error("Exact one-to-one immutable trajectory features required")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     def isolation():
         with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
@@ -100,11 +119,37 @@ def main():
     if {id(v) for group in optimizer.param_groups for v in group["params"]}!={id(v) for v in parameters}:
         raise ValueError("Optimizer escaped adapter-only training")
     load_seconds=time.monotonic()-began
-    tensor_cache={}
+    tensor_cache={};trajectory_tensors={}
+    def trajectory_loss(row,generator):
+        from watermark_studio.trajectory_training import prefix_objective, terminal_objective
+        values=tensors(row);clean=values["clean_latents"]
+        if row["id"] not in trajectory_tensors:
+            trajectory_tensors[row["id"]]=load_file(trajectory_rows[row["id"]]["path"],device="cpu")
+        trace=trajectory_tensors[row["id"]]
+        states=trace["states"];velocities=trace["velocities"];sigmas=trace["sigmas"]
+        if (states.shape[0]<2 or states.shape[1:]!=clean.shape or velocities.shape!=states.shape
+                or sigmas.shape!=(states.shape[0]+1,) or float(sigmas[-1])!=0):
+            raise ValueError("Complete aligned frozen sampling trajectory required")
+        kwargs=editing_kwargs(values,row["height"],row["width"])
+        def predict(index):
+            index=index%states.shape[0]
+            mixed=states[index].to("cuda:0")
+            time_value=float(sigmas[index])
+            with model.cache_context("cond"):
+                return model(hidden_states=torch.cat([values["source_latents"],mixed],dim=1),
+                    timestep=torch.tensor([time_value*1000],device="cuda:0",dtype=torch.bfloat16)/1000,
+                    **kwargs)[0][:,-clean.shape[1]:]
+        terminal=terminal_objective(predict(-1),states[-1].to("cuda:0"),clean,
+            float(sigmas[-2]),values["edit_mask"])
+        prefix=int(torch.randint(states.shape[0]-1,(1,),device="cuda:0",generator=generator).item())
+        preservation=prefix_objective(predict(prefix),velocities[prefix].to("cuda:0"))
+        return terminal+a.prefix_weight*preservation
+
     def tensors(row):
         if row["id"] not in tensor_cache:tensor_cache[row["id"]]=load_file(row["path"],device="cpu")
         return {k:v.to("cuda:0") for k,v in tensor_cache[row["id"]].items()}
     def loss(row,generator):
+        if trajectory is not None:return trajectory_loss(row,generator)
         values=tensors(row);clean=values["clean_latents"]
         noise=torch.randn(clean.shape,device="cuda:0",dtype=torch.float32,generator=generator).to(clean.dtype)
         choices=cached["sigma_tables"][row["shape"]]
@@ -143,7 +188,9 @@ def main():
         "dataset_manifest":str(dataset),"dataset_manifest_sha256":digest(dataset),
         "model":str(model_path),"model_signature":signature,"adapter":spec,
         "arguments":{k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()},
-        "objective":"conditional_flow_noise_minus_clean; overlay_weight4; preservation_weight1",
+        "objective":("native_terminal_exact_clean_with_frozen_prefix_preservation" if trajectory else
+            "conditional_flow_noise_minus_clean; overlay_weight4; preservation_weight1"),
+        "trajectory_cache_sha256":digest(a.trajectory_cache) if trajectory else None,
         "training_generations":0,"source_overlap":0,"production_changed":False,
         "train_pairs":len(train),"validation_pairs":len([r for r in rows if r["split"]=="validation"]),
         "load_seconds":round(load_seconds,3)}
@@ -174,13 +221,15 @@ def main():
             save_file(adapter_tensors(model),str(path),metadata={"alpha":str(a.alpha),"rank":str(a.rank),
                 "model_index_sha256":signature["model_index.json"],
                 "dataset_manifest_sha256":cached["dataset_manifest_sha256"],
-                "code_revision":revision,"steps":str(step),"objective":"conditional_flow_matching"})
+                "code_revision":revision,"steps":str(step),"objective":provenance["objective"]})
             saved.append({"path":str(path),"sha256":digest(path),"step":step,"alpha":a.alpha})
         if step%25==0 and (reserved!=isolation() or revision!=subprocess.check_output(
                 ["git","rev-parse","--short","HEAD"],text=True).strip()):
             raise ValueError("Isolation or code changed during training")
     if signature!=model_signature(model_path) or digest(dataset)!=cached["dataset_manifest_sha256"]:
         raise ValueError("Backbone/dataset files changed")
+    if trajectory and digest(a.trajectory_cache)!=provenance["trajectory_cache_sha256"]:
+        raise ValueError("Trajectory manifest changed")
     if reserved!=isolation():raise ValueError("GPU reservation changed")
     provenance.update(state="completed",seconds=round(time.monotonic()-began,3),checkpoints=saved,
         peak_gpu_bytes=torch.cuda.max_memory_allocated())
