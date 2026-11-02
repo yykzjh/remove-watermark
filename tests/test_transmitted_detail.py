@@ -60,3 +60,26 @@ def test_coarse_transmission_estimate_rejects_healthy_and_unrelated_references()
     assert not healthy["eligible"] and healthy["reason"]=="no_observable_detail_deficit"
     unrelated=Image.fromarray(np.rint(255-clean).astype(np.uint8))
     assert not estimate_patch_transmission(source,unrelated,support,radius=16)["eligible"]
+
+
+def test_attenuation_aware_evidence_compares_background_detail_without_accepting_healthy_targets():
+    import io
+
+    from watermark_studio.transmitted_detail import estimate_patch_transmission
+    y,x=np.mgrid[:192,:256]
+    base=125+35*np.sin(x/256*2*np.pi)+25*np.cos(y/192*2*np.pi)+20*((x+y)%2*2-1)
+    clean=np.repeat(base[...,None],3,axis=2)
+    photo=Image.fromarray(np.rint(clean).astype(np.uint8))
+    source=Image.fromarray(np.rint(.3*clean+.7*235).astype(np.uint8))
+    support=np.ones((192,256))
+    degraded=photo.filter(ImageFilter.GaussianBlur(.35))
+    old=estimate_patch_transmission(source,degraded,support,radius=24)
+    new=estimate_patch_transmission(source,degraded,support,radius=24,attenuation_aware=True)
+    assert not old["eligible"] and old["reason"]=="no_observable_detail_deficit"
+    assert new["eligible"] and new["source_detail_rms"]<new["generated_detail_rms"]
+    assert new["quality_permission"] is False and new["source_rgb_uncertainty_floor"]==2
+    assert not estimate_patch_transmission(source,photo,support,radius=24,attenuation_aware=True)["eligible"]
+    stream=io.BytesIO();photo.save(stream,format="JPEG",quality=95);stream.seek(0)
+    with Image.open(stream) as encoded:
+        healthy=encoded.convert("RGB")
+    assert not estimate_patch_transmission(source,healthy,support,radius=24,attenuation_aware=True)["eligible"]

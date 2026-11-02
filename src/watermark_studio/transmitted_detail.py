@@ -59,7 +59,7 @@ def neutral_detail_candidates(source):
     return ~(dark|bright|chromatic)
 
 
-def estimate_patch_transmission(source,generated,support,*,radius=32):
+def estimate_patch_transmission(source,generated,support,*,radius=32,attenuation_aware=False):
     """Offline coarse affine hypothesis; no GT opacity or approval is used."""
     if source.size!=generated.size or type(radius) is not int or not 8<=radius<=64:
         raise ValueError("Aligned bounded coarse-transmission diagnostic required")
@@ -67,7 +67,7 @@ def estimate_patch_transmission(source,generated,support,*,radius=32):
     gen=np.asarray(generated.convert("RGB"),dtype=np.float64);weight=np.asarray(support,dtype=float)
     if weight.shape!=src.shape[:2] or not np.isfinite(weight).all() or not ((weight>=0)&(weight<=1)).all():
         raise ValueError("Explicit text-excluded support required")
-    record={"method":"masked_coarse_transmission_v1","eligible":False,"quality_permission":False}
+    record={"method":"masked_coarse_transmission_v2_attenuation" if attenuation_aware else "masked_coarse_transmission_v1","eligible":False,"quality_permission":False}
     selected=weight>.5
     if selected.sum()<256:return record|{"reason":"insufficient_support"}
     low_src=masked_mean(src,weight,radius);low_gen=masked_mean(gen,weight,radius)
@@ -99,6 +99,14 @@ def estimate_patch_transmission(source,generated,support,*,radius=32):
     src_rms=float(np.sqrt(np.square(src_hf[selected]).mean()))
     gen_rms=float(np.sqrt(np.square(gen_hf[selected]).mean()))
     record.update(source_detail_rms=src_rms,generated_detail_rms=gen_rms)
-    if src_rms<=1.15*gen_rms:
+    evidence_rms=src_rms
+    if attenuation_aware:
+        # Source HF is attenuated by t. Compare a conservative lower estimate
+        # in background units; retain2 RGB levels of source uncertainty rather
+        # than amplifying quantization/compression noise into supposed texture.
+        evidence_rms=math.sqrt(max(0.,src_rms**2-2.**2))/full["transmission"]
+        record.update(attenuation_aware=True,source_rgb_uncertainty_floor=2.,
+            conservative_background_detail_rms=evidence_rms)
+    if evidence_rms<=1.15*gen_rms:
         return record|{"reason":"no_observable_detail_deficit"}
     return record|{"eligible":True,"reason":"coarse_fit_and_source_detail_deficit"}

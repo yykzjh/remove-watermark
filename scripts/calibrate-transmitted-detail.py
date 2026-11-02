@@ -29,12 +29,15 @@ def main():
     p.add_argument("--strict-neutral-support",action="store_true")
     p.add_argument("--pixel-veto-only",action="store_true")
     p.add_argument("--estimate-transmission",action="store_true")
+    p.add_argument("--attenuation-aware-detail",action="store_true")
     p.add_argument("--reference-blur-clean",action="store_true")
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--transmission",type=float,default=.5)
     p.add_argument("--radius",type=int,default=16)
     p.add_argument("--dark-channel",action="store_true")
     a=p.parse_args()
+    if a.attenuation_aware_detail and not a.estimate_transmission:
+        p.error("Attenuation-aware detail evidence requires explicit transmission estimation")
     if a.pixel_veto_only and not a.strict_neutral_support:
         p.error("Pixel-only support requires the stronger neutral veto")
     if a.reference_blur_clean and (not a.mask_only or not a.estimate_transmission):
@@ -103,7 +106,7 @@ def main():
         if cropped.mean()<.1:trace["skip_reason"]="too_little_text_excluded_body";continue
         tvalue=a.transmission
         if a.estimate_transmission:
-            inferred=estimate_patch_transmission(source.crop(box),generated.crop(box),cropped.astype(float))
+            inferred=estimate_patch_transmission(source.crop(box),generated.crop(box),cropped.astype(float),attenuation_aware=a.attenuation_aware_detail)
             trace["transmission_estimate"]=inferred
             trace["diagnostic_true_transmission"]=1-alpha/255
             if not inferred["eligible"]:
