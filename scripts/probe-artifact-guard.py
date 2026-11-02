@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from watermark_studio.artifact_pairs import CLASSES, build_guard, guard_input
+from watermark_studio.artifact_pairs import CLASSES, build_guard, guard_decision, guard_input
 from watermark_studio.images import load_photo, pixel_box
 from watermark_studio.training_features import digest
 
@@ -28,6 +28,8 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--batch-size",type=int,default=32)
     p.add_argument("--tf32",action="store_true")
+    p.add_argument("--defect-types",nargs="+",choices=list(CLASSES[1:]),default=list(CLASSES[1:]),
+        help="Explicit independently validated heads; raw probabilities are never renormalized")
     a=p.parse_args()
     if a.gpu<0 or not 1<=a.batch_size<=128:p.error("Isolated GPU and bounded batch required")
     training=json.loads(a.training_report.read_text())
@@ -70,10 +72,9 @@ def main():
             scores=model(batch).float().softmax(-1).cpu().numpy()
             if not np.isfinite(scores).all():raise ValueError("Nonfinite guard score")
             for (index,region),values in zip(positions[offset:offset+a.batch_size],scores,strict=True):
-                kind=int(np.argmax(values[1:]))+1;score=float(values[kind]);flag=score>=threshold
-                records[index]["regions"].append({"box":region["box"],"type":CLASSES[kind],"score":score,
-                    "scores":[float(v) for v in values],"would_veto":flag})
-                records[index]["would_veto"]|=flag
+                decision=guard_decision(values,a.defect_types,threshold)
+                records[index]["regions"].append({"box":region["box"],**decision})
+                records[index]["would_veto"]|=decision["would_veto"]
     inference_seconds=time.monotonic()-began
     if revision!=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip():
         raise ValueError("Code changed during guard calibration")
@@ -92,7 +93,7 @@ def main():
             "types":dict(Counter(region["type"] for r in group for region in r["regions"] if region["would_veto"]))}
     report={"state":"completed","version":1,"checkpoint_sha256":a.checkpoint_sha256,
         "training_report_sha256":digest(a.training_report),"pair_manifest_sha256":digest(a.pair_manifest),
-        "code_revision":revision,"threshold":threshold,"scores_are_uncalibrated":True,"cohorts":cohorts,
+        "code_revision":revision,"threshold":threshold,"defect_types":a.defect_types,"scores_are_uncalibrated":True,"cohorts":cohorts,
         "load_seconds":round(load_seconds,3),"preprocessing_seconds":round(prep_seconds,3),
         "inference_seconds":round(inference_seconds,3),"patches":len(inputs),"cases":len(cases),
         "quality_permission":False,"image_generations":0,"production_changed":False}

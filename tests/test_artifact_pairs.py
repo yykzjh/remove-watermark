@@ -74,3 +74,16 @@ def test_paired_guard_checkpoint_round_trip_keeps_seven_channel_layout(tmp_path)
     with torch.no_grad():actual=restored(value)
     assert actual.shape==(1,5) and torch.isfinite(actual).all()
     torch.testing.assert_close(actual,expected,rtol=0,atol=0)
+
+
+def test_selecting_validated_heads_never_renormalizes_an_unsupported_defect_to_a_veto():
+    import pytest
+
+    from watermark_studio.artifact_pairs import guard_decision
+    scores=[.0001,.9994,.0002,.0002,.0001]
+    assert guard_decision(scores)["would_veto"] is True
+    result=guard_decision(scores,["repair_blur","residual_overlay"])
+    assert result["score"]==.0002 and result["would_veto"] is False
+    assert result["quality_permission"] is False
+    with pytest.raises(ValueError):guard_decision(scores,["clean"])
+    with pytest.raises(ValueError):guard_decision([float("nan")]*5)

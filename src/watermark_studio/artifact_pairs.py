@@ -140,3 +140,18 @@ def physical_shadow_background(clean,box,seed):
     alpha=alpha.filter(ImageFilter.GaussianBlur(rng.uniform(1.,6.)))
     shade=Image.new("RGB",clean.size,rng.choice([(0,0,0),(12,20,35),(35,30,20)]))
     return Image.composite(shade,clean.convert("RGB"),alpha)
+
+
+def guard_decision(scores,defect_types=CLASSES[1:],threshold=.995):
+    """Select only validated heads without renormalizing or ever granting a pass."""
+    values=np.asarray(scores,dtype=float)
+    if (values.shape!=(len(CLASSES),) or not np.isfinite(values).all() or
+            not ((values>=0)&(values<=1)).all() or abs(values.sum()-1)>.002 or threshold!=.995):
+        raise ValueError("Finite complete softmax and precommitted experimental threshold required")
+    if (not defect_types or len(set(defect_types))!=len(defect_types) or
+            any(name not in CLASSES[1:] for name in defect_types)):
+        raise ValueError("Explicit unique defect heads required")
+    indices=[CLASSES.index(name) for name in defect_types]
+    kind=max(indices,key=lambda index:values[index]);score=float(values[kind])
+    return {"type":CLASSES[kind],"score":score,"scores":[float(v) for v in values],
+        "would_veto":score>=threshold,"quality_permission":False}
