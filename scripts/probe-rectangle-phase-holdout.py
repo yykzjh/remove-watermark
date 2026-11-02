@@ -17,6 +17,7 @@ from watermark_studio.rectangle_phase import (
     rectangle_phase_core,
     rectangle_phase_inset,
     rectangle_phase_parallel,
+    rectangle_phase_parallel_reference,
     rectangle_phase_sharp,
     rectangle_phase_tight,
 )
@@ -28,13 +29,14 @@ p.add_argument("--seed",type=int,default=202611022)
 p.add_argument("--cue",choices=["phase","uniform"],default="phase")
 p.add_argument("--core-boundaries",action="store_true")
 p.add_argument("--parallel-core",action="store_true",help="Offline strong source-proven opposite edges; preserves existing vetoes")
+p.add_argument("--parallel-reference",action="store_true",help="Offline opposite edges require agreeing unchanged exterior context")
 p.add_argument("--sharp-core",action="store_true",help="Offline original smoothing with fixed native-source hypotheses; no approval")
 p.add_argument("--inset-core",action="store_true",help="Offline fixed safety-padding offset; preserves every v5 veto")
 p.add_argument("--tight-core",action="store_true",help="Additional narrow source-core search; offline only")
 p.add_argument("--output",type=Path,required=True)
 p.add_argument("--exclude-probes",type=Path,nargs="*",default=[])
 a=p.parse_args()
-if sum((a.core_boundaries,a.tight_core,a.inset_core,a.sharp_core,a.parallel_core))>1:
+if sum((a.core_boundaries,a.tight_core,a.inset_core,a.sharp_core,a.parallel_core,a.parallel_reference))>1:
     p.error("Choose one phase diagnostic")
 if a.output.exists() or not 8<=a.images<=128:
     p.error("Fresh output, 8..128 backgrounds required")
@@ -99,7 +101,8 @@ for row in rows:
             from watermark_studio.uniform_core import uniform_core_fill
             result=uniform_core_fill(target,regions,[{"mask":regions[0].box,"core":core}])
         else:
-            result=(rectangle_phase_parallel(source,target,regions,[{"mask":regions[0].box,"core":core}]) if a.parallel_core else
+            result=(rectangle_phase_parallel_reference(source,target,regions,[{"mask":regions[0].box,"core":core}]) if a.parallel_reference else
+                    rectangle_phase_parallel(source,target,regions,[{"mask":regions[0].box,"core":core}]) if a.parallel_core else
                     rectangle_phase_sharp(source,target,regions,[{"mask":regions[0].box,"core":core}]) if a.sharp_core else
                     rectangle_phase_inset(source,target,regions,[{"mask":regions[0].box,"core":core}]) if a.inset_core else
                     rectangle_phase_tight(source,target,regions,[{"mask":regions[0].box,"core":core}]) if a.tight_core else
@@ -113,7 +116,7 @@ by_kind={kind:{"total":sum(r["kind"]==kind for r in records),
                "warned":sum(r["kind"]==kind and bool(r["cue"]["count"]) for r in records)}
          for kind in sorted({r["kind"] for r in records})}
 report={"code_revision":subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip(),"scope":"randomized new artifact-only controls, not complete watermark-removal truth",
-        "cue":a.cue,"parallel_core":a.parallel_core,"core_boundaries":a.core_boundaries,"tight_core":a.tight_core,"inset_core":a.inset_core,"sharp_core":a.sharp_core,
+        "cue":a.cue,"parallel_reference":a.parallel_reference,"parallel_core":a.parallel_core,"core_boundaries":a.core_boundaries,"tight_core":a.tight_core,"inset_core":a.inset_core,"sharp_core":a.sharp_core,
         "seed":a.seed,"backgrounds":len(used),"cases":len(records),
         "seconds":round(time.monotonic()-started,3),"source_inputs_unchanged":True,
         "by_kind":by_kind,"clean_warned":[r["file"]+":"+r["kind"] for r in records if not r["artifact_added"] and r["cue"]["count"]],

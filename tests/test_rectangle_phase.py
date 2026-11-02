@@ -185,3 +185,40 @@ def test_parallel_hypothesis_does_not_accept_a_weaker_step_or_invalid_source_cor
     cores=[{"mask":list(box),"core":list(box)}]
     assert rectangle_phase_parallel(source,weak,regions,cores)["count"]==0
     assert rectangle_phase_parallel(source,weak,regions,[{"mask":list(box),"core":[0,0,1,1]}])["count"]==0
+
+
+
+def test_parallel_exterior_reference_retains_real_band_but_catches_added_shadow():
+    from watermark_studio.rectangle_phase import (
+        rectangle_phase_parallel,
+        rectangle_phase_parallel_reference,
+    )
+
+    background=Image.new("RGB",(1024,192),(140,140,140))
+    ImageDraw.Draw(background).rectangle((0,48,1023,125),fill=(100,100,100))
+    source=background.copy()
+    ImageDraw.Draw(source).rectangle((205,48,717,125),fill=(30,100,220))
+    box=(205/1024,48/192,717/1024,125/192)
+    regions=[Region(kind="panel",box=box)]
+    cores=[{"mask":list(box),"core":list(box)}]
+    assert rectangle_phase_parallel(source,background,regions,cores)["count"]==1
+    assert rectangle_phase_parallel_reference(source,background,regions,cores)["count"]==0
+    damaged=background.copy()
+    ImageDraw.Draw(damaged).rectangle((205,48,717,125),fill=(60,60,60))
+    cue=rectangle_phase_parallel_reference(source,damaged,regions,cores)
+    assert cue["count"]==1
+    assert cue["findings"][0]["exterior_reference"]["method"]=="unchanged_bilateral_exterior_step_v1"
+
+
+def test_parallel_exterior_reference_requires_visible_unchanged_flanks():
+    from watermark_studio.rectangle_phase import rectangle_phase_parallel_reference
+
+    clean=Image.new("RGB",(1024,192),(140,140,140))
+    source=clean.copy()
+    ImageDraw.Draw(source).rectangle((205,48,717,125),fill=(30,100,220))
+    box=(205/1024,48/192,717/1024,125/192)
+    regions=[Region(kind="panel",box=box)]
+    cores=[{"mask":list(box),"core":list(box)}]
+    shifted=Image.new("RGB",source.size,(100,100,100))
+    ImageDraw.Draw(shifted).rectangle((205,48,717,125),fill=(60,60,60))
+    assert rectangle_phase_parallel_reference(source,shifted,regions,cores)["count"]==0

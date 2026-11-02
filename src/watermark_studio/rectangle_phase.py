@@ -316,3 +316,83 @@ def rectangle_phase_parallel(before,after,regions,core_boxes,resolution=1024):
                         "core_search_radius":radius})
     return baseline|{"method":"source_panel_phase_v8_parallel_experiment",
         "findings":list(findings.values()),"count":len(findings)}
+
+
+
+def _parallel_exterior_reference(source,rgb,luma,size,item,mask,regions):
+    """Two unchanged external flanks must support the same reference edge."""
+    sides=item["side_evidence"]
+    if set(sides) not in ({"top","bottom"},{"left","right"}):
+        return None
+    vertical=set(sides)=={"left","right"}
+    values=luma.T if vertical else luma
+    before=source.transpose(1,0,2) if vertical else source
+    after=rgb.transpose(1,0,2) if vertical else rgb
+    normal,along=values.shape
+    lo,hi=(mask[1],mask[3]) if vertical else (mask[0],mask[2])
+    lo,hi=round(lo*along),round(hi*along)
+    gap=max(4,round(.02*(hi-lo)))
+    width=max(72,min(128,round(.3*(hi-lo))))
+    flanks=[(lo-gap-width,lo-gap),(hi+gap,hi+gap+width)]
+    if any(a<0 or b>along for a,b in flanks):
+        return None
+    evidence={}
+    for side,inside in sides.items():
+        at=round(inside["position"]*normal)
+        if at<18 or at>=normal-18:
+            return None
+        inward=1 if side in ("top","left") else -1
+        references=[];changes=[]
+        for a,b in flanks:
+            # Every reference is exterior to this entire protected mask and
+            # must also avoid every other original repair region.
+            zone=([max(0,at-15)/size[0],a/size[1],min(size[0],at+16)/size[0],b/size[1]]
+                  if vertical else [a/size[0],max(0,at-15)/size[1],b/size[0],min(size[1],at+16)/size[1]])
+            if any(tuple(other.box)!=tuple(mask) and
+                   max(zone[0],other.box[0])<min(zone[2],other.box[2]) and
+                   max(zone[1],other.box[1])<min(zone[3],other.box[3]) for other in regions):
+                return None
+            change=float(np.abs(before[at-15:at+16,a:b]-after[at-15:at+16,a:b]).mean())
+            if change>2:
+                return None
+            steps=[]
+            for start in range(a,b-23,24):
+                medians=[float(np.median(values[at+inward*offset-1:at+inward*offset+2,start:start+24]))
+                         for offset in (5,-5,13,-13)]
+                steps.append((medians[0]-medians[1])-(5/13)*(medians[2]-medians[3]))
+            if len(steps)<3 or float(np.median(np.abs(np.asarray(steps)-np.median(steps))))>.025:
+                return None
+            references.append(float(np.median(steps)));changes.append(change)
+        if abs(references[0]-references[1])>.025:
+            return None
+        reference=float(np.mean(references))
+        residual=inside["log_tone_step"]-reference
+        if residual*item["joint_sign"]<.035:
+            return None
+        evidence[side]={"inside_step":inside["log_tone_step"],"exterior_steps":references,
+                        "exterior_source_change_mae":changes,"residual_step":residual}
+    residuals=[abs(v["residual_step"]) for v in evidence.values()]
+    if max(residuals)>3*min(residuals):
+        return None
+    return {"method":"unchanged_bilateral_exterior_step_v1","sides":evidence,
+            "minimum_residual_step":.035,"maximum_exterior_disagreement":.025}
+
+
+def rectangle_phase_parallel_reference(before,after,regions,core_boxes,resolution=1024):
+    """Offline opposite-edge warning needs independent unchanged outside context.
+
+    Preserve every original v5 warning. V8's unqualified parallel-only findings
+    are admitted only when both visible exterior flanks agree and their edge
+    cannot explain the stronger same-sign interior step.
+    """
+    candidate=rectangle_phase_parallel(before,after,regions,core_boxes,resolution)
+    findings=[item for item in candidate["findings"] if not item.get("opposite_source_edges")]
+    extra=[item for item in candidate["findings"] if item.get("opposite_source_edges")]
+    if extra:
+        source,rgb,luma,size=_prepare_phase(before,after,resolution,blur_radius=3.)
+        for item in extra:
+            proof=_parallel_exterior_reference(source,rgb,luma,size,item,item["box"],regions)
+            if proof is not None:
+                findings.append(item|{"exterior_reference":proof})
+    return candidate|{"method":"source_panel_phase_v9_parallel_reference_experiment",
+                     "findings":findings,"count":len(findings)}

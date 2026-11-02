@@ -2029,3 +2029,27 @@ frozen1000 set nor production data is used for this test. A zero false-veto
 requirement on known-correct controls is necessary before considering adoption.
 Unit coverage also rejects missing/invalid source cores, unchanged physical
 shade, correct repairs, and weak steps; existing phase tests remain intact.
+
+
+### V8 rejected; exterior-referenced parallel cue preregistration
+
+V8 completes108 fixed controls in86.943s: it catches07-shadow_18/32 but falsely
+warns07-exact_removal and07-exact_jpeg. It fails the zero-correct-warning gate
+and is rejected. Thresholds are not adjusted to hide these false positives.
+
+The reason is a real pre-existing horizontal material/tone band. V9 adds
+a causal outside comparison rather than treating every strong parallel edge
+as an induced rectangle. It retains every original v5 warning, then requires
+both exterior flanks of each extra opposite-edge finding: visible outside the
+entire source mask, uncontaminated by any other source region, source/result
+RGB change<=2, per-flank step MAD<=0.025, and left/right step agreement<=0.025.
+Only the same-sign interior step beyond that exterior reference counts:
+minimum residual0.035 on each side, residual magnitude ratio<=3. The stronger
+inside0.08 rule and all original source/phase/coherence rules remain required.
+
+All thresholds above are fixed before running the108 controls. V9 stays
+offline via --parallel-reference; live quality still uses v5. New tests retain
+a genuine band continuing outside the source watermark, detect an additional
+local shadow, and refuse unavailable/changed exterior references. Targeted
+phase tests18passed and Ruff clean. No producer image or existing QA status
+is changed by this diagnostic.
