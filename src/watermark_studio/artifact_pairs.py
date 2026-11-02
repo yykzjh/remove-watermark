@@ -98,9 +98,9 @@ def synthetic_case(source,clean,mask,metadata,label,seed,*,preserved_marks=False
         "exact_clean_target":True,"diffusion_generations":0,"preserved_marking":marking}
 
 
-def boundary_guard_input(before,after,box,resolution=256):
+def boundary_guard_input(before,after,box,resolution=256,*,version=1):
     """Four aligned inward-normal boundary strips, source/result paired; no approvals."""
-    if before.size!=after.size or resolution not in (256,384):
+    if before.size!=after.size or resolution not in (256,384) or version not in (1,2):
         raise ValueError("Aligned frames and bounded strip resolution required")
     l,t,r,b=map(float,box);width,height=before.size
     if not np.isfinite([l,t,r,b]).all() or not 0<=l<r<=width or not 0<=t<b<=height:
@@ -113,7 +113,8 @@ def boundary_guard_input(before,after,box,resolution=256):
     for index,side in enumerate(("left","right","top","bottom")):
         vertical=index<2;coordinate=(l,r,t,b)[index];extent=width if vertical else height
         if coordinate<=1 or coordinate>=extent-1:continue
-        half=max(8.,.12*((r-l) if vertical else (b-t)),.02*max(width,height))
+        half=(max(8.,.12*((r-l) if vertical else (b-t)),.02*max(width,height)) if version==1
+            else max(12.,.24*((r-l) if vertical else (b-t)),.04*max(width,height)))
         if side=="left":transform=(2*half/strip,0,l-half,0,.7*(b-t)/resolution,t+.15*(b-t))
         elif side=="right":transform=(-2*half/strip,0,r+half,0,.7*(b-t)/resolution,t+.15*(b-t))
         elif side=="top":transform=(0,.7*(r-l)/resolution,l+.15*(r-l),2*half/strip,0,t-half)
@@ -135,6 +136,7 @@ def boundary_guard_input(before,after,box,resolution=256):
 def guard_input(before,after,box,resolution=256,*,profile="context"):
     """Shared versioned native preprocessing; no generation or user-selected mask."""
     if profile=="boundary-strips-v1":return boundary_guard_input(before,after,box,resolution)
+    if profile=="boundary-strips-v2":return boundary_guard_input(before,after,box,resolution,version=2)
     if profile!="context":raise ValueError("Unknown guard input profile")
     if before.size!=after.size or not 128<=resolution<=384:
         raise ValueError("Common-size bounded guard input required")

@@ -5,11 +5,12 @@ from PIL import Image
 from watermark_studio.artifact_pairs import boundary_guard_input, guard_input, synthetic_case
 
 
-def test_all_four_edges_have_the_same_outward_to_inward_orientation_without_resizing_the_frame():
+@pytest.mark.parametrize("version",[1,2])
+def test_all_four_edges_have_the_same_outward_to_inward_orientation_without_resizing_the_frame(version):
     source=Image.new("RGB",(512,384),(130,130,130))
     candidate=source.copy();candidate.paste((110,110,110),(96,80,416,320))
     old=source.tobytes();after=candidate.tobytes()
-    value=boundary_guard_input(source,candidate,(96,80,416,320),256)
+    value=boundary_guard_input(source,candidate,(96,80,416,320),256,version=version)
     assert value.shape==(7,256,256) and np.isfinite(value).all()
     assert source.tobytes()==old and candidate.tobytes()==after
     for side in range(4):
@@ -44,3 +45,14 @@ def test_mixed_shadow_examples_and_flat_camera_panel_metadata_preserve_exact_sou
         assert np.array_equal(np.asarray(after)[outside],np.asarray(clean)[outside])
         seen_additive|="additive_rgb_offset" in info["severity"]
     assert seen_additive
+
+
+def test_wide_profile_keeps_inside_context_when_detector_box_has_a_safety_margin():
+    source=Image.new("RGB",(512,384),(130,130,130))
+    candidate=source.copy();candidate.paste((110,110,110),(150,120,350,280))
+    widths=[]
+    for profile in ("boundary-strips-v1","boundary-strips-v2"):
+        data=guard_input(source,candidate,(120,100,380,300),profile=profile)
+        channel=(data[0,128,:64]*.229+.485)*255
+        widths.append(int(np.count_nonzero(channel<120)))
+    assert widths[0]<=2 and widths[1]>=14

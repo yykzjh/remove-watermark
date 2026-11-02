@@ -40,7 +40,7 @@ def main():
     p.add_argument("--clean-fraction",type=float,default=.2)
     p.add_argument("--clean-weight",type=float,default=1.)
     p.add_argument("--source-shadow-negatives",action="store_true")
-    p.add_argument("--input-profile",choices=["context","boundary-strips-v1"],default="context")
+    p.add_argument("--input-profile",choices=["context","boundary-strips-v1","boundary-strips-v2"],default="context")
     p.add_argument("--shadow-profile",choices=["legacy","mixed-v1"],default="legacy")
     p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
     p.add_argument("--pretrained",action="store_true")
@@ -120,12 +120,18 @@ def main():
             max(0,t-jitter.uniform(0,limit)*source.height),
             min(source.width,r+jitter.uniform(0,limit)*source.width),
             min(source.height,b+jitter.uniform(0,limit)*source.height))
+        if a.input_profile=="boundary-strips-v2":
+            box=(l,t,r,b)
+            if jitter.random()<.7:
+                mx=lambda:jitter.uniform(0,.10)*(r-l)+jitter.uniform(0,.012)*source.width
+                my=lambda:jitter.uniform(0,.10)*(b-t)+jitter.uniform(0,.012)*source.height
+                box=(max(0,l-mx()),max(0,t-my()),min(source.width,r+mx()),min(source.height,b+my()))
         return guard_input(source,after,box,a.resolution,profile=a.input_profile),info["label"]
     train=[r for r in data["pairs"] if r["split"]=="train"]
     validation=[r for r in data["pairs"] if r["split"]=="validation"]
     validation_cases=[]
     for row in validation:
-        for label in ((0,1) if a.input_profile=="boundary-strips-v1" else range(len(CLASSES))):
+        for label in ((0,1) if a.input_profile.startswith("boundary-strips-") else range(len(CLASSES))):
             seed=(int(hashlib.sha256(row["id"].encode()).hexdigest()[:8],16)+label*7919+a.seed)%(2**32)
             value,actual_label=make(row,label,seed,False)
             validation_cases.append((value,actual_label,row["id"],label))
@@ -160,7 +166,7 @@ def main():
         record(result);train_mode()
     provenance={"state":"running","version":1,"model_type":"paired_resnet18_v1","classes":list(CLASSES),
         "dataset_manifest":str(a.manifest.resolve()),"dataset_manifest_sha256":manifest_sha,
-        "input_profile":a.input_profile,"trained_defect_types":([CLASSES[1]] if a.input_profile=="boundary-strips-v1" else list(CLASSES[1:])),
+        "input_profile":a.input_profile,"trained_defect_types":([CLASSES[1]] if a.input_profile.startswith("boundary-strips-") else list(CLASSES[1:])),
         "code_revision":revision,"arguments":{k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()},
         "pretrained_artifact":pretrained_artifact,"train_originals":len({r["source_original_sha256"] for r in train}),
         "validation_originals":len({r["source_original_sha256"] for r in validation}),
@@ -172,7 +178,7 @@ def main():
         started=time.monotonic();batch=[];labels=[]
         for index in range(a.batch_size):
             row=rng.choice(train)
-            requested=0 if rng.random()<a.clean_fraction else (1 if a.input_profile=="boundary-strips-v1" else rng.randrange(1,len(CLASSES)))
+            requested=0 if rng.random()<a.clean_fraction else (1 if a.input_profile.startswith("boundary-strips-") else rng.randrange(1,len(CLASSES)))
             value,label=make(row,requested,rng.randrange(2**32))
             batch.append(value);labels.append(label)
         inputs=torch.from_numpy(np.stack(batch)).to("cuda:0")

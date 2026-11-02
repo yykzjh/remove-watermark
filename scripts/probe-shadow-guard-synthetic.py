@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -43,6 +44,9 @@ def controls(clean,box):
 def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--manifest",type=Path,required=True)
+    p.add_argument("--source-split",choices=["train","validation"],default="validation")
+    p.add_argument("--original-limit",type=int,default=0)
+    p.add_argument("--sampling-seed",type=int,default=2026110206)
     p.add_argument("--training-report",type=Path,required=True)
     p.add_argument("--checkpoint-sha256",required=True)
     p.add_argument("--step",type=int,required=True)
@@ -50,20 +54,28 @@ def main():
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
     a=p.parse_args()
-    if a.gpu<0:p.error("Explicit disjoint GPU required")
+    if a.gpu<0 or not 0<=a.original_limit<=128:p.error("Explicit disjoint GPU and bounded original count required")
     training=json.loads(a.training_report.read_text());data,files=validate_pairs(a.manifest)
-    if training.get("state")!="completed" or training.get("input_profile")!="boundary-strips-v1":
-        p.error("Completed boundary-strips-v1 model required")
+    input_profile=training.get("input_profile")
+    if training.get("state")!="completed" or input_profile not in ("boundary-strips-v1","boundary-strips-v2"):
+        p.error("Completed versioned boundary-strips model required")
     if training["veto_threshold"]!=.995 or training["trained_defect_types"]!=["shadow_or_tint"]:
         p.error("Frozen shadow-only protocol required")
     if digest(a.font)!=data["font_sha256"]:p.error("Exact original font required")
     checkpoint=next((r for r in training["checkpoints"] if r["step"]==a.step),None)
     if not checkpoint or checkpoint["sha256"]!=a.checkpoint_sha256 or digest(checkpoint["path"])!=a.checkpoint_sha256:
         p.error("Exact frozen checkpoint required")
+    if digest(training["dataset_manifest"])!=training["dataset_manifest_sha256"]:
+        p.error("Frozen training manifest changed")
     original_training,_=validate_pairs(Path(training["dataset_manifest"]))
     used={r["source_original_sha256"] for r in original_training["pairs"]}
-    validation=[r for r in data["pairs"] if r["split"]=="validation" and
+    validation=[r for r in data["pairs"] if r["split"]==a.source_split and
         (r["render"].get("render",{}).get("panel") or r["render"].get("panel"))]
+    selected=sorted({r["source_original_sha256"] for r in validation},
+        key=lambda sha:hashlib.sha256((str(a.sampling_seed)+sha).encode()).hexdigest())
+    if a.original_limit:selected=selected[:a.original_limit]
+    if a.original_limit and len(selected)!=a.original_limit:p.error("Insufficient untouched original candidates")
+    validation=[r for r in validation if r["source_original_sha256"] in set(selected)]
     if not validation or {r["source_original_sha256"] for r in validation}&used:
         p.error("Independent original-SHA validation panels required")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
@@ -77,7 +89,7 @@ def main():
     torch.backends.cuda.matmul.allow_tf32=training["arguments"].get("tf32",False)
     torch.backends.cudnn.allow_tf32=training["arguments"].get("tf32",False)
     with safe_open(checkpoint["path"],framework="pt") as weight:
-        if weight.metadata().get("input_profile")!="boundary-strips-v1":
+        if weight.metadata().get("input_profile")!=input_profile:
             raise ValueError("Preprocessing identity mismatch")
     a.target.mkdir(exist_ok=False);work=a.target.resolve();began=time.monotonic()
     model=build_guard(False).eval().requires_grad_(False).to("cuda:0")
@@ -105,7 +117,7 @@ def main():
             for kind,after,expected in controls(background,box):
                 for scope,geometry in [("exact",box),("detector-padding-v1",padded)]:
                     started=time.monotonic()
-                    value=guard_input(source,after,geometry,training["arguments"]["resolution"],profile="boundary-strips-v1")
+                    value=guard_input(source,after,geometry,training["arguments"]["resolution"],profile=input_profile)
                     preprocess_seconds+=time.monotonic()-started
                     pending.append((value,{"id":row["id"],"source_original_sha256":row["source_original_sha256"],
                         "kind":kind,"scope":scope,"preexisting_shadow":existing_shadow,"expected":expected,
@@ -124,7 +136,11 @@ def main():
             "defects":sum(r["expected"]=="review" for r in group),
             "defects_flagged":sum(r["expected"]=="review" and r["would_veto"] for r in group),
             "flagged_types":dict(Counter(r["kind"] for r in group if r["would_veto"]))}
-    report={"state":"completed","version":1,"cases":len(records),"cohorts":cohorts,
+    selection={r["source_original"]:r["source_original_sha256"] for r in validation}
+    (work/"source-selection.json").write_text(json.dumps({"source_sha256":selection,
+        "purpose":"Independent CNN synthetic shadow calibration; excluded from future native acceptance"}))
+    report={"state":"completed","version":1,"input_profile":input_profile,"source_split":a.source_split,
+        "source_selection_sha256":hashlib.sha256(json.dumps(selected).encode()).hexdigest(),"cases":len(records),"cohorts":cohorts,
         "validation_originals":len({r["source_original_sha256"] for r in validation}),
         "original_source_overlap":0,"seconds":round(time.monotonic()-began,3),
         "load_seconds":round(load_seconds,3),"preprocessing_seconds":round(preprocess_seconds,3),

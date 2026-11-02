@@ -39,7 +39,7 @@ def main():
     if not checkpoint or checkpoint["sha256"]!=a.checkpoint_sha256 or digest(checkpoint["path"])!=a.checkpoint_sha256:
         p.error("Exact frozen adapter identity required")
     input_profile=training.get("input_profile","context")
-    if input_profile not in ("context","boundary-strips-v1"):p.error("Recognized training preprocessing required")
+    if input_profile not in ("context","boundary-strips-v1","boundary-strips-v2"):p.error("Recognized training preprocessing required")
     if any(kind not in training.get("trained_defect_types",CLASSES[1:]) for kind in a.defect_types):
         p.error("Only explicitly trained detector heads may be tested")
     threshold=training["veto_threshold"]
@@ -71,7 +71,7 @@ def main():
         if before.size!=after.size:raise ValueError("Native image dimensions changed")
         for region in case["regions"]:
             box=pixel_box(region["box"],before.size)
-            if input_profile=="boundary-strips-v1":
+            if input_profile.startswith("boundary-strips-"):
                 l,t,r,b=box
                 if (region["kind"]!="panel" or (r-l)*(b-t)<.025*before.width*before.height
                         or not (l>1 or r<before.width-1) or not (t>1 or b<before.height-1)):
