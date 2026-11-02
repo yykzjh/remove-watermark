@@ -24,11 +24,16 @@ class DropPath(nn.Module):
 def inference_mask(block, size, values):
     """Geometry-only shifted-window mask, shared once per current canvas/dtype."""
     cache = getattr(block, "_inference_mask_cache", None)
-    key = (tuple(size), values.device.type, values.device.index, values.dtype,
-           block.window_size, block.shift_size)
+    geometry = (tuple(size), values.device.type, values.device.index, values.dtype,
+                block.window_size)
     if cache is None:
         return block.calculate_mask(size).to(device=values.device, dtype=values.dtype)
-    if key not in cache:
-        cache.clear()  # One bounded current geometry, never an image/content cache.
-        cache[key] = block.calculate_mask(size).to(device=values.device, dtype=values.dtype)
-    return cache[key]
+    if cache.get("geometry") != geometry:
+        cache.clear()
+        cache.update(geometry=geometry, masks={})
+    masks = cache["masks"]
+    if block.shift_size not in masks:
+        if len(masks) >= 2:
+            raise ValueError("Only the two official SwinIR shift variants may be cached")
+        masks[block.shift_size] = block.calculate_mask(size).to(device=values.device, dtype=values.dtype)
+    return masks[block.shift_size]

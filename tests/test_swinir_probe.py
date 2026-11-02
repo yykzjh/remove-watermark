@@ -64,6 +64,9 @@ def test_real_shifted_windows_half_and_cached_float_equivalence():
     values = torch.rand(1, 3, 16, 24)
     with torch.inference_mode():
         cached = net(values)
+        blocks = [b for b in net.modules() if isinstance(b, SwinTransformerBlock)]
+        assert len({id(b._inference_mask_cache) for b in blocks}) == 1
+        assert len(blocks[0]._inference_mask_cache["masks"]) == 2
         for block in net.modules():
             if isinstance(block, SwinTransformerBlock):
                 block._inference_mask_cache = None
