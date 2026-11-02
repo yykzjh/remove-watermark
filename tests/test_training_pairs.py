@@ -50,3 +50,19 @@ def test_reusable_overlay_exactly_replays_original_pairs_and_preserves_causal_la
         outside=np.asarray(mask)==0
         assert np.array_equal(np.asarray(source)[outside],np.asarray(shadowed)[outside])
         assert not np.array_equal(np.asarray(source),np.asarray(edited))
+
+
+def test_lower_clear_crop_selects_native_lower_content_without_relaxing_watermark_exclusion():
+    regions=[Region(kind="panel",box=(0,.62,.45,1)),Region(kind="logo",box=(.84,.9,1,1))]
+    old=clean_crop((4000,3000),regions,aspect=3/4)
+    lower=clean_crop((4000,3000),regions,aspect=3/4,placement="lower")
+    assert old is not None and lower is not None
+    assert (old[1]+old[3])/6000<=.5
+    assert (lower[1]+lower[3])/6000>=.55
+    l,t,r,b=lower
+    assert min(r-l,b-t)>=1024
+    for region in regions:
+        x0,y0,x1,y1=region.box
+        assert not (max(l,max(0,(x0-.04)*4000))<min(r,min(4000,(x1+.04)*4000)) and
+            max(t,max(0,(y0-.04)*3000))<min(b,min(3000,(y1+.04)*3000)))
+    assert clean_crop((4000,3000),[Region(kind="panel",box=(0,.4,1,1))],placement="lower") is None

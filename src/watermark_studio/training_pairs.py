@@ -7,10 +7,10 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 
-def clean_crop(size,regions,aspect=4/3,padding=.04,min_side=384):
+def clean_crop(size,regions,aspect=4/3,padding=.04,min_side=384,*,placement="center"):
     """Largest aspect-constrained rectangle outside every expanded source hypothesis."""
     width,height=size;blocked=[]
-    if not .5<=aspect<=2 or not .025<=padding<=.1 or not 1<=min_side:
+    if not .5<=aspect<=2 or not .025<=padding<=.1 or not 1<=min_side or placement not in {"center","lower"}:
         raise ValueError("Bounded clean-crop geometry required")
     for region in regions:
         x0,y0,x1,y1=region.box
@@ -32,7 +32,9 @@ def clean_crop(size,regions,aspect=4/3,padding=.04,min_side=384):
                 aw,ah=xs[right]-xs[left],ys[bottom]-ys[top]
                 cw,ch=min(aw,math.floor(ah*aspect)),min(ah,math.floor(aw/aspect))
                 if min(cw,ch)<min_side or cw*ch<=area:continue
-                l=xs[left]+(aw-cw)//2;t=ys[top]+(ah-ch)//2
+                l=xs[left]+(aw-cw)//2
+                t=ys[bottom]-ch if placement=="lower" else ys[top]+(ah-ch)//2
+                if placement=="lower" and (t+ch/2)/height<.55:continue
                 best=(l,t,l+cw,t+ch);area=cw*ch
     return best if area>=.12*width*height else None
 
