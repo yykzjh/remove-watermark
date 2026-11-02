@@ -152,3 +152,37 @@ def test_band_identity_never_authorizes_a_different_body_or_frame():
     result,logs=translucent_body_hint(changed,[record])
     assert result is changed and not logs[0]["applied"]
     assert "full original RGB proof" in logs[0]["skip_reason"]
+
+
+def dense_gray_fixture():
+    source,clean,record=fixture()
+    pixels=np.asarray(source).copy()
+    pixels[460:590,20:351]=np.rint(.15*clean[460:590,20:351]+.85*220).astype(np.uint8)
+    source=Image.fromarray(pixels)
+    # Synthetic truth gives a fresh full-frame source proof, not a backfilled
+    # certificate for an unrelated real photograph.
+    record=record|{"source_rgb_sha256":hashlib.sha256(source.tobytes()).hexdigest()}
+    return source,clean,record
+
+
+def test_dense_gray_conditioning_recovers_transmitted_structure_only_as_model_input():
+    source,clean,record=dense_gray_fixture()
+    hint,audits=translucent_body_hint(source,[record],.15,foreground=220,
+        _dense_transmission_experiment=True)
+    audit=audits[0]
+    assert audit["applied"] and audit["quality_permission"] is False
+    l,t,r,b=audit["body_pixels"]
+    actual=np.asarray(hint);original=np.asarray(source)
+    keep=np.ones(actual.shape[:2],bool);keep[t:b,l:r]=False
+    assert np.array_equal(actual[keep],original[keep])
+    assert np.abs(actual[t+16:b-16,l+16:r-16].astype(float)-clean[t+16:b-16,l+16:r-16]).mean()<2.1
+
+
+def test_wrong_dense_foreground_and_unrequested_low_transmission_do_not_silently_apply():
+    source,_clean,record=dense_gray_fixture()
+    with pytest.raises(ValueError):
+        translucent_body_hint(source,[record],.15,foreground=220)
+    hint,audits=translucent_body_hint(source,[record],.15,foreground=255,
+        _dense_transmission_experiment=True)
+    assert hint is source and not audits[0]["applied"]
+    assert "clips" in audits[0]["skip_reason"]

@@ -12,15 +12,19 @@ from .images import pixel_box
 from .source_panel_rims import effective_rim_scope, full_source_binding
 
 
-def translucent_body_hint(source, records, transmission=.55):
+def translucent_body_hint(source, records, transmission=.55, *, foreground=255.,
+                          _dense_transmission_experiment=False):
     """Boost transmitted structure in a small interior of proven digital cards.
 
-    White foreground and transmission are ASSUMPTIONS. Keep the original full
+    Neutral foreground and transmission are ASSUMPTIONS. Keep the original full
     photo for semantic encoding/QA; the hint must never become final pixels.
     No glyph synthesis/removal, no extra encoder call, no edit outside the body.
     """
-    if not math.isfinite(transmission) or not .35 <= transmission <= .85:
-        raise ValueError("Experimental transmission must be finite in0.35..0.85")
+    minimum=.10 if _dense_transmission_experiment else .35
+    if not math.isfinite(transmission) or not minimum <= transmission <= .85:
+        raise ValueError(f"Experimental transmission must be finite in{minimum}..0.85")
+    if not math.isfinite(foreground) or not 190<=foreground<=255:
+        raise ValueError("Experimental neutral foreground must be finite in190..255")
     if not any(isinstance(r,dict) and r.get("approved") is True for r in records or []):
         return source, []
     fingerprint=hashlib.sha256(source.convert("RGB").tobytes()).hexdigest()
@@ -31,8 +35,10 @@ def translucent_body_hint(source, records, transmission=.55):
     for record in records or []:
         if not isinstance(record, dict) or record.get("approved") is not True:
             continue
-        audit = {"applied": False, "method": "assumed_translucent_condition_v1",
-                 "transmission_assumption": transmission, "foreground_assumption": [255,255,255],
+        audit = {"applied": False, "method": ("assumed_translucent_condition_v2_dense"
+                    if _dense_transmission_experiment or foreground!=255 else "assumed_translucent_condition_v1"),
+                 "transmission_assumption": transmission,
+                 "foreground_assumption": [255,255,255] if foreground==255 else [foreground]*3,
                  "quality_permission": False}
         try:
             if not full_source_binding(source,record,fingerprint=fingerprint):
@@ -67,7 +73,7 @@ def translucent_body_hint(source, records, transmission=.55):
             background = np.asarray(ink.filter(ImageFilter.MaxFilter(9))) == 0
             if background.mean() < .40 or float(patch.mean(axis=2)[background].std()) < 4:
                 raise ValueError("No reliable transmitted variation")
-            recovered = (patch-255*(1-transmission))/transmission
+            recovered = (patch-foreground*(1-transmission))/transmission
             clipped = np.any((recovered < 0) | (recovered > 255), axis=2)
             fraction = float(clipped[background].mean())
             if fraction > .10:

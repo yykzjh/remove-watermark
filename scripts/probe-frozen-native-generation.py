@@ -28,6 +28,10 @@ def main():
     p.add_argument("--files",nargs="+")
     p.add_argument("--foveation-mass",type=float,default=0.,
         help="Offline reversible complete-frame sampling mass in0..0.35; 0 keeps native input")
+    p.add_argument("--hint-transmission",type=float,default=0.,
+        help="Offline conditioning-only transmission assumption; 0 disables")
+    p.add_argument("--hint-foreground",type=float,default=255.)
+    p.add_argument("--fresh-rim-reports",nargs="+",type=Path)
     p.add_argument("--lora-path",type=Path)
     p.add_argument("--lora-sha256",default="")
     p.add_argument("--lora-alpha",type=float,default=0.)
@@ -52,6 +56,9 @@ def main():
         p.error("Explicit completed source job, GPU and simple new tag required")
     if not 0<=a.foveation_mass<=.35:
         p.error("Full-frame sampling mass must be in0..0.35")
+    if a.hint_transmission and (not .10<=a.hint_transmission<=.85 or
+            not 190<=a.hint_foreground<=255 or not a.fresh_rim_reports or a.foveation_mass):
+        p.error("Hint needs bounded assumptions, fresh whole-source proofs and native coordinates")
     if a.lora_path and (not re.fullmatch(r"[a-f0-9]{64}",a.lora_sha256) or a.lora_alpha<=0):
         p.error("Explicit artifact SHA and alpha required for offline adapter fusion")
     if a.sigma_profile=="turturbo3" and (not a.lora_path or
@@ -82,6 +89,12 @@ def main():
         if Path(row["file"]).is_absolute() or not source.is_relative_to(source_root):
             p.error("Source must remain under immutable input root")
         hashes[row["file"]]=digest(source)
+    refreshed={}
+    if a.fresh_rim_reports:
+        from watermark_studio.probe_conditioning import fresh_rim_reports
+        refreshed=fresh_rim_reports(a.fresh_rim_reports,source_root,hashes)
+        if a.hint_transmission and set(refreshed)!=set(hashes):
+            p.error("Every hinted source needs fresh exact-file source proof")
     captions={}
     if a.caption_job:
         from watermark_studio.probe_conditioning import frozen_source_captions
@@ -143,6 +156,10 @@ def main():
         if not regions:
             raise ValueError("Select generated development sources, not source-copy cases")
         rims=row.get("source_rim_protection",[])
+        refresh_trace=[]
+        if name in refreshed:
+            from watermark_studio.probe_conditioning import refresh_verified_rims
+            rims,refresh_trace=refresh_verified_rims(source,rims,refreshed[name])
         scoped,cores,invalid=effective_rim_scope(source,regions,row.get("protected_core_boxes",[]),rims,header_core=True)
         if invalid:raise ValueError("Frozen source rim proof invalid")
         budget=a.resolution or (row["model_input_budgets"][0] if a.frozen_input_budget else options.resolution)
@@ -156,7 +173,14 @@ def main():
                   if row.get("source_scene")!="document" else None)
         model_source=sample_full_frame(source,sampling)
         model_regions=[map_region(r,sampling) for r in scoped]
+        hint_audits=[]
+        if a.hint_transmission and row.get("source_scene")!="document":
+            from watermark_studio.translucent_hint import translucent_body_hint
+            model_source,hint_audits=translucent_body_hint(source,rims,a.hint_transmission,
+                foreground=a.hint_foreground,_dense_transmission_experiment=a.hint_transmission<.35)
         item={"image":model_source,"prompt":prompt,"seed":seed}
+        if any(r["applied"] for r in hint_audits):
+            item["_semantic_reference"]=source
         if a.source_flow_context:
             item["_denoising_context_regions"]=[r.model_dump() for r in model_regions]
         capture={};original_decode=pipe.vae.decode
@@ -176,6 +200,11 @@ def main():
         if sampling is not None:
             capture["full_frame_sampling"]=sampling
             capture["forward_source_rgb_sha256"]=hashlib.sha256(model_source.tobytes()).hexdigest()
+        if hint_audits:
+            capture["translucent_conditioning"]={"transmission":a.hint_transmission,
+                "foreground":a.hint_foreground,"audits":hint_audits,
+                "source_rgb_sha256":hashlib.sha256(model_source.tobytes()).hexdigest(),
+                "quality_permission":False}
         capture["native_generated_rgb_sha256"]=hashlib.sha256(generated.tobytes()).hexdigest()
         generated=composite_protected(source,generated,scoped,options.feather,options.repair_blending,
             core_boxes={tuple(c["mask"]):tuple(c["core"]) for c in cores})
@@ -189,6 +218,9 @@ def main():
             "source_rim_protection","source_edge_completion","source_geometry_requery","source_physical_vetting",
             "source_detail_views","source_detail_context_requeries")
         result={k:row[k] for k in source_fields if k in row}
+        result["source_rim_protection"]=rims
+        if refresh_trace:
+            result["source_rim_refresh"]=refresh_trace
         if captions:
             result["observed_scene_conditioning"]=captions[name]
         if a.lora_path:
@@ -214,6 +246,8 @@ def main():
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
             "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"foveation_mass":a.foveation_mass,"resolution_override":a.resolution,
             "generation_encoder_offload":a.generation_encoder_offload,"vae_tiling":a.vae_tiling,
+            "hint_transmission":a.hint_transmission,"hint_foreground":a.hint_foreground,
+            "fresh_rim_reports":[str(v) for v in a.fresh_rim_reports or []],
             "image_adapter":getattr(pipe,"_image_adapter",None),"caption_job":a.caption_job,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
             "source_flow_context":a.source_flow_context,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}

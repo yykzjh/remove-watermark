@@ -105,6 +105,15 @@ def main():
         scoped,cores,invalid=effective_rim_scope(before,regions,row.get("protected_core_boxes",[]),rims,header_core=True)
         if invalid or [r.model_dump(mode="json") for r in scoped]!=row["source_rim_composition"]["regions"]:
             raise ValueError("Frozen source composition proof mismatch")
+        hint=capture.get("translucent_conditioning")
+        if hint is not None:
+            from watermark_studio.translucent_hint import translucent_body_hint
+            if capture.get("full_frame_sampling") or row.get("source_scene")=="document":
+                raise ValueError("Dense conditioning requires native photo coordinates")
+            reference,audits=translucent_body_hint(before,rims,hint["transmission"],
+                foreground=hint["foreground"],_dense_transmission_experiment=hint["transmission"]<.35)
+            if audits!=hint["audits"] or hashlib.sha256(reference.tobytes()).hexdigest()!=hint["source_rgb_sha256"]:
+                raise ValueError("Original VAE conditioning does not reproduce")
         sampling=capture.get("full_frame_sampling")
         if sampling is not None:
             expected=full_frame_mapping(scoped,before.size,sampling["mass"],sampling["padding"])
