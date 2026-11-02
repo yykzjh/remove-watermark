@@ -73,8 +73,9 @@ class Transformer:
     def __init__(self):
         self.processor=IndependentSDPAProcessor("native")
         self.transformer_blocks=[SimpleNamespace(attn=SimpleNamespace(processor=self.processor))]
-    def forward(self,hidden_states,img_mask,img_shapes):
-        return self.processor._watermark_target_key_keep.clone()
+    def forward(self,hidden_states,img_mask,img_shapes,timestep=None):
+        keep=getattr(self.processor,"_watermark_target_key_keep",None)
+        return None if keep is None else keep.clone()
 
 
 @pytest.mark.parametrize("exclude_prefix",[False,True])
@@ -128,3 +129,23 @@ def test_reference_margin_dilates_only_source_keys_and_rejects_all_source_remova
             pipe,items,enabled=True,margin_cells=2):
         transformer.forward(torch.zeros(1,32,8),mask,shapes)
     assert not hasattr(transformer.processor,"_watermark_target_key_keep")
+
+
+def test_late_reference_schedule_keeps_constant_prefix_and_uses_actual_normalized_sigma():
+    transformer=Transformer();pipe=SimpleNamespace(transformer=transformer)
+    mask=torch.tensor([[False,True,True,True,True,False,True,True,True,True]])
+    shapes=[[(1,4,4),(1,4,4)]]
+    items=[{"_reference_exclusion_regions":[{"box":[0,0,.5,.5]}]}]
+    with reference_exclusion(pipe,items,enabled=True,max_sigma=.5) as audit:
+        results=[transformer.forward(torch.zeros(1,32,8),mask,shapes,
+            timestep=torch.tensor([sigma])) for sigma in [.9,.5,.1]]
+        assert results[0] is None and results[1].shape==(1,34)
+        assert torch.equal(results[1],results[2])
+        assert audit["forward_calls"]==3 and audit["active_forward_calls"]==2
+        assert audit["prefix_computation_unchanged"] and not audit["compact_reference_cache"]
+    with pytest.raises(ValueError,match="unchanged full prefix"), reference_exclusion(
+            pipe,items,enabled=True,exclude_prefix=True,max_sigma=.5):
+        pass
+    with pytest.raises(ValueError,match="unchanged full prefix"), reference_exclusion(
+            pipe,items,enabled=True,compact_cache=True,max_sigma=.5):
+        pass

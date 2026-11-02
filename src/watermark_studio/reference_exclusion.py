@@ -52,13 +52,19 @@ def target_key_keep(transformer,items,img_mask,img_shapes,device,margin_cells=0)
 
 
 @contextmanager
-def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_cells=0,compact_cache=False):
+def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_cells=0,
+                        compact_cache=False,max_sigma=1.):
     """Apply only to an explicit offline probe and restore every processor/method on exit."""
     audit={"enabled":enabled,"whole_source_pixels_unchanged":True,"prefix_computation_unchanged":not exclude_prefix,
         "extra_model_forwards":0,"forward_calls":0,"quality_permission":False,
-        "reference_margin_cells":margin_cells,"compact_reference_cache":compact_cache}
+        "reference_margin_cells":margin_cells,"compact_reference_cache":compact_cache,
+        "reference_max_sigma":max_sigma,"active_forward_calls":0}
     if type(margin_cells) is not int or not 0<=margin_cells<=8:
         raise ValueError("Bounded integer reference-key margin required")
+    if not isinstance(max_sigma,(float,int)) or not math.isfinite(max_sigma) or not 0<max_sigma<=1:
+        raise ValueError("Reference schedule cutoff must be finite in0..1")
+    if max_sigma<1 and (not enabled or exclude_prefix or compact_cache):
+        raise ValueError("Scheduled exclusion requires unchanged full prefix computation and cache")
     if (exclude_prefix or margin_cells or compact_cache) and not enabled:
         raise ValueError("Prefix exclusion and margins require explicit reference exclusion")
     if not enabled:
@@ -97,12 +103,24 @@ def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_c
         elif (shapes!=layout["shapes"] or img_mask.device!=layout["mask"].device
                 or not torch.equal(img_mask,layout["mask"])):
             raise ValueError("Reference exclusion token layout changed within a generation")
+        active=True
+        if max_sigma<1:
+            timestep=values.get("timestep")
+            if not isinstance(timestep,torch.Tensor) or timestep.numel() not in (1,len(items)):
+                raise ValueError("Actual normalized model timesteps are required for scheduled exclusion")
+            sigmas=timestep.detach().float().flatten()
+            sigma=float(sigmas[0].item())
+            if not 0<=sigma<=1 or not torch.all(sigmas==sigmas[0]).item():
+                raise ValueError("Scheduled reference exclusion requires homogeneous flow sigmas")
+            active=sigma<=max_sigma+1e-7
+            audit.setdefault("forward_sigmas",[]).append(sigma)
         for proc in processors:
-            proc._watermark_target_key_keep=layout["keep"]
+            proc._watermark_target_key_keep=layout["keep"] if active else None
             proc._watermark_target_query_count=layout["count"]
             proc._watermark_exclude_prefix_keys=exclude_prefix
             proc._watermark_prefix_cache_plan=layout.get("cache_plan")
         audit["forward_calls"]+=1
+        audit["active_forward_calls"]+=int(active)
         return original(*args,**kwargs)
     try:
         with override_methods(transformer,forward=forward):

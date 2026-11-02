@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import runpy
@@ -65,6 +66,8 @@ def main():
         help="Offline VAE reference-token exclusion buffer only; never expands output pixel edits")
     p.add_argument("--compact-reference-cache",action="store_true",
         help="Offline lossless compaction of already-excluded prefix keys; requires KV cache and reference exclusion")
+    p.add_argument("--reference-exclusion-max-sigma",type=float,default=1.,
+        help="Offline target-only late-step exclusion: keep full constant prefix, suppress selected reference keys only at sigma<=cutoff;1 preserves full-time exclusion")
     p.add_argument("--separate-vae-decode",action="store_true")
     a=p.parse_args()
     selector_sha=None
@@ -96,6 +99,11 @@ def main():
         p.error("Select one encoder residency mechanism")
     if a.uniform_steps and (a.base_steps or a.sigma_profile!="native" or a.hint_transmission or a.foveation_mass):
         p.error("Uniform Turbo comparison cannot mix base mode, custom grids or conditioning")
+    if not math.isfinite(a.reference_exclusion_max_sigma) or not 0<a.reference_exclusion_max_sigma<=1:
+        p.error("Reference exclusion cutoff must be finite in0..1")
+    if a.reference_exclusion_max_sigma<1 and (not a.exclude_reference_keys or
+            a.exclude_prefix_reference_keys or a.compact_reference_cache):
+        p.error("Scheduled exclusion requires an unchanged complete prefix and cache")
     if a.compact_reference_cache and (not a.exclude_reference_keys or not a.kv_cache):
         p.error("Compact reference cache requires reference exclusion and KV cache")
     if (a.exclude_prefix_reference_keys or a.reference_exclusion_margin_cells) and not a.exclude_reference_keys:
@@ -256,7 +264,8 @@ def main():
                 pipe,[item],enabled=a.exclude_reference_keys,
                 exclude_prefix=a.exclude_prefix_reference_keys,
                 margin_cells=a.reference_exclusion_margin_cells,
-                compact_cache=a.compact_reference_cache) as reference_audit:
+                compact_cache=a.compact_reference_cache,
+                max_sigma=a.reference_exclusion_max_sigma) as reference_audit:
             generated=restore_full_frame(independent_batch(pipe,[item],budget,a.kv_cache)[0],source.size,sampling)
         if (a.base_steps or a.uniform_steps) and len(pipe.scheduler.timesteps)!=(a.base_steps or a.uniform_steps):
             raise ValueError("Actual diffusion forward count differs from explicit requested steps")
@@ -320,7 +329,8 @@ def main():
             "exclude_reference_keys":a.exclude_reference_keys,
             "exclude_prefix_reference_keys":a.exclude_prefix_reference_keys,
             "reference_exclusion_margin_cells":a.reference_exclusion_margin_cells,
-            "compact_reference_cache":a.compact_reference_cache,"separate_vae_decode":a.separate_vae_decode},
+            "compact_reference_cache":a.compact_reference_cache,
+            "reference_exclusion_max_sigma":a.reference_exclusion_max_sigma,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
