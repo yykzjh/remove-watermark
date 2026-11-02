@@ -16,6 +16,8 @@ p.add_argument("--work",type=Path,required=True)
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--images",type=int,default=64)
 p.add_argument("--selection-start",type=int,default=0)
+p.add_argument("--balanced-grouping",choices=["separate","adaptive"],default="adaptive")
+p.add_argument("--balanced-context",type=float,default=.85)
 p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--profiles",nargs="+",default=["roi","roi-context","whole-protected"])
 a=p.parse_args()
@@ -53,6 +55,7 @@ for profile in a.profiles:
     opts=dict(options,quality_auto_retry=False,quality_cross_review=False,overwrite=False)
     if profile=="roi-context":opts["context"]=.85
     elif profile=="roi-grouped":opts["roi_grouping"]="adaptive"
+    elif profile=="roi-balanced":opts.update(roi_grouping=a.balanced_grouping,context=a.balanced_context,quality_auto_retry=True,quality_max_attempts=2,quality_retry_resolution=1024)
     elif profile=="roi-grouped-retry":opts.update(roi_grouping="adaptive",quality_auto_retry=True,quality_max_attempts=2,quality_retry_resolution=1024)
     elif profile=="whole-protected":opts.update(first_pass_mode="whole",whole_prompt_profile="neutral")
     elif profile!="roi":raise ValueError(profile)
