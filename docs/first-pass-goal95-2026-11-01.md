@@ -1841,3 +1841,40 @@ The SwinIR result is pending artifact download, remote Torch tests, baseline
 reproduction, native QA, and measured cost. It must not replace a production
 default merely because SR looks sharper. Local verification: Ruff passed,
 680 tests passed and 34 skipped (Torch unavailable in the WSL test environment).
+
+
+### 2048-input uniform 24-step result and remote checks (2026-11-02)
+
+Both six-image generation shards completed. The actual denoising traces contain
+24 steps for every file, every file has exactly one model inference, and all
+six encoded outputs retain the EXIF-normalized original dimensions.
+
+| Configuration | Automatic QA passes / 6 | Summed generation GPU seconds |
+|---|---:|---:|
+| 2048 input, uniform 12 | 4 | 350.073 |
+| 2048 input, uniform 24 | 4 | 646.313 |
+
+The same four files pass: 0012, 0141, 0241, and 0848. Files 0153 and 0343 remain
+under review for source-proven edge continuity; 0343 also has the texture-drop
+warning. The matched quality protocol retains frozen vetoes, independent
+weights, full-context cross-review, the rectangle guard and 768 verification
+resolution. Fresh QA took 21.606 seconds, excluding 20.577 seconds loading.
+The unchanged outcome costs 84.6% more generation time. Increasing both
+resolution and steps is therefore rejected as a default improvement.
+
+This is a development screen of six difficult, already-exposed originals,
+not a measured 1000-image acceptance rate. The verifier still has ten known
+false accepts and three false reviews on its strict 108-case controls, so
+these automatic passes do not establish final quality qualification.
+The complete evidence is stored remotely in
+.run/goal95-native2048-uniform24-report-v1.json.
+
+All three new SwinIR CPU Torch tests passed on the development machine:
+RGB/padding/crop and overlap assembly, invalid state/SHA rejection, and
+profile/tile validation. Full local Ruff passed; the local suite remains
+680 passed / 34 skipped. The official artifact download was moved to bounded,
+individually verified HTTP byte ranges after ordinary downloads stalled;
+no weights or image payloads crossed SSH. Lightweight native6 replay is queued
+behind verified assembly, using the original decoder and exact baseline
+reproduction, then fresh QA. No SR or higher-step configuration is deployed.
+The frozen 1000 images and the user's full production queue remain untouched.
