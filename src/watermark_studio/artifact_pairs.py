@@ -12,7 +12,7 @@ CLASSES=("clean","shadow_or_tint","repair_blur","residual_overlay","changed_visi
 
 def _box(clean,mask,metadata,rng):
     width,height=clean.size
-    panel=metadata.get("render",{}).get("panel")
+    panel=metadata.get("render",{}).get("panel") or metadata.get("panel")
     if panel:return tuple(panel)
     locations=np.argwhere(np.asarray(mask)>0)
     if locations.size:
@@ -23,10 +23,11 @@ def _box(clean,mask,metadata,rng):
     return l,t,l+bw,t+bh
 
 
-def synthetic_case(source,clean,mask,metadata,label,seed,*,preserved_marks=False):
+def synthetic_case(source,clean,mask,metadata,label,seed,*,preserved_marks=False,shadow_profile="legacy"):
     """Only injected defects are positive; exact clean target is never model-generated."""
     if source.size!=clean.size or mask.size!=clean.size or label not in range(5):
         raise ValueError("Aligned exact clean/source/mask and explicit class required")
+    if shadow_profile not in {"legacy","mixed-v1"}:raise ValueError("Explicit supported shadow profile required")
     rng=random.Random(seed);source=source.convert("RGB");clean=clean.convert("RGB")
     box=_box(clean,mask,metadata,rng);l,t,r,b=box
     marking=None
@@ -51,6 +52,12 @@ def synthetic_case(source,clean,mask,metadata,label,seed,*,preserved_marks=False
         layer=Image.new("RGB",(r-l,b-t),color)
         output.paste(Image.blend(clean.crop(box),layer,alpha),box)
         severity={"alpha":alpha,"foreground":color}
+        if shadow_profile=="mixed-v1" and rng.random()<.5:
+            delta=rng.uniform(8.,48.)*rng.choice([-1,1])
+            offset=np.array([delta+rng.uniform(-.15,.15)*abs(delta) for _ in range(3)])
+            pixels=np.asarray(clean.crop(box),dtype=np.float32)
+            output.paste(Image.fromarray(np.clip(np.rint(pixels+offset),0,255).astype(np.uint8)),box)
+            severity={"additive_rgb_offset":offset.tolist(),"profile":"mixed-v1"}
     elif label==2:
         radius=rng.uniform(1.1,5.0)
         output.paste(clean.crop(box).filter(ImageFilter.GaussianBlur(radius)),box)
@@ -78,7 +85,7 @@ def synthetic_case(source,clean,mask,metadata,label,seed,*,preserved_marks=False
     difference=np.abs(np.asarray(output,dtype=np.int16)-np.asarray(clean,dtype=np.int16))
     if label and not np.any(difference>2):
         # E.g. blurring a featureless clean crop is NOT a defect example.
-        alternate=synthetic_case(source,clean,mask,metadata,1,seed+7919)
+        alternate=synthetic_case(source,clean,mask,metadata,1,seed+7919,shadow_profile=shadow_profile)
         alternate[3]["preserved_marking"]=marking
         alternate[3]["fallback_from_label"]=label
         return alternate
@@ -91,8 +98,44 @@ def synthetic_case(source,clean,mask,metadata,label,seed,*,preserved_marks=False
         "exact_clean_target":True,"diffusion_generations":0,"preserved_marking":marking}
 
 
-def guard_input(before,after,box,resolution=256):
-    """Shared full-context native crop; no image generation or user-selected mask."""
+def boundary_guard_input(before,after,box,resolution=256):
+    """Four aligned inward-normal boundary strips, source/result paired; no approvals."""
+    if before.size!=after.size or resolution not in (256,384):
+        raise ValueError("Aligned frames and bounded strip resolution required")
+    l,t,r,b=map(float,box);width,height=before.size
+    if not np.isfinite([l,t,r,b]).all() or not 0<=l<r<=width or not 0<=t<b<=height:
+        raise ValueError("Bounded finite pixel box required")
+    strip=resolution//4;result=np.zeros((7,resolution,resolution),np.float32)
+    result[6]=-1  # unavailable image-border side, distinct from a measured outside band
+    mean=np.array([.485,.456,.406],np.float32);std=np.array([.229,.224,.225],np.float32)
+    images=[after.convert("RGB"),before.convert("RGB")]
+    valid_image=Image.new("L",before.size,255)
+    for index,side in enumerate(("left","right","top","bottom")):
+        vertical=index<2;coordinate=(l,r,t,b)[index];extent=width if vertical else height
+        if coordinate<=1 or coordinate>=extent-1:continue
+        half=max(8.,.12*((r-l) if vertical else (b-t)),.02*max(width,height))
+        if side=="left":transform=(2*half/strip,0,l-half,0,.7*(b-t)/resolution,t+.15*(b-t))
+        elif side=="right":transform=(-2*half/strip,0,r+half,0,.7*(b-t)/resolution,t+.15*(b-t))
+        elif side=="top":transform=(0,.7*(r-l)/resolution,l+.15*(r-l),2*half/strip,0,t-half)
+        else:transform=(0,.7*(r-l)/resolution,l+.15*(r-l),-2*half/strip,0,b+half)
+        valid=np.asarray(valid_image.transform((strip,resolution),Image.Transform.AFFINE,transform,
+            Image.Resampling.NEAREST,fillcolor=0),dtype=np.float32)/255.
+        start=index*strip;end=start+strip
+        for image_index,image in enumerate(images):
+            values=np.asarray(image.transform((strip,resolution),Image.Transform.AFFINE,transform,
+                Image.Resampling.BILINEAR,fillcolor=(124,116,104)),dtype=np.float32)/255.
+            value=((values-mean)/std).transpose(2,0,1)
+            result[image_index*3:image_index*3+3,:,start:end]=value*valid[None]
+        inside=np.broadcast_to(np.arange(strip)[None]>=strip//2,(resolution,strip)).astype(np.float32)
+        result[6,:,start:end]=np.where(valid>0,inside,-1)
+    if not np.isfinite(result).all():raise ValueError("Nonfinite boundary guard input")
+    return result
+
+
+def guard_input(before,after,box,resolution=256,*,profile="context"):
+    """Shared versioned native preprocessing; no generation or user-selected mask."""
+    if profile=="boundary-strips-v1":return boundary_guard_input(before,after,box,resolution)
+    if profile!="context":raise ValueError("Unknown guard input profile")
     if before.size!=after.size or not 128<=resolution<=384:
         raise ValueError("Common-size bounded guard input required")
     l,t,r,b=map(float,box);width,height=before.size

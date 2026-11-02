@@ -40,6 +40,8 @@ def main():
     p.add_argument("--clean-fraction",type=float,default=.2)
     p.add_argument("--clean-weight",type=float,default=1.)
     p.add_argument("--source-shadow-negatives",action="store_true")
+    p.add_argument("--input-profile",choices=["context","boundary-strips-v1"],default="context")
+    p.add_argument("--shadow-profile",choices=["legacy","mixed-v1"],default="legacy")
     p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
     p.add_argument("--pretrained",action="store_true")
     p.add_argument("--tf32",action="store_true")
@@ -105,24 +107,25 @@ def main():
                 overlays[row["id"]]=overlay
             use_shadow=random.Random(seed^0x7161).random()<.35 if force_shadow is None else force_shadow
             if use_shadow:
-                bounds=row["render"].get("render",{}).get("panel") or mask(row["mask"]).getbbox()
+                bounds=row["render"].get("render",{}).get("panel") or row["render"].get("panel") or mask(row["mask"]).getbbox()
                 if bounds is None:bounds=(clean.width*.2,clean.height*.2,clean.width*.7,clean.height*.7)
                 clean=physical_shadow_background(clean,bounds,seed^0x18E9)
                 original=Image.alpha_composite(clean.convert("RGBA"),overlays[row["id"]]).convert("RGB")
         source,after,box,info=synthetic_case(original,clean,mask(row["mask"]),
-            row["render"],label,seed,preserved_marks=a.preserved_markings)
+            row["render"],label,seed,preserved_marks=a.preserved_markings,shadow_profile=a.shadow_profile)
         jitter=random.Random(seed^0x5319)
         l,t,r,b=box
-        box=(max(0,l-jitter.uniform(0,.025)*source.width),
-            max(0,t-jitter.uniform(0,.025)*source.height),
-            min(source.width,r+jitter.uniform(0,.025)*source.width),
-            min(source.height,b+jitter.uniform(0,.025)*source.height))
-        return guard_input(source,after,box,a.resolution),info["label"]
+        limit=.008 if a.input_profile=="boundary-strips-v1" else .025
+        box=(max(0,l-jitter.uniform(0,limit)*source.width),
+            max(0,t-jitter.uniform(0,limit)*source.height),
+            min(source.width,r+jitter.uniform(0,limit)*source.width),
+            min(source.height,b+jitter.uniform(0,limit)*source.height))
+        return guard_input(source,after,box,a.resolution,profile=a.input_profile),info["label"]
     train=[r for r in data["pairs"] if r["split"]=="train"]
     validation=[r for r in data["pairs"] if r["split"]=="validation"]
     validation_cases=[]
     for row in validation:
-        for label in range(len(CLASSES)):
+        for label in ((0,1) if a.input_profile=="boundary-strips-v1" else range(len(CLASSES))):
             seed=(int(hashlib.sha256(row["id"].encode()).hexdigest()[:8],16)+label*7919+a.seed)%(2**32)
             value,actual_label=make(row,label,seed,False)
             validation_cases.append((value,actual_label,row["id"],label))
@@ -157,6 +160,7 @@ def main():
         record(result);train_mode()
     provenance={"state":"running","version":1,"model_type":"paired_resnet18_v1","classes":list(CLASSES),
         "dataset_manifest":str(a.manifest.resolve()),"dataset_manifest_sha256":manifest_sha,
+        "input_profile":a.input_profile,"trained_defect_types":([CLASSES[1]] if a.input_profile=="boundary-strips-v1" else list(CLASSES[1:])),
         "code_revision":revision,"arguments":{k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()},
         "pretrained_artifact":pretrained_artifact,"train_originals":len({r["source_original_sha256"] for r in train}),
         "validation_originals":len({r["source_original_sha256"] for r in validation}),
@@ -168,7 +172,7 @@ def main():
         started=time.monotonic();batch=[];labels=[]
         for index in range(a.batch_size):
             row=rng.choice(train)
-            requested=0 if rng.random()<a.clean_fraction else rng.randrange(1,len(CLASSES))
+            requested=0 if rng.random()<a.clean_fraction else (1 if a.input_profile=="boundary-strips-v1" else rng.randrange(1,len(CLASSES)))
             value,label=make(row,requested,rng.randrange(2**32))
             batch.append(value);labels.append(label)
         inputs=torch.from_numpy(np.stack(batch)).to("cuda:0")
@@ -187,7 +191,7 @@ def main():
             path=work/f"guard-step{step:04d}.safetensors"
             save_file({k:v.detach().cpu().contiguous() for k,v in model.state_dict().items()},str(path),
                 metadata={"model_type":"paired_resnet18_v1","dataset_manifest_sha256":manifest_sha,
-                    "classes":json.dumps(CLASSES),"code_revision":revision,"resolution":str(a.resolution)})
+                    "classes":json.dumps(CLASSES),"code_revision":revision,"resolution":str(a.resolution),"input_profile":a.input_profile})
             checkpoints.append({"path":str(path),"sha256":digest(path),"step":step})
         if step%50==0 and (reserved!=isolation() or revision!=subprocess.check_output(
                 ["git","rev-parse","--short","HEAD"],text=True).strip()):

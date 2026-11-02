@@ -38,6 +38,10 @@ def main():
     checkpoint=next((r for r in training["checkpoints"] if r["step"]==a.step),None)
     if not checkpoint or checkpoint["sha256"]!=a.checkpoint_sha256 or digest(checkpoint["path"])!=a.checkpoint_sha256:
         p.error("Exact frozen adapter identity required")
+    input_profile=training.get("input_profile","context")
+    if input_profile not in ("context","boundary-strips-v1"):p.error("Recognized training preprocessing required")
+    if any(kind not in training.get("trained_defect_types",CLASSES[1:]) for kind in a.defect_types):
+        p.error("Only explicitly trained detector heads may be tested")
     threshold=training["veto_threshold"]
     if threshold!=.995:p.error("Precommitted conservative experimental veto threshold required")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
@@ -48,9 +52,13 @@ def main():
     a.target.mkdir(exist_ok=False);work=a.target.resolve()
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
     import torch
+    from safetensors import safe_open
     from safetensors.torch import load_file
     torch.set_num_threads(2);torch.backends.cuda.matmul.allow_tf32=a.tf32
     torch.backends.cudnn.allow_tf32=a.tf32
+    with safe_open(checkpoint["path"],framework="pt") as weights:
+        if weights.metadata().get("input_profile","context")!=input_profile:
+            raise ValueError("Checkpoint/report preprocessing identity differs")
     began=time.monotonic();model=build_guard(False)
     model.load_state_dict(load_file(checkpoint["path"]),strict=True);model.eval().requires_grad_(False).to("cuda:0")
     load_seconds=time.monotonic()-began
@@ -63,7 +71,14 @@ def main():
         if before.size!=after.size:raise ValueError("Native image dimensions changed")
         for region in case["regions"]:
             box=pixel_box(region["box"],before.size)
-            inputs.append(guard_input(before,after,box,training["arguments"]["resolution"]))
+            if input_profile=="boundary-strips-v1":
+                l,t,r,b=box
+                if (region["kind"]!="panel" or (r-l)*(b-t)<.025*before.width*before.height
+                        or not (l>1 or r<before.width-1) or not (t>1 or b<before.height-1)):
+                    records[index]["regions"].append({"box":region["box"],"would_veto":False,
+                        "quality_permission":False,"reason":"boundary_profile_not_observable_in_trained_scope"})
+                    continue
+            inputs.append(guard_input(before,after,box,training["arguments"]["resolution"],profile=input_profile))
             positions.append((index,region))
     prep_seconds=time.monotonic()-began;began=time.monotonic()
     with torch.inference_mode():
@@ -93,7 +108,7 @@ def main():
             "types":dict(Counter(region["type"] for r in group for region in r["regions"] if region["would_veto"]))}
     report={"state":"completed","version":1,"checkpoint_sha256":a.checkpoint_sha256,
         "training_report_sha256":digest(a.training_report),"pair_manifest_sha256":digest(a.pair_manifest),
-        "code_revision":revision,"threshold":threshold,"defect_types":a.defect_types,"scores_are_uncalibrated":True,"cohorts":cohorts,
+        "code_revision":revision,"input_profile":input_profile,"threshold":threshold,"defect_types":a.defect_types,"scores_are_uncalibrated":True,"cohorts":cohorts,
         "load_seconds":round(load_seconds,3),"preprocessing_seconds":round(prep_seconds,3),
         "inference_seconds":round(inference_seconds,3),"patches":len(inputs),"cases":len(cases),
         "quality_permission":False,"image_generations":0,"production_changed":False}

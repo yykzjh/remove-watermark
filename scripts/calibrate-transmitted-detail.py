@@ -58,7 +58,7 @@ def main():
         if row["split"]!="validation" or (not a.mask_only and
                 (digest(output["output"])!=output["output_sha256"] or output["generation_count"]!=1)):
             raise ValueError("Immutable one-generation validation outputs required")
-        metadata=row["render"].get("render",{})
+        metadata=row["render"].get("render",row["render"])
         if not metadata.get("panel"):continue
         source=load_photo(row["input"])[0];clean=load_photo(row["target"])[0]
         generated=(clean.filter(ImageFilter.GaussianBlur(2)) if a.reference_blur_clean else clean) if a.mask_only else load_photo(output["output"])[0]

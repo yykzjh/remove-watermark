@@ -51,7 +51,7 @@ def main():
         if data.get("font_sha256")!=digest(a.font):raise ValueError("Exact original font required")
         for row in data["pairs"]:
             if row["split"]!="validation":continue
-            panel=row["render"].get("render",{}).get("panel")
+            panel=row["render"].get("render",{}).get("panel") or row["render"].get("panel")
             if panel is None:continue
             before=load_photo(row["input"])[0];clean=load_photo(row["target"])[0]
             width,height=clean.size;l,t,r,b=panel
