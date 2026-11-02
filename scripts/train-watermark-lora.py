@@ -133,7 +133,7 @@ def main():
     optimizer=torch.optim.AdamW(parameters,lr=a.learning_rate,betas=(.9,.999),weight_decay=.01)
     if {id(v) for group in optimizer.param_groups for v in group["params"]}!={id(v) for v in parameters}:
         raise ValueError("Optimizer escaped adapter-only training")
-    vae=None;pixel_cache={}
+    vae=None;pixel_cache={};pixel_gradient_check={}
     pair_rows={r["id"]:r for r in pair_data["pairs"]}
     if a.pixel_supervision:
         from diffusers import AutoencoderKLQwenImage21
@@ -195,6 +195,13 @@ def main():
             decoded=decode_exact_pixels(vae,endpoint,row["height"],row["width"],
                 checkpoint=a.gradient_checkpointing and torch.is_grad_enabled())
             pixel_loss=exact_pixel_objective(decoded,target,mask)
+            if torch.is_grad_enabled() and not pixel_gradient_check and bool(mask.any()):
+                gradient=torch.autograd.grad(pixel_loss,terminal_prediction,retain_graph=True)[0]
+                norm=float(gradient.float().norm())
+                if not math.isfinite(norm) or norm<=0:
+                    raise ValueError("Pixel supervision must have a finite nonzero gradient to DiT output")
+                pixel_gradient_check.update(passed=True,gradient_norm=norm,pair=row["id"])
+                record({"stage":"pixel_gradient_check",**pixel_gradient_check})
         prefix=int(torch.randint(states.shape[0]-1,(1,),device="cuda:0",generator=generator).item())
         preservation=prefix_objective(predict(prefix),velocities[prefix].to("cuda:0"))
         loss_components.update(terminal_loss=float(terminal.detach()),prefix_loss=float(preservation.detach()))
@@ -256,6 +263,7 @@ def main():
         "trajectory_cache_sha256":digest(a.trajectory_cache) if trajectory else None,
         "initial_adapter":initialization,
         "pixel_supervision":"exact_RGB_L1_plus_0.25_local_texture_amplitude" if a.pixel_supervision else None,
+        "pixel_gradient_check":pixel_gradient_check,
         "training_generations":0,"source_overlap":0,"production_changed":False,
         "train_pairs":len(train),"validation_pairs":len([r for r in rows if r["split"]=="validation"]),
         "load_seconds":round(load_seconds,3)}
@@ -298,6 +306,8 @@ def main():
     if trajectory and digest(a.trajectory_cache)!=provenance["trajectory_cache_sha256"]:
         raise ValueError("Trajectory manifest changed")
     if reserved!=isolation():raise ValueError("GPU reservation changed")
+    if a.pixel_supervision and not pixel_gradient_check.get("passed"):
+        raise ValueError("Pixel supervision never verified its actual DiT gradient")
     provenance.update(state="completed",seconds=round(time.monotonic()-began,3),checkpoints=saved,
         peak_gpu_bytes=torch.cuda.max_memory_allocated())
     (work/"report.json").write_text(json.dumps(provenance,indent=2))

@@ -22,3 +22,28 @@ def test_decoder_input_restores_native_channel_first_layout_with_gradient():
     assert decoded.shape==(1,4,1,4,4)
     torch.testing.assert_close(decoded[:,:,0].flatten(2).transpose(1,2),packed*2+mean.flatten())
     decoded.sum().backward();assert torch.all(packed.grad==2)
+
+
+def test_checkpointed_frozen_vae_preserves_rgb_gradient_to_packed_dit_output():
+    from types import SimpleNamespace
+
+    torch=pytest.importorskip("torch")
+    from watermark_studio.pixel_training import decode_exact_pixels
+    class Decoder(torch.nn.Module):
+        dtype=torch.float32
+        config=SimpleNamespace(latents_mean=[0.]*4,latents_std=[1.]*4)
+        def __init__(self):
+            super().__init__();self.layer=torch.nn.ConvTranspose2d(4,4,16,stride=16,bias=False)
+        def decode(self,value,return_dict=False):
+            return (self.layer(value[:,:,0]).unsqueeze(2),)
+    vae=Decoder().eval().requires_grad_(False)
+    original=torch.randn(1,16,4);gradients=[]
+    for checkpoint in [False,True]:
+        packed=original.clone().requires_grad_(True)
+        rgb=decode_exact_pixels(vae,packed,64,64,checkpoint=checkpoint)
+        assert rgb.shape==(1,3,64,64)
+        rgb.square().mean().backward()
+        assert packed.grad is not None and torch.isfinite(packed.grad).all() and packed.grad.abs().sum()>0
+        gradients.append(packed.grad)
+        assert all(p.grad is None and not p.requires_grad for p in vae.parameters())
+    torch.testing.assert_close(*gradients)

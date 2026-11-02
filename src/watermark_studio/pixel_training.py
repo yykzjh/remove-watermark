@@ -44,4 +44,7 @@ def decode_exact_pixels(vae,packed,height,width,*,checkpoint=False):
     normalized=packed_to_vae(packed.to(dtype),height,width,mean,std)
     def decode(value):
         return vae.decode(value,return_dict=False)[0][:,:3,0]
-    return gradient_checkpoint(decode,normalized,use_reentrant=False) if checkpoint else decode(normalized)
+    result=gradient_checkpoint(decode,normalized,use_reentrant=False) if checkpoint else decode(normalized)
+    if torch.is_grad_enabled() and packed.requires_grad and not result.requires_grad:
+        raise ValueError("Native frozen decoder disconnected the RGB supervision graph")
+    return result
