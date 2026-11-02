@@ -1,0 +1,93 @@
+"""Offline target-only reference-key exclusion; full source pixels and prefix computation are unchanged."""
+from __future__ import annotations
+
+import inspect
+import math
+from contextlib import contextmanager
+
+from .batching import override_methods
+
+
+def target_key_keep(transformer,items,img_mask,img_shapes,device):
+    """Use the pinned transformer's exact image-token metadata, never guessed joint offsets."""
+    import torch
+    from diffusers.models.transformers.transformer_qwenimage21 import _IMG_TOKENS_PER_SLOT
+
+    from .denoising_context import pixel_edit_masks
+
+    batch=len(items)
+    if (img_mask.ndim!=2 or img_mask.shape[0]!=batch or len(img_shapes)!=batch
+            or not torch.equal(img_mask,img_mask[:1].expand_as(img_mask))):
+        raise ValueError("One common image-token layout for an independent batch required")
+    shapes=img_shapes[0]
+    if (len(shapes)!=2 or any(list(row)!=list(shapes) for row in img_shapes)
+            or shapes[0]!=shapes[1] or len(shapes[0])!=3 or shapes[0][0]!=1):
+        raise ValueError("Exactly one matching complete source and target frame required")
+    _,height,width=shapes[0]
+    if not all(type(v) is int and v>0 for v in (height,width)):
+        raise ValueError("Concrete spatial image token dimensions required")
+    # The original pixel image is never rewritten or cropped.
+    masks=pixel_edit_masks([{"_denoising_context_regions":item["_reference_exclusion_regions"]}
+        for item in items],(width,height))
+    excluded=torch.from_numpy(masks).to(device=device,dtype=torch.bool).flatten(1)
+    if any(not row.any().item() or row.all().item() for row in excluded):
+        raise ValueError("A nonempty, partial source reference exclusion is required")
+    repeats=torch.where(img_mask,_IMG_TOKENS_PER_SLOT,1)[0]
+    image_pad_mask=torch.repeat_interleave(img_mask[0],repeats)
+    image_ids,target_mask=transformer.build_token_metadata(image_pad_mask,shapes)
+    source_positions=(image_ids==0).nonzero(as_tuple=True)[0]
+    if source_positions.numel()!=width*height or target_mask.sum().item()!=math.prod(shapes[-1]):
+        raise ValueError("Source or target spatial metadata differs")
+    keep=torch.ones(batch,image_pad_mask.numel(),device=device,dtype=torch.bool)
+    keep[:,source_positions]=~excluded
+    if not keep[:,target_mask].all().item() or not keep[:,image_ids<0].all().item():
+        raise ValueError("Text and target keys must stay unchanged")
+    return keep,math.prod(shapes[-1]),excluded.float().mean(1).cpu().tolist()
+
+
+@contextmanager
+def reference_exclusion(pipe,items,*,enabled=False):
+    """Apply only to an explicit offline probe and restore every processor/method on exit."""
+    audit={"enabled":enabled,"whole_source_pixels_unchanged":True,"prefix_computation_unchanged":True,
+        "extra_model_forwards":0,"forward_calls":0,"quality_permission":False}
+    if not enabled:
+        yield audit
+        return
+    import torch
+
+    from .attention import IndependentSDPAProcessor
+
+    if not items or any("_reference_exclusion_regions" not in item for item in items):
+        raise ValueError("Explicit per-image source regions are required for the offline probe")
+    transformer=pipe.transformer
+    processors=list({id(block.attn.processor):block.attn.processor
+        for block in transformer.transformer_blocks}.values())
+    if not processors or any(not isinstance(proc,IndependentSDPAProcessor) for proc in processors):
+        raise ValueError("Only the verified independent SDPA processor supports this probe")
+    names=("_watermark_target_key_keep","_watermark_target_query_count")
+    previous=[{name:(hasattr(proc,name),getattr(proc,name,None)) for name in names} for proc in processors]
+    original=transformer.forward;signature=inspect.signature(original);layout={}
+    def forward(*args,**kwargs):
+        values=signature.bind(*args,**kwargs).arguments
+        img_mask=values["img_mask"];shapes=values["img_shapes"];hidden=values["hidden_states"]
+        if not layout:
+            keep,count,fractions=target_key_keep(transformer,items,img_mask,shapes,hidden.device)
+            layout.update(mask=img_mask.detach().clone(),shapes=shapes,keep=keep,count=count)
+            audit.update(method="target_only_reference_key_exclusion_v1",
+                excluded_source_fractions=fractions,target_tokens=count,joint_key_tokens=keep.shape[1])
+        elif (shapes!=layout["shapes"] or img_mask.device!=layout["mask"].device
+                or not torch.equal(img_mask,layout["mask"])):
+            raise ValueError("Reference exclusion token layout changed within a generation")
+        for proc in processors:
+            proc._watermark_target_key_keep=layout["keep"]
+            proc._watermark_target_query_count=layout["count"]
+        audit["forward_calls"]+=1
+        return original(*args,**kwargs)
+    try:
+        with override_methods(transformer,forward=forward):
+            yield audit
+    finally:
+        for proc,old in zip(processors,previous):
+            for name,(owned,value) in old.items():
+                if owned:setattr(proc,name,value)
+                elif hasattr(proc,name):delattr(proc,name)

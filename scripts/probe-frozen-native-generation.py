@@ -57,6 +57,8 @@ def main():
     p.add_argument("--context-margin-cells",type=int,choices=[0,1,2,3,4,6,8,12,16],default=1,
         help="Offline latent denoising buffer only; does not enlarge final output edit scope")
     p.add_argument("--compile-projections",action="store_true")
+    p.add_argument("--exclude-reference-keys",action="store_true",
+        help="Offline target-only attention probe; complete original source pixels still enter both encoders")
     p.add_argument("--separate-vae-decode",action="store_true")
     a=p.parse_args()
     selector_sha=None
@@ -88,6 +90,8 @@ def main():
         p.error("Select one encoder residency mechanism")
     if a.uniform_steps and (a.base_steps or a.sigma_profile!="native" or a.hint_transmission or a.foveation_mass):
         p.error("Uniform Turbo comparison cannot mix base mode, custom grids or conditioning")
+    if a.exclude_reference_keys and (not a.source_flow_context or not a.fresh_rim_reports):
+        p.error("Offline reference exclusion requires source flow context and fresh original rim proofs")
     base_probe=None
     if a.base_steps:
         if a.sigma_profile!="native" or a.lora_path or a.hint_transmission or a.foveation_mass:
@@ -223,6 +227,8 @@ def main():
         if a.source_flow_context:
             item["_denoising_context_regions"]=[r.model_dump() for r in model_regions]
             item["_denoising_context_margin"]=a.context_margin_cells
+        if a.exclude_reference_keys:
+            item["_reference_exclusion_regions"]=[r.model_dump() for r in model_regions]
         capture={};original_decode=pipe.vae.decode
         @wraps(original_decode)
         def decode(z,*args,capture=capture,name=name,width=width,height=height,seed=seed,original_decode=original_decode,**kwargs):
@@ -235,10 +241,16 @@ def main():
                 layout="actual_vae_input_BCFHW",additional_generations=0)
             return original_decode(z,*args,**kwargs)
         started=time.monotonic()
-        with override_methods(pipe.vae,decode=decode):
+        from watermark_studio.reference_exclusion import reference_exclusion
+        with override_methods(pipe.vae,decode=decode), reference_exclusion(
+                pipe,[item],enabled=a.exclude_reference_keys) as reference_audit:
             generated=restore_full_frame(independent_batch(pipe,[item],budget,a.kv_cache)[0],source.size,sampling)
         if (a.base_steps or a.uniform_steps) and len(pipe.scheduler.timesteps)!=(a.base_steps or a.uniform_steps):
             raise ValueError("Actual diffusion forward count differs from explicit requested steps")
+        if a.exclude_reference_keys:
+            if reference_audit["forward_calls"]!=len(pipe.scheduler.timesteps):
+                raise ValueError("Reference exclusion must cover every and only the requested denoising forwards")
+            capture["reference_key_exclusion"]=reference_audit
         if sampling is not None:
             capture["full_frame_sampling"]=sampling
             capture["forward_source_rgb_sha256"]=hashlib.sha256(model_source.tobytes()).hexdigest()
@@ -291,7 +303,8 @@ def main():
             "hint_transmission":a.hint_transmission,"hint_foreground":a.hint_foreground,
             "fresh_rim_reports":[str(v) for v in a.fresh_rim_reports or []],
             "image_adapter":getattr(pipe,"_image_adapter",None),"caption_job":a.caption_job,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
-            "source_flow_context":a.source_flow_context,"context_margin_cells":a.context_margin_cells,"separate_vae_decode":a.separate_vae_decode},
+            "source_flow_context":a.source_flow_context,"context_margin_cells":a.context_margin_cells,
+            "exclude_reference_keys":a.exclude_reference_keys,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))

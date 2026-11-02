@@ -33,6 +33,18 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
         self._attention_backend = backend
 
 
+    def _target_mask(self, mask, key):
+        keep=getattr(self,"_watermark_target_key_keep",None)
+        if keep is None:
+            return mask
+        if (keep.ndim!=2 or keep.dtype!=torch.bool or keep.device!=key.device
+                or keep.shape!=(key.shape[0],key.shape[1])):
+            raise ValueError("Target reference key mask differs from actual attention keys")
+        if mask is not None and (mask.ndim!=4 or mask.shape[-2]!=1):
+            raise ValueError("Target reference exclusion requires a key-validity mask")
+        keep=keep[:,None,None,:]
+        return keep if mask is None else mask & keep
+
     def __call__(self, attn, hidden_states, attention_mask=None, rotary_emb=None,
                  layer_cache=None, kv_cache_mode=None, cache_write_slice=None,
                  segments=None, key_valid=None):
@@ -41,6 +53,10 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
             attn, hidden_states, rotary_emb, layer_cache, kv_cache_mode, cache_write_slice
         )
         if segments is None:
+            if getattr(self,"_watermark_target_key_keep",None) is not None:
+                if (kv_cache_mode!="cached" or query.shape[1]!=self._watermark_target_query_count):
+                    raise ValueError("Reference exclusion without prefix segments requires cached target queries")
+                attention_mask=self._target_mask(attention_mask,key)
             output = attention(query, key, value, attention_mask, self._attention_backend)
         else:
             outputs = []
@@ -58,6 +74,10 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
                 outputs.append(attention(query[:,start:end],key[:,:end],value[:,:end],mask,self._attention_backend))
             prefix = segments[-1][1] if segments else 0
             mask = None if key_valid is None else key_valid[:,None,None,:]
+            if getattr(self,"_watermark_target_key_keep",None) is not None:
+                if query.shape[1]-prefix!=self._watermark_target_query_count:
+                    raise ValueError("Prefill target query count differs from reference exclusion")
+                mask=self._target_mask(mask,key)
             outputs.append(attention(query[:,prefix:],key,value,mask,self._attention_backend))
             output = torch.cat(outputs,dim=1)
         output = output[:,:seq_len_q].flatten(2,3).type_as(query)
