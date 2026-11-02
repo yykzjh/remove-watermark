@@ -69,3 +69,19 @@ def test_invalid_geometry_and_same_model_cannot_be_proved(monkeypatch):
     row=inspect_side_rims(Image.new("RGB",(400,300)),[proposal()],
         same,None,same,None,"cpu","different_weights",OCR())[0]
     assert not row["approved"] and "Distinct" in row["reason"]
+
+
+def test_band_diagnostic_consensus_can_never_restore_pixels_or_approve_source(monkeypatch):
+    from watermark_studio.source_panel_rims import restore_proven_rims
+    from watermark_studio.source_side_proof import diagnose_unoccluded_band
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",lambda *a:([
+        {"unoccluded_photo":True,"uncertain":False,"area":"none"}],.01))
+    monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda *a:[
+        {"status":"summary_only","summary":"R为信息卡外连续草地原像素，无底色。","generation_tokens":20,"max_tokens":96}])
+    source=Image.new("RGB",(400,300),(80,110,60))
+    row=diagnose_unoccluded_band(source,proposal(),object(),None,object(),None,
+        "cpu","different_weights",OCR())
+    assert row["band_consensus"] and row["approved"] is False
+    assert "digital_card" not in row["editor_band"] and "source_rim_sha256" not in row
+    _result,count=restore_proven_rims(source,source,[row])
+    assert count==0
