@@ -1,4 +1,4 @@
-"""Bounded single-GPU conditional-flow LoRA pilot; never changes deployment."""
+"""Bounded single-GPU flow or native-terminal LoRA pilot; never changes deployment."""
 from __future__ import annotations
 
 import argparse
@@ -31,8 +31,14 @@ def main():
     p.add_argument("--gradient-checkpointing",action="store_true")
     p.add_argument("--source-flow-context",action="store_true")
     p.add_argument("--trajectory-cache",type=Path)
+    p.add_argument("--initial-lora-path",type=Path)
+    p.add_argument("--initial-lora-sha256",default="")
     p.add_argument("--prefix-weight",type=float,default=1.)
     a=p.parse_args()
+    if bool(a.initial_lora_path)!=bool(a.initial_lora_sha256):
+        p.error("Both pinned initial adapter path and SHA required")
+    if a.prefix_weight!=1 and not a.trajectory_cache:
+        p.error("Prefix preservation weight requires an explicit trajectory cache")
     if (a.gpu<0 or not 1<=a.steps<=2000 or not 0<=a.warmup<a.steps or
             not 1<=a.save_every<=a.steps or not 1<=a.validate_every<=a.steps or
             not 4<=a.validation_limit<=64 or not 0<a.learning_rate<=2e-4 or
@@ -100,6 +106,7 @@ def main():
     from watermark_studio.lora_training import (
         adapter_tensors,
         flow_objective,
+        initialize_adapter,
         install_attention_lora,
     )
     torch.set_num_threads(1);torch.manual_seed(a.seed);random.seed(a.seed)
@@ -111,6 +118,8 @@ def main():
         if hasattr(block.attn,"to_qkv"):raise ValueError("Separate unquantized QKV required")
         block.attn.set_processor(IndependentSDPAProcessor("native"))
     spec=install_attention_lora(model,a.rank,a.alpha,include_mlp=a.lora_targets=="attention_mlp")
+    initialization=(initialize_adapter(model,a.initial_lora_path,a.initial_lora_sha256,
+        signature["model_index.json"]) if a.initial_lora_path else None)
     if a.gradient_checkpointing:model.enable_gradient_checkpointing()
     parameters=[v for v in model.parameters() if v.requires_grad]
     if any(v.dtype!=torch.float32 for v in parameters):
@@ -119,7 +128,7 @@ def main():
     if {id(v) for group in optimizer.param_groups for v in group["params"]}!={id(v) for v in parameters}:
         raise ValueError("Optimizer escaped adapter-only training")
     load_seconds=time.monotonic()-began
-    tensor_cache={};trajectory_tensors={}
+    tensor_cache={};trajectory_tensors={};loss_components={}
     def trajectory_loss(row,generator):
         from watermark_studio.trajectory_training import prefix_objective, terminal_objective
         values=tensors(row);clean=values["clean_latents"]
@@ -143,6 +152,7 @@ def main():
             float(sigmas[-2]),values["edit_mask"])
         prefix=int(torch.randint(states.shape[0]-1,(1,),device="cuda:0",generator=generator).item())
         preservation=prefix_objective(predict(prefix),velocities[prefix].to("cuda:0"))
+        loss_components.update(terminal_loss=float(terminal.detach()),prefix_loss=float(preservation.detach()))
         return terminal+a.prefix_weight*preservation
 
     def tensors(row):
@@ -174,12 +184,19 @@ def main():
         model.eval()
         gen=torch.Generator("cuda:0").manual_seed(a.seed+8191)
         started=time.monotonic()
-        with torch.no_grad():values=[float(loss(row,gen)) for row in validation]
+        values=[];parts=[]
+        with torch.no_grad():
+            for row in validation:
+                values.append(float(loss(row,gen)));parts.append(dict(loss_components))
         model.train()
         if any(not math.isfinite(value) for value in values):raise ValueError("Nonfinite validation loss")
-        return {"stage":"validation","step":step,"mean_loss":sum(values)/len(values),
+        result={"stage":"validation","step":step,"mean_loss":sum(values)/len(values),
             "cases":len(values),"seconds":round(time.monotonic()-started,3),
             "not_image_quality_acceptance":True}
+        if trajectory:
+            result.update({key:sum(part[key] for part in parts)/len(parts)
+                for key in ("terminal_loss","prefix_loss")})
+        return result
     def record(value):
         with (work/"metrics.jsonl").open("a") as stream:stream.write(json.dumps(value)+"\n")
         print(json.dumps(value),flush=True)
@@ -191,6 +208,7 @@ def main():
         "objective":("native_terminal_exact_clean_with_frozen_prefix_preservation" if trajectory else
             "conditional_flow_noise_minus_clean; overlay_weight4; preservation_weight1"),
         "trajectory_cache_sha256":digest(a.trajectory_cache) if trajectory else None,
+        "initial_adapter":initialization,
         "training_generations":0,"source_overlap":0,"production_changed":False,
         "train_pairs":len(train),"validation_pairs":len([r for r in rows if r["split"]=="validation"]),
         "load_seconds":round(load_seconds,3)}
@@ -213,7 +231,7 @@ def main():
         if not any(v.grad is not None for v in parameters):raise ValueError("Disconnected adapter gradients")
         optimizer.step()
         record({"stage":"training","step":step,"loss":float(value.detach()),"gradient_norm":float(norm),
-            "learning_rate":lr,"pair":row["id"],"seconds":round(time.monotonic()-started,3),
+            "learning_rate":lr,"pair":row["id"],**loss_components,"seconds":round(time.monotonic()-started,3),
             "peak_gpu_bytes":torch.cuda.max_memory_allocated()})
         if step%a.validate_every==0 or step==a.steps:record(validate(step))
         if step%a.save_every==0 or step==a.steps:

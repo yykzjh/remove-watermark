@@ -77,3 +77,44 @@ def flow_objective(prediction,noise,clean,mask,inside_weight=4.,outside_weight=1
     squared=(prediction.float()-target).square().mean(dim=-1)
     weights=outside_weight+(inside_weight-outside_weight)*mask.float()
     return (squared*weights).sum()/weights.sum()
+
+
+def initialize_adapter(model,path,sha256,model_index_sha256):
+    """Warm-start only existing LoRA matrices, keeping the frozen backbone unchanged."""
+    import hashlib
+    import re
+    from pathlib import Path
+
+    import torch
+    from safetensors import safe_open
+    path=Path(path).resolve(strict=True)
+    if not re.fullmatch(r"[a-f0-9]{64}",sha256):
+        raise ValueError("Pinned initial adapter SHA required")
+    def digest():
+        with path.open("rb") as stream:return hashlib.file_digest(stream,"sha256").hexdigest()
+    if digest()!=sha256:raise ValueError("Initial adapter bytes changed")
+    expected={}
+    for name,module in model.named_modules():
+        if getattr(module,"_watermark_training_lora",False):
+            for attribute in ("lora_A","lora_B"):
+                expected["transformer."+name+"."+attribute+".weight"]=(module,attribute)
+    with safe_open(path,framework="pt",device="cpu") as frozen:
+        metadata=frozen.metadata() or {}
+        if set(frozen.keys())!=set(expected) or not expected:
+            raise ValueError("Initial adapter scope differs from the installed training scope")
+        if metadata.get("model_index_sha256")!=model_index_sha256:
+            raise ValueError("Initial adapter model family identity mismatch")
+        tensors={}
+        for key,(module,attribute) in expected.items():
+            value=frozen.get_tensor(key);destination=getattr(module,attribute)
+            if (value.shape!=destination.shape or value.dtype!=torch.float32
+                    or not torch.isfinite(value).all() or
+                    int(metadata.get("rank","0"))!=module.rank or
+                    float(metadata.get("alpha","0"))!=module.alpha):
+                raise ValueError("Initial adapter rank, scale, finite dtype and shape must match exactly")
+            tensors[key]=value
+    if digest()!=sha256:raise ValueError("Initial adapter bytes changed while loading")
+    with torch.no_grad():
+        for key,(module,attribute) in expected.items():
+            getattr(module,attribute).copy_(tensors[key])
+    return {"path":str(path),"sha256":sha256,"metadata":metadata,"matrices":len(tensors)}

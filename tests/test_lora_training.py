@@ -90,3 +90,33 @@ def test_attention_mlp_scope_trains_and_fuses_each_separate_swiglu_projection(tm
     fused=fuse_cpu_adapter(base,path,alpha=4)
     assert fused["pairs"]==7
     torch.testing.assert_close(model(inputs),base(inputs),rtol=1e-5,atol=1e-6)
+
+
+def test_pinned_warm_start_only_updates_matching_lora_matrices(tmp_path):
+    import copy
+    import hashlib
+
+    torch=pytest.importorskip("torch")
+    from safetensors.torch import save_file
+
+    from watermark_studio.lora_training import (
+        adapter_tensors,
+        initialize_adapter,
+        install_attention_lora,
+    )
+    first=tiny_model(torch);second=copy.deepcopy(first)
+    install_attention_lora(first,rank=4,alpha=4);install_attention_lora(second,rank=4,alpha=4)
+    with torch.no_grad():
+        for module in first.modules():
+            if getattr(module,"_watermark_training_lora",False):module.lora_B.fill_(.01)
+    path=tmp_path/"init.safetensors"
+    save_file(adapter_tensors(first),str(path),metadata={"rank":"4","alpha":"4","model_index_sha256":"c"*64})
+    sha=hashlib.sha256(path.read_bytes()).hexdigest()
+    before={n:p.detach().clone() for n,p in second.named_parameters() if not p.requires_grad}
+    with pytest.raises(ValueError,match="bytes"):initialize_adapter(second,path,"0"*64,"c"*64)
+    with pytest.raises(ValueError,match="identity"):initialize_adapter(second,path,sha,"d"*64)
+    audit=initialize_adapter(second,path,sha,"c"*64)
+    assert audit["matrices"]==16
+    for name,value in second.named_parameters():
+        if not value.requires_grad:assert torch.equal(value,before[name])
+    x=torch.randn(1,5,12);torch.testing.assert_close(first(x),second(x))
