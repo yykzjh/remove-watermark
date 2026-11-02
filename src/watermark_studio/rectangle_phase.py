@@ -15,7 +15,7 @@ def _prepare_phase(before, after, resolution, blur_radius=1.2):
     return source,rgb,y,size
 
 
-def _single_phase(before, after, regions, resolution=1024, forced_sign=None, core_mapping=None, prepared=None, core_radius=5):
+def _single_phase(before, after, regions, resolution=1024, forced_sign=None, core_mapping=None, prepared=None, core_radius=5, parallel_strong=False):
     """Require a sharp, spatially coherent tone step on every available panel side."""
     panels=[r for r in regions if r.kind=="panel" and (r.box[2]-r.box[0])*(r.box[3]-r.box[1])>=.06]
     if not panels:
@@ -97,12 +97,20 @@ def _single_phase(before, after, regions, resolution=1024, forced_sign=None, cor
                 continue
             evidence[side]={"position":pos/extent,"log_tone_step":round(step,5),
                             "phase_support":phase,"sign_support":coherence}
-        # All usable sides, at least one horizontal and one vertical, same sign.
-        if (contaminated or len(available)<2 or set(evidence)!=set(available) or
-                not set(evidence)&{"top","bottom"} or not set(evidence)&{"left","right"}):
+        # The default still requires orthogonal evidence on every usable side.
+        if contaminated or len(available)<2 or set(evidence)!=set(available):
+            continue
+        orthogonal=bool(set(evidence)&{"top","bottom"} and set(evidence)&{"left","right"})
+        if not orthogonal and not parallel_strong:
             continue
         steps=[v["log_tone_step"] for v in evidence.values()]
         if min(steps)*max(steps)<=0 or max(abs(x) for x in steps)>3*min(abs(x) for x in steps):
+            continue
+        # Offline additional hypothesis only: source-core geometry, exactly
+        # two opposite measurable sides, and a stronger .08 log-step.
+        if not orthogonal and (core is None or
+                set(available) not in ({"top","bottom"},{"left","right"}) or
+                min(abs(x) for x in steps)<.08):
             continue
         findings.append({"box":list(region.box),"side_evidence":evidence})
     return {"method":"source_panel_phase_v1","count":len(findings),"findings":findings,
@@ -268,3 +276,43 @@ def rectangle_phase_sharp(before,after,regions,core_boxes,resolution=1024):
                 findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,"fixed_core_inset":inset,
                     "core_blur_radius":1.2,"core_search_radius":2})
     return base|{"method":"source_panel_phase_v7_sharp_experiment","findings":list(findings.values()),"count":len(findings)}
+
+
+
+def rectangle_phase_parallel(before,after,regions,core_boxes,resolution=1024):
+    """Offline additional strong opposite-edge evidence; never supplies approval.
+
+    Retain every v5 warning. Additional findings require validated source cores,
+    exactly two opposite measurable sides, every such side passing all original
+    phase/coherence/source-change rules, matching signs and >=.08 log-tone steps.
+    Nothing changes in the live verifier until independent controls qualify it.
+    """
+    from .surface_reference import _box
+
+    baseline=rectangle_phase_tight(before,after,regions,core_boxes,resolution)
+    findings={tuple(v["box"]):v for v in baseline["findings"]}
+    mapping={}
+    for item in core_boxes or []:
+        if not isinstance(item,dict):
+            continue
+        mask,core=_box(item.get("mask")),_box(item.get("core"))
+        if mask is None or core is None:
+            continue
+        match=next((tuple(r.box) for r in regions
+                    if r.kind=="panel" and all(abs(a-b)<1e-6 for a,b in zip(r.box,mask))),None)
+        if match is not None and mask[0]<=core[0]<core[2]<=mask[2] and mask[1]<=core[1]<core[3]<=mask[3]:
+            mapping[match]=core
+    if mapping:
+        prepared=_prepare_phase(before,after,resolution,blur_radius=3.)
+        for radius in (2,12):
+            for sign in (-1,1):
+                candidate=_single_phase(before,after,regions,resolution,sign,mapping,prepared,
+                    core_radius=radius,parallel_strong=True)
+                for item in candidate["findings"]:
+                    if set(item["side_evidence"]) not in ({"top","bottom"},{"left","right"}):
+                        continue
+                    findings.setdefault(tuple(item["box"]),item|{"joint_sign":sign,
+                        "opposite_source_edges":True,"minimum_log_tone_step":.08,
+                        "core_search_radius":radius})
+    return baseline|{"method":"source_panel_phase_v8_parallel_experiment",
+        "findings":list(findings.values()),"count":len(findings)}

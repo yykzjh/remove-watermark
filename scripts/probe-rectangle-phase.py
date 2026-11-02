@@ -12,6 +12,7 @@ from watermark_studio.rectangle_phase import (
     rectangle_phase,
     rectangle_phase_core,
     rectangle_phase_inset,
+    rectangle_phase_parallel,
     rectangle_phase_sharp,
     rectangle_phase_tight,
 )
@@ -23,12 +24,13 @@ source.add_argument("--source-job",help="Read-only real development outputs from
 p.add_argument("--state-dir",type=Path,default=Path.home()/".local/state/watermark-studio")
 p.add_argument("--baseline",type=Path)
 p.add_argument("--core-boundaries",action="store_true")
+p.add_argument("--parallel-core",action="store_true",help="Offline strong source-proven opposite edges; preserves existing vetoes")
 p.add_argument("--sharp-core",action="store_true",help="Offline original smoothing with fixed native-source hypotheses; no approval")
 p.add_argument("--inset-core",action="store_true",help="Offline fixed safety-padding offset; preserves every v5 veto")
 p.add_argument("--tight-core",action="store_true",help="Offline only: fixed two-pixel source-core search; original thresholds and all side requirements")
 p.add_argument("--output",type=Path,required=True)
 a=p.parse_args()
-if sum((a.core_boundaries,a.tight_core,a.inset_core,a.sharp_core))>1:
+if sum((a.core_boundaries,a.tight_core,a.inset_core,a.sharp_core,a.parallel_core))>1:
     p.error("Choose one diagnostic search")
 if a.output.exists():
     p.error("Fresh output required")
@@ -47,7 +49,9 @@ rows=[]
 for c in cases:
     arguments=(load_photo(c["source"])[0],load_photo(c["output"])[0],
                [Region.model_validate(r) for r in c["regions"]])
-    if a.sharp_core:
+    if a.parallel_core:
+        result=rectangle_phase_parallel(*arguments,c["source_cores"])
+    elif a.sharp_core:
         result=rectangle_phase_sharp(*arguments,c["source_cores"])
     elif a.inset_core:
         result=rectangle_phase_inset(*arguments,c["source_cores"])
@@ -64,6 +68,6 @@ report={"code_revision":subprocess.check_output(["git","rev-parse","--short","HE
         "newly_caught_defects":[r["file"] for r in rows if r["expected"]=="review" and r["baseline"]=="passed" and r["phase"]["count"]],
         "all_defects_warned":sum(r["expected"]=="review" and bool(r["phase"]["count"]) for r in rows),
         "new_warnings":[r["file"] for r in rows if r["baseline"]=="passed" and not r["old_phase"]["count"] and r["phase"]["count"]],
-        "core_boundaries":a.core_boundaries,"tight_core":a.tight_core,"inset_core":a.inset_core,"sharp_core":a.sharp_core,"scope":"offline cue, not full QA acceptance","rows":rows}
+        "parallel_core":a.parallel_core,"core_boundaries":a.core_boundaries,"tight_core":a.tight_core,"inset_core":a.inset_core,"sharp_core":a.sharp_core,"scope":"offline cue, not full QA acceptance","rows":rows}
 a.output.write_text(json.dumps(report,indent=2))
 print(json.dumps({k:v for k,v in report.items() if k!="rows"}),flush=True)

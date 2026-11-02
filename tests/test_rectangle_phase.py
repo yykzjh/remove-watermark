@@ -148,3 +148,40 @@ def test_offline_sharp_search_retains_v5_vetoes_and_cannot_approve_or_modify_pix
     assert (source.tobytes(),dark.tobytes())==hashes
     for invalid in ([],[{"mask":list(regions[0].box),"core":[0,0,1,1]}]):
         assert rectangle_phase_sharp(source,dark,regions,invalid)["findings"]==rectangle_phase_tight(source,dark,regions,invalid)["findings"]
+
+
+
+def test_strong_opposite_edges_only_add_vetoes_for_source_proven_narrow_panel():
+    from watermark_studio.rectangle_phase import rectangle_phase_parallel, rectangle_phase_tight
+
+    clean=Image.new("RGB",(1024,192),(140,140,140))
+    source=clean.copy()
+    box=(.2,.25,.7,.65)
+    native=tuple(round(v*s) for v,s in zip(box,(1024,192,1024,192),strict=True))
+    ImageDraw.Draw(source).rectangle(native,fill=(30,100,220))
+    regions=[Region(kind="panel",box=box)]
+    cores=[{"mask":list(box),"core":list(box)}]
+    damaged=clean.copy()
+    ImageDraw.Draw(damaged).rectangle(native,fill=(100,100,100))
+    assert rectangle_phase_tight(source,damaged,regions,cores)["count"]==0
+    added=rectangle_phase_parallel(source,damaged,regions,cores)
+    assert added["count"]==1
+    assert added["findings"][0]["opposite_source_edges"] is True
+    assert rectangle_phase_parallel(source,clean,regions,cores)["count"]==0
+    assert rectangle_phase_parallel(source,damaged,regions,[])["count"]==0
+    assert rectangle_phase_parallel(damaged,damaged.copy(),regions,cores)["count"]==0
+
+
+def test_parallel_hypothesis_does_not_accept_a_weaker_step_or_invalid_source_core():
+    from watermark_studio.rectangle_phase import rectangle_phase_parallel
+
+    clean=Image.new("RGB",(1024,192),(140,140,140))
+    source=clean.copy()
+    box=(.2,.25,.7,.65)
+    ImageDraw.Draw(source).rectangle((205,48,717,125),fill=(30,100,220))
+    weak=clean.copy()
+    ImageDraw.Draw(weak).rectangle((205,48,717,125),fill=(130,130,130))
+    regions=[Region(kind="panel",box=box)]
+    cores=[{"mask":list(box),"core":list(box)}]
+    assert rectangle_phase_parallel(source,weak,regions,cores)["count"]==0
+    assert rectangle_phase_parallel(source,weak,regions,[{"mask":list(box),"core":[0,0,1,1]}])["count"]==0

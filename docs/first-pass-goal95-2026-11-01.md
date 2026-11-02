@@ -2010,3 +2010,22 @@ All experiment handles in this section are terminal. The loaded service remains
 WSL desktop stays closed pending actual goal completion. The critic's original
 ten false accepts/three false reviews still require resolution. First-pass95%
 on the isolated1000 remains unproven and is not marked achieved.
+
+
+### Strong opposite-edge diagnostic, predeclared before calibration
+
+An offline v8 experiment addresses the specific two-opposite-edges geometry
+identified in07. It preserves every v5 finding. Additional warnings require
+a valid immutable source core, exactly two measurable opposite sides, all
+original side phase/coherence/source-change checks, consistent signs and
+magnitude ratio<=3, and a stronger minimum absolute log-tone step0.08 on BOTH
+sides. It does not accept a one-sided cue or lower any existing threshold.
+
+The default/live verifier still calls v5. Both existing CPU probes now expose
+the opt-in --parallel-core flag. Predeclared calibration covers the original
+108 known controls, previously exposed native outputs, and fresh random
+artifact-only placements outside existing source watermarks. Neither the
+frozen1000 set nor production data is used for this test. A zero false-veto
+requirement on known-correct controls is necessary before considering adoption.
+Unit coverage also rejects missing/invalid source cores, unchanged physical
+shade, correct repairs, and weak steps; existing phase tests remain intact.
