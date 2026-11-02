@@ -20,27 +20,36 @@ from watermark_studio.transmitted_detail import recover_patch_detail
 def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--manifest",type=Path,required=True)
-    p.add_argument("--experiment",type=Path,required=True)
+    p.add_argument("--experiment",type=Path)
+    p.add_argument("--mask-only",action="store_true")
+    p.add_argument("--strict-neutral-support",action="store_true")
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--transmission",type=float,default=.5)
     p.add_argument("--radius",type=int,default=16)
     p.add_argument("--dark-channel",action="store_true")
     a=p.parse_args()
+    if bool(a.experiment)==a.mask_only:
+        p.error("Choose completed generation outputs or an explicit mask-only safety diagnostic")
     data,_=validate_pairs(a.manifest);pairs={r["id"]:r for r in data["pairs"]}
-    frozen=json.loads((a.experiment/"report.json").read_text())
-    if frozen.get("state")!="completed" or frozen["dataset_manifest_sha256"]!=digest(a.manifest):
-        p.error("Exact completed whole-frame synthetic validation outputs required")
+    if a.experiment:
+        frozen=json.loads((a.experiment/"report.json").read_text())
+        if frozen.get("state")!="completed" or frozen["dataset_manifest_sha256"]!=digest(a.manifest):
+            p.error("Exact completed whole-frame synthetic validation outputs required")
+        outputs=[json.loads(x) for x in (a.experiment/"results.jsonl").read_text().splitlines()]
+    else:
+        outputs=[{"id":r["id"]} for r in data["pairs"] if r["split"]=="validation"]
     a.target.mkdir(exist_ok=False);work=a.target.resolve();(work/"output").mkdir()
-    outputs=[json.loads(x) for x in (a.experiment/"results.jsonl").read_text().splitlines()]
     detector=TargetTextPresence(upsample_small=True);records=[];began=time.monotonic()
     for output in outputs:
         row=pairs[output["id"]]
-        if row["split"]!="validation" or digest(output["output"])!=output["output_sha256"] or output["generation_count"]!=1:
+        if row["split"]!="validation" or (not a.mask_only and
+                (digest(output["output"])!=output["output_sha256"] or output["generation_count"]!=1)):
             raise ValueError("Immutable one-generation validation outputs required")
         metadata=row["render"].get("render",{})
         if not metadata.get("panel"):continue
         source=load_photo(row["input"])[0];clean=load_photo(row["target"])[0]
-        generated=load_photo(output["output"])[0];w,h=source.size
+        generated=clean if a.mask_only else load_photo(output["output"])[0]
+        w,h=source.size
         l,t,r,b=metadata["panel"]
         variant=int(row["id"].rsplit("-",1)[-1])
         if variant==0:t+=max(16,round((b-t)*.25))
@@ -58,10 +67,17 @@ def main():
         for region in boxes:
             x0,y0,x1,y1=pixel_box(region,source.size)
             draw.rectangle((max(0,x0-2),max(0,y0-2),min(w-1,x1+1),min(h-1,y1+1)),fill=0)
-        dark=(np.asarray(source.convert("L"))<100).astype(np.uint8)*255
-        ink=np.asarray(Image.fromarray(dark).filter(ImageFilter.MaxFilter(5)))>0
+        luminance=np.asarray(source.convert("L"));src=np.asarray(source)
+        dark=(luminance<(140 if a.strict_neutral_support else 100)).astype(np.uint8)*255
+        ink=np.asarray(Image.fromarray(dark).filter(ImageFilter.MaxFilter(9 if a.strict_neutral_support else 5)))>0
         valid=(np.asarray(support)>0)&~ink
-        src=np.asarray(source)
+        if a.strict_neutral_support:
+            bright=np.asarray(Image.fromarray((luminance>225).astype(np.uint8)*255).filter(ImageFilter.MaxFilter(5)))>0
+            chromatic=np.asarray(Image.fromarray((np.ptp(src.astype(np.int16),axis=2)>24).astype(np.uint8)*255).filter(
+                ImageFilter.MaxFilter(3)))>0
+            valid&=~bright&~chromatic
+            trace["strict_neutral_support"]={"dark_below":140,"bright_above":225,"chroma_above":24,
+                "dark_dilation":9,"bright_dilation":5,"chroma_dilation":3}
         alpha=round(metadata["opacity"]*255)
         plate=Image.new("RGBA",source.size,(*metadata["foreground"],alpha))
         expected=Image.alpha_composite(clean.convert("RGBA"),plate).convert("RGB")
@@ -72,6 +88,8 @@ def main():
         cropped=valid[box[1]:box[3],box[0]:box[2]]
         trace["support_fraction"]=float(cropped.mean())
         if cropped.mean()<.1:trace["skip_reason"]="too_little_text_excluded_body";continue
+        if a.mask_only:
+            trace["mask_only"]=True;continue
         tvalue=a.transmission
         if a.dark_channel:
             minimum=np.min(src[valid],axis=1)
@@ -86,6 +104,9 @@ def main():
     measured=[r for r in records if "after" in r]
     report={"state":"completed","version":1,"cases":len(records),"applied":len(measured),
         "glyph_leak_cases":sum(r.get("known_visible_glyph_leak_pixels",0)>0 for r in records),
+        "nonempty_safe_support_cases":sum(r.get("support_fraction",0)>=.1 and
+            r.get("safe_on_known_glyphs") is True for r in records),
+        "mask_only":a.mask_only,
         "before_psnr":statistics.mean(r["before"]["psnr"] for r in measured) if measured else None,
         "after_psnr":statistics.mean(r["after"]["psnr"] for r in measured) if measured else None,
         "seconds":round(time.monotonic()-began,3),"extra_generations":0,"quality_permission":False,
