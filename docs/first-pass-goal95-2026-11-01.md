@@ -2053,3 +2053,10 @@ a genuine band continuing outside the source watermark, detect an additional
 local shadow, and refuse unavailable/changed exterior references. Targeted
 phase tests18passed and Ruff clean. No producer image or existing QA status
 is changed by this diagnostic.
+
+
+### 用户切回自动分区并停止部署（2026-11-02）
+
+用户已清除持续95%目标，改为恢复自动裁切去水印并保留有益优化，随后明确要求先停止开发机部署。服务3598768及其两个从属进程已验证退出，8765不再监听，其他GPU任务保留。未重新启动服务或全量任务。
+
+最后一项v9外侧参照离线实验108份结果：正确图新增告警0，但也未找回新增漏判（87.888秒），因此没有采用。v8曾误报两份正确结果，已拒绝。实验代码默认不进入生产。后续以[自动分区恢复说明](roi-restoration-2026-11-02.md)为当前操作依据，不自动继续本日志原先的整图95%优化任务。

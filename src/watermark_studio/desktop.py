@@ -345,25 +345,24 @@ class MainWindow(QMainWindow):
         form.addRow(self.output_dimensions)
         self.output_dimensions.setEnabled(False)
         self.output_mode.currentIndexChanged.connect(lambda index: self.output_dimensions.setEnabled(index == 1))
-        note = QLabel("整图模式直接输出完整编辑结果；自定义区域修补后合并回整图，再以 Lanczos 高质量重采样缩放。自定义宽高会精确匹配尺寸；比例不同会拉伸。此方式不是 AI 超分辨率。")
+        note = QLabel("分区模式修补水印区域后合并回完整原图；输出默认保持每张原图尺寸。自定义宽高在合成后以 Lanczos 重采样，比例不同会拉伸；此方式不是 AI 超分辨率。")
         note.setWordWrap(True)
         note.setObjectName("muted")
         form.addRow(note)
-        self.preserve_background = QCheckBox("自动保护原图内容（整图推理，仅合成每张图的水印处）")
-        self.preserve_background.setToolTip("整张原图送入模型；自动逐图定位水印，只合成水印处，保留其余原图像素。无需手工框选，不裁切模型输入。JPEG重编码仍可能产生细小量化差异。")
+        self.preserve_background = QCheckBox("启用原图保护（精细分区策略需要）")
+        self.preserve_background.setToolTip("精细分区策略自动定位并裁切各张图的水印，处理后回贴；整图策略则仅合成定位范围。无需手动框选。JPEG重编码仍可能产生细小量化差异。")
         self.preserve_background.toggled.connect(self.mode_changed)
         form.addRow(self.preserve_background)
         self.first_pass_mode = QComboBox()
-        self.first_pass_mode.addItem("整图直接处理（无局部合成）","whole")
-        self.first_pass_mode.addItem("首轮自动精细处理","focused")
-        self.first_pass_mode.addItem("首轮精细处理与源图细节定位","thorough")
-        self.first_pass_mode.addItem("首轮完整覆盖与细码核实","complete")
+        self.first_pass_mode.addItem("自动分区处理","regions")
+        self.first_pass_mode.addItem("整图处理（可选对照）","whole")
+        self.first_pass_mode.addItem("自动分区精细处理","focused")
+        self.first_pass_mode.addItem("自动分区与细小水印定位","thorough")
+        self.first_pass_mode.addItem("自动分区完整覆盖（推荐配方）","complete")
         self.first_pass_mode.setToolTip("精细策略需启用原图保护，内部自动分配模型输入预算；细小覆盖层使用可读的输入视图，无需统一框选。它可能包含多个模型调用，不等于仅调用模型一次。")
         form.addRow("首轮去水印策略",self.first_pass_mode)
-        # Retain legacy launch parsing for historical experiments, not as batch UI controls.
-        for widget in (self.first_pass_mode,):
-            widget.hide()
-        form.labelForField(self.first_pass_mode).hide()
+        self.strategy_label=form.labelForField(self.first_pass_mode)
+        self.first_pass_mode.currentIndexChanged.connect(self.mode_changed)
         self.processing_note=QLabel("整张原图直接输入模型，完整结果直接输出；不裁切水印子图、不回贴原图。返工也采用整图处理。")
         self.processing_note.setWordWrap(True)
         form.addRow(self.processing_note)
@@ -464,21 +463,25 @@ class MainWindow(QMainWindow):
         self.mode_changed()
 
     def mode_changed(self):
-        custom = self.preset.currentData() == "custom"
+        custom = self.tabs.currentIndex()==1 and self.preset.currentData() == "custom"
         self.mode_help.setText(
             "拖动鼠标添加多个水印框，或输入区域坐标；处理后合并回整图，再调整输出尺寸。"
             if custom else "自动处理整张图像中的水印；手动框选、区域坐标和区域编辑按钮均已禁用。"
         )
         self.region_controls.setEnabled(custom)
         if hasattr(self,"repair_blending"):
-            show_blending=custom and self.tabs.currentIndex()==1
+            crop_mode=self.first_pass_mode.currentData()!="whole"
+            show_blending=(custom and self.tabs.currentIndex()==1) or crop_mode or self.preserve_background.isChecked()
             self.repair_blending.setVisible(show_blending)
             self.blending_label.setVisible(show_blending)
             self.repair_blending.setEnabled(show_blending)
             selected=custom and self.tabs.currentIndex()==1
-            self.preserve_background.setVisible(not selected)
+            self.first_pass_mode.setVisible(not selected)
+            self.strategy_label.setVisible(not selected)
+            self.preserve_background.setVisible(not selected and self.first_pass_mode.currentData()!="regions")
             self.processing_note.setText(
                 "自定义区域：修补所选区域后合并回整图；最终按完整图像尺寸输出。" if selected else
+                "逐张自动定位水印，裁切带上下文的区域送入模型，修补后合成回完整原图。无需统一区域或手工框选。" if crop_mode else
                 "整张原图输入模型，自动定位每张图的水印并合成修复结果，其余保留原图；返工也保持整图输入。"
                 if self.preserve_background.isChecked() else
                 "整张原图直接输入模型，完整结果直接输出；返工也采用整图处理。")
@@ -541,8 +544,10 @@ class MainWindow(QMainWindow):
             custom = single and self.preset.currentData() == "custom"
             if custom and not self.preview_path:
                 raise ValueError("请先打开图像预览，再选择或指定区域")
+            from .config import processing_route
+            scope,first_mode=processing_route(self.first_pass_mode.currentData())
             options = ProcessingConfig(
-                scope="regions" if custom else "full_image",
+                scope="regions" if custom else scope,
                 concurrency=1 if single else self.concurrency.value(),
                 resolution=self.resolution.currentData(),
                 context=getattr(self,"processing_context",.6),
@@ -557,7 +562,7 @@ class MainWindow(QMainWindow):
                 quality_retry_resolution=self.retry_resolution.currentData(),
                 preserve_background=self.preserve_background.isChecked() and not custom,
                 repair_blending=self.repair_blending.currentData(),
-                first_pass_mode="whole",
+                first_pass_mode="whole" if custom else first_mode,
                 whole_prompt_profile=getattr(self,"processing_whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default),
                 quality_resolution=self.quality_resolution.currentData(),
                 quality_batch_size=self.quality_batch.value(),
@@ -712,9 +717,8 @@ def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     window.processing_context=getattr(args,"context",.6)
     window.processing_whole_prompt_profile=getattr(args,"whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default)
-    if getattr(args,"first_pass_mode","whole")!="whole":
-        print("Desktop automatic mode uses whole-image inference; legacy crop strategies apply only to CLI/API comparisons.",file=sys.stderr)
-    window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData("whole"))
+    mode=getattr(args,"first_pass_mode","regions")
+    window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData(mode))
     window.resolution.setCurrentIndex(window.resolution.findData(getattr(args,"input_resolution",1024)))
     window.repair_blending.setCurrentIndex(window.repair_blending.findData(getattr(args,"repair_blending","harmonic")))
     window.preserve_background.setChecked(args.preserve_background)
@@ -747,12 +751,12 @@ def main():
     parser.add_argument("--quality-check", action="store_true", help="Preselect quality review")
     parser.add_argument("--quality-cross-review", action="store_true", help="Preselect editor/independent dispute review")
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
-    parser.add_argument("--preserve-background", action="store_true", help="Preselect automatic per-image source protection after whole-image inference")
+    parser.add_argument("--preserve-background", action="store_true", help="Preselect original protection for fine automatic crop strategies or whole-image composition")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--quality-retry-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
-    parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
+    parser.add_argument("--first-pass-mode",choices=["regions","whole","focused","thorough","complete"],default="regions")
     parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral","clean-photo","clean-photo-detailed"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="neutral: source-material fidelity; fidelity/baseline: historical comparisons; concise: material-mismatch retry; scene/located/clean-photo/clean-photo-detailed: experimental")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")

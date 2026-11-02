@@ -16,11 +16,11 @@
 
 针对整图处理，默认使用中文中性材质保真neutral提示词；scene原图材质约束仅显式实验启用。历史关闭原图保护的32张同源对照未达到严格验收标准，未放宽检验；全文、取舍及复现见[提示词针对性调优](docs/whole-prompt-tuning-2026-11-01.md)。
 
-当前推荐批量和单张自动模式采用**整张原图输入模型 + 自动逐图原图保护**：显式勾选原图保护，仅合成自动识别水印处的修复结果，其余保留原像素；无需手工框选，不裁切模型输入，生成返工同样保持整图输入。单张自定义区域保留局部修补。关闭保护时仍支持完整生成结果直接输出；历史直接整图和裁切策略的成绩分别记录。详见[整图保护验证](docs/whole-protected-scale-2026-11-01.md)。 最新冻结1024张首轮自动844通过，有限返工后905通过、119待复核；5张L40完整耗时4324.338秒。此为自动检查结果，不是人工准确率，仍未达到接近全部首轮通过。
+当前默认批量和单张自动模式恢复为**逐张定位水印 → 裁切带上下文的区域 → 模型去水印 → 合成回完整原图**。不需要统一区域或手工框选，输出默认保持原尺寸，递归目录和非图像文件完整保留。推荐完整分区配方见 [自动分区恢复说明](docs/roi-restoration-2026-11-02.md)。整图输入仍可显式选择，未删除其实现。
 
 最新修补与检验配方：`bash scripts/launch-throughput-quality.sh`，默认独立 Qwen3-VL 检验、调和明暗衔接及局部阴影/纹理检查；未通过项输出可见依据和位置，逐张回传下一轮返工。客户端须显式启用原图保护、检验、自动返工；见[流程](docs/quality-review.md)和[两张待复核图的修复实测](docs/review-repair-2026-11-01.md)。
 
-历史裁切首轮精细策略：自动补查细小防伪码，按原图实际材质生成各覆盖层，保住其余可见内容；仅保留 CLI/API --first-pass-mode 用于历史对照，客户端不展示这些裁切策略。首轮可能包含多个局部模型调用。参数、完整对照与限制见[首轮质量报告](docs/first-pass-quality-2026-11-01.md)。
+完整分区策略保留细小防伪码补查、每个区域独立模型输入与原图保护；桌面现在显示策略选择，并实际应用 --first-pass-mode。首份候选可能包含多个局部编辑。历史 complete@0.45 的千张自动验收为947/1024（92.48%），五张L40约50分34秒；这是旧版本实测，不代表当前组合已经复测通过。
 
 本轮去水印/检验对抗调优：逐行补查完整防伪码，小预算可独立凑批；继续采用4B主检验，8B/NF4作为单独加载的实验配置。8B与编辑侧基础权重相同，禁止双模型自证；仍有已知误拒和淡暗框漏检，不能保证千张无缺陷；开发对照、千张留出验证及耗时见[对抗调优报告](docs/duel-quality-2026-11-01.md)。
 
@@ -114,8 +114,7 @@ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
 
 命令行：
 ```bash
-uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
-  --concurrency 32 --input-resolution 1024
+bash scripts/launch-roi-batch.sh /home/zjh/photos /home/zjh/photos-clean --concurrency 32
 ```
 
 每次任务在 ~/.local/state/watermark-studio/<job-id>/ 记录 summary.json、results.jsonl 和 invalid.json。summary 包含模型 revision、参数、计数与时间。进程重启后不自动恢复队列；使用同一目录且不勾选覆盖重新提交，已成功输出会跳过。

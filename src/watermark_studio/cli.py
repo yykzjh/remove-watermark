@@ -4,7 +4,7 @@ import time
 import urllib.error
 import urllib.request
 
-from .config import ProcessingConfig
+from .config import ProcessingConfig, processing_route
 
 
 def request(url, path, payload=None):
@@ -29,14 +29,15 @@ def main():
     parser.add_argument("--output-width", type=int, default=0)
     parser.add_argument("--output-height", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--remove-logo", action="store_true", help="Also process detected app logos and their small attached codes")
     parser.add_argument("--quality-check", action="store_true")
     parser.add_argument("--quality-cross-review", action="store_true")
     parser.add_argument("--quality-auto-retry", action="store_true")
     parser.add_argument("--quality-max-attempts", type=int, default=3, help="0: until pass or cancel")
     parser.add_argument("--quality-retry-resolution", type=int, default=1024)
-    parser.add_argument("--preserve-background", action="store_true", help="Automatically preserve source outside each image watermark after full-frame inference")
+    parser.add_argument("--preserve-background", action="store_true", help="Enable original protection for fine crop strategies or whole-image composition")
     parser.add_argument("--context",type=float,default=.6,help="Reconstruction context factor, 0.1..2")
-    parser.add_argument("--first-pass-mode",choices=["whole","focused","thorough","complete"],default="whole")
+    parser.add_argument("--first-pass-mode",choices=["regions","whole","focused","thorough","complete"],default="regions")
     parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral","clean-photo","clean-photo-detailed"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="neutral: source-material fidelity; fidelity/baseline: historical comparisons; concise: material-mismatch retry; scene/located/clean-photo/clean-photo-detailed: experimental")
     parser.add_argument("--repair-blending", choices=["feather","harmonic","harmonic-fine"], default="harmonic")
     parser.add_argument("--quality-resolution", type=int, choices=[512, 768, 1024, 1280], default=768)
@@ -46,6 +47,7 @@ def main():
     args = parser.parse_args()
     if not .1<=args.context<=2:
         parser.error("--context must be finite and in 0.1..2")
+    scope,first_mode=processing_route(args.first_pass_mode)
     request(
         args.url,
         "/jobs",
@@ -53,7 +55,8 @@ def main():
             "input_dir": args.input_dir,
             "output_dir": args.output_dir,
             "options": {
-                "scope": "full_image",
+                "scope": scope,
+                "remove_logo": args.remove_logo,
                 "concurrency": args.concurrency,
                 "resolution": args.resolution,
                 "context":args.context,
@@ -66,7 +69,7 @@ def main():
                 "quality_max_attempts": args.quality_max_attempts,
                 "quality_retry_resolution": args.quality_retry_resolution,
                 "preserve_background": args.preserve_background,
-                "first_pass_mode":args.first_pass_mode,
+                "first_pass_mode":first_mode,
                 "whole_prompt_profile":args.whole_prompt_profile,
                 "repair_blending": args.repair_blending,
                 "quality_resolution": args.quality_resolution,

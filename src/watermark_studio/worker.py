@@ -132,6 +132,12 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
     return pipe
 
 
+def needs_source_detection(options):
+    """Share original-image detection and carrier protection across auto routes."""
+    return ((options.scope=="full_image" and options.preserve_background)
+            or (options.scope=="regions" and options.preset=="auto"))
+
+
 def process_batch(tasks, options, config, pipe, batch_limits=None):
     """Bounded lookahead; independently detect files, then batch compatible crop edits."""
     from collections import defaultdict
@@ -166,10 +172,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
     physical_audits = {}
     source_rim_audits = {}
     gray_certificates = {}
-    needs_detection = cuda and (
-        (options.scope == "full_image" and options.preserve_background)
-        or (options.scope == "regions" and options.preset == "auto")
-    )
+    needs_detection = cuda and needs_source_detection(options)
     from .source_residency import transformer_source_phase
     source_transformer_transfer={}
     def before_transformer_restore():
@@ -245,9 +248,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         ), text)
                     except (ValueError, TypeError, RuntimeError) as error:
                         found[index] = error
-            if (config.protection_physical_vet and options.scope=="full_image" and options.preserve_background
-                    and options.first_pass_mode=="whole" and config.quality_backend=="independent"
-                    and hasattr(pipe,"_quality_encoder")):
+            if (config.protection_physical_vet and needs_detection
+                    and config.quality_backend=="independent" and hasattr(pipe,"_quality_encoder")):
                 from .quality_loading import restore_quality_encoder
                 from .source_vetting import vet_sources
                 if str(getattr(pipe._quality_encoder,"device","")).startswith("cpu"):

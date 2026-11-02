@@ -179,16 +179,16 @@ SSH 隧道以目录/状态/参数为主；单张打开预览时可按需返回�
 参考：[官方 QwenImage21Pipeline](https://huggingface.co/docs/diffusers/main/api/pipelines/qwenimage21)。
 
 
-## 整图输入与逐图保护的新配方
+## 自动分区处理与原图保护配方
 
-当前推荐采用完整原图输入，并显式启用原图保护；定位放大图不进入扩散生成。完整对照、独立千张、失败候选留存和限制见[整图保护报告](whole-protected-scale-2026-11-01.md)。
+当前默认已恢复自动分区：每图独立定位，按区域裁切并去水印，随后合成回完整原图。完整分区配方与历史92.48%记录见[恢复说明](roi-restoration-2026-11-02.md)。整图模式仍可显式选用；历史整图实验见[整图保护报告](whole-protected-scale-2026-11-01.md)。
 
 ~~~bash
 # 默认8卡；仅使用空闲卡时显式覆盖列表和加载并行度。
 bash scripts/launch-throughput-quality.sh --gpus 1,2,3,4,5 --load-parallelism 5
 # 客户端在WSL/Linux，路径指向开发机；只预选设置，不自动提交任务。
 uv run --no-sync watermark-studio --ssh-host cdu_dev --poll-seconds 15 \
-  --preserve-background --first-pass-mode whole --whole-prompt-profile neutral \
+  --preserve-background --first-pass-mode complete --context 0.45 \
   --input-resolution 1024 --quality-check --quality-cross-review \
   --quality-auto-retry --quality-batch-size 2 --quality-retry-resolution 1536
 ~~~

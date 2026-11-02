@@ -79,6 +79,15 @@ class ProcessingConfig(BaseModel):
         return self
 
 
+def processing_route(mode):
+    """Frontend route names map to the existing explicit API processing fields."""
+    if mode == "regions":
+        return "regions", "whole"  # Basic automatic crop path; no boolean is implied.
+    if mode in ("whole", "focused", "thorough", "complete"):
+        return "full_image", mode
+    raise ValueError("未知去水印处理方式")
+
+
 class JobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["batch", "single"] = "batch"

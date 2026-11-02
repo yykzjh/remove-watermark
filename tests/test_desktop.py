@@ -71,7 +71,7 @@ def test_navigation_and_multi_region_selection(tmp_path):
     app.processEvents()
     assert window.preset.count() == 2
     assert not window.region_controls.isEnabled()
-    assert not window.repair_blending.isVisible()
+    assert window.repair_blending.isVisible()
     assert not window.canvas.selectable
     window.input_file.setText("/home/zjh/image.png")
     window.preview_path = "/home/zjh/image.png"
@@ -104,12 +104,12 @@ def test_navigation_and_multi_region_selection(tmp_path):
     assert not window.boxes.isEnabled()
     window.start_job()
     assert api.calls[-1][3]["options"]["regions"] == []
-    assert api.calls[-1][3]["options"]["scope"] == "full_image"
+    assert api.calls[-1][3]["options"]["scope"] == "regions"
     window.tabs.setCurrentIndex(0)
     window.input_dir.setText("/home/zjh/batch")
     window.output_dir.setText("/home/zjh/batch-out")
     window.start_job()
-    assert api.calls[-1][3]["options"]["scope"] == "full_image"
+    assert api.calls[-1][3]["options"]["scope"] == "regions"
     window.close()
 
 
@@ -200,9 +200,9 @@ def test_tuned_launch_context_reaches_submission_without_adding_batch_regions():
     window.start_job()
     payload=api.calls[-1][3]
     assert payload["options"]["context"]==.45
-    assert payload["options"]["first_pass_mode"]=="whole"
+    assert payload["options"]["first_pass_mode"]=="complete"
     assert payload["options"]["whole_prompt_profile"]=="fidelity"
     assert payload["options"]["preserve_background"] is True
-    assert not window.first_pass_mode.isVisible()
+    assert not window.first_pass_mode.isHidden()
     assert payload["options"]["scope"]=="full_image" and payload["options"]["regions"]==[]
     window.close()
