@@ -30,7 +30,7 @@ def fixture(tmp_path):
             rows.append(row)
         manifest=folder/"manifest.json"
         manifest.write_text(json.dumps({"version":1,"state":"completed","resolution":768,
-            "require_native_pixels":True,"candidate_selector_sha256":digest(selector),"pairs":rows}))
+            "font_sha256":"a"*64,"require_native_pixels":True,"candidate_selector_sha256":digest(selector),"pairs":rows}))
         manifests.append(manifest)
     (pool/"report.json").write_text(json.dumps({"state":"completed","forbidden_sha256":1,"parts":parts}))
     return pool,manifests
@@ -41,7 +41,7 @@ def test_joint_merge_retains_source_disjointness_and_pre_screening_forbidden_sna
     result=MERGE(pool,tmp_path/"merged",manifests)
     assert result["train_originals"]==2 and result["validation_originals"]==2
     data,_=validate_pairs(result["manifest"])
-    assert len(data["pairs"])==4
+    assert len(data["pairs"])==4 and data["font_sha256"]=="a"*64
     assert json.loads((tmp_path/"merged/forbidden-sha256.json").read_text())==["f"*64]
     for row in data["pairs"]:
         assert Path(row["input"]).is_relative_to(tmp_path/"merged")

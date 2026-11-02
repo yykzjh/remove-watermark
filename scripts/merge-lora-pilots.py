@@ -42,6 +42,9 @@ def merge_pilots(pool,target,manifests):
     if len({r["id"] for r in pairs})!=len(pairs):
         raise ValueError("Duplicate pair IDs")
     if len(pairs)>640:raise ValueError("Bounded merged experiment required")
+    for key in ("resolution","font_sha256"):
+        if len({data.get(key) for _,data in datasets})!=1:
+            raise ValueError("Common target resolution and rendering font required")
     target.mkdir(exist_ok=False)
     (target/"forbidden-sha256.json").write_text(json.dumps(sorted(forbidden)))
     merged=[]
@@ -63,13 +66,12 @@ def merge_pilots(pool,target,manifests):
     data={"version":1,"state":"completed","revision":subprocess.check_output(
         ["git","rev-parse","HEAD"],text=True).strip(),"source_identity":"sha256",
         "resolution":datasets[0][1]["resolution"],"require_native_pixels":True,
+        "font_sha256":datasets[0][1].get("font_sha256"),
         "train_originals":len(train),"validation_originals":len(validation),
         "source_overlap":0,"previous_exposure_overlap":0,"pairs":merged,
         "joint_forbidden_snapshot":str(forbidden_path),"joint_forbidden_sha256":digest(forbidden_path),
         "source_manifests":[{"path":str(path),"sha256":digest(path)} for path,_ in datasets],
         "scope":"One pre-screening joint forbidden snapshot; preserve independently assigned source splits"}
-    if any(d["resolution"]!=data["resolution"] for _,d in datasets):
-        raise ValueError("Common target resolution required")
     path=target/"manifest.json";path.write_text(json.dumps(data,ensure_ascii=False,indent=2))
     try:validate_pairs(path)
     except Exception:
