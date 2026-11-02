@@ -31,6 +31,11 @@ class DenoisingContext:
     """Reuse the already encoded VAE reference; never add a model/image encode."""
 
     def __init__(self, items, width, height, vae_scale_factor):
+        margins=[item.get("_denoising_context_margin",1) for item in items]
+        if (not margins or any(type(value) is not int or not 0<=value<=16 for value in margins)
+                or len(set(margins))!=1):
+            raise ValueError("Homogeneous bounded integer latent context margins required")
+        self.margin_cells=margins[0]
         self.items = items
         self.width, self.height = width, height
         self.latent_h = 2*(height//(vae_scale_factor*2))
@@ -52,8 +57,9 @@ class DenoisingContext:
             raise ValueError("Context and target latents must share device and dtype")
         mask = torch.from_numpy(self.pixel_masks).unsqueeze(1).to(noise.device)
         mask = functional.adaptive_max_pool2d(mask, (self.latent_h, self.latent_w))
-        # One latent-cell context margin protects the VAE transition; no cropping.
-        mask = functional.max_pool2d(mask, 3, stride=1, padding=1)
+        # Default remains one latent cell. Offline wider buffers modify only
+        # denoising context; final original-pixel composition is unchanged.
+        mask = functional.max_pool2d(mask,2*self.margin_cells+1,stride=1,padding=self.margin_cells)
         self.mask = mask.flatten(2).transpose(1, 2).to(noise.dtype)
         self.clean = reference.detach()
         self.noise = noise.detach().clone()
@@ -100,6 +106,6 @@ class DenoisingContext:
             item["_denoising_context_log"] = {
                 "method": "full_frame_flow_context_v1",
                 "steps": self.completed, "runtime_sigmas": self.sigmas,
-                "editable_latent_fraction": fraction,
+                "editable_latent_fraction": fraction,"context_margin_cells":self.margin_cells,
                 "extra_vae_encodes": 0, "extra_diffusion_forwards": 0,
             }

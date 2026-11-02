@@ -54,6 +54,8 @@ def main():
     p.add_argument("--transformer-phase-offload",action="store_true")
     p.add_argument("--kv-cache",action="store_true")
     p.add_argument("--source-flow-context",action="store_true")
+    p.add_argument("--context-margin-cells",type=int,choices=[0,1,2,3,4,6,8,12,16],default=1,
+        help="Offline latent denoising buffer only; does not enlarge final output edit scope")
     p.add_argument("--compile-projections",action="store_true")
     p.add_argument("--separate-vae-decode",action="store_true")
     a=p.parse_args()
@@ -80,6 +82,8 @@ def main():
         p.error("Published three-step schedule requires exact pinned Turbo-T2I-3steps weights/alpha128")
     if a.resolution and a.frozen_input_budget:
         p.error("Explicit resolution override cannot be combined with frozen budgets")
+    if a.context_margin_cells!=1 and not a.source_flow_context:
+        p.error("Explicit latent margin requires source flow context")
     if a.generation_encoder_offload and a.transformer_phase_offload:
         p.error("Select one encoder residency mechanism")
     if a.uniform_steps and (a.base_steps or a.sigma_profile!="native" or a.hint_transmission or a.foveation_mass):
@@ -218,6 +222,7 @@ def main():
             item["_probe_num_inference_steps"]=a.base_steps or a.uniform_steps
         if a.source_flow_context:
             item["_denoising_context_regions"]=[r.model_dump() for r in model_regions]
+            item["_denoising_context_margin"]=a.context_margin_cells
         capture={};original_decode=pipe.vae.decode
         @wraps(original_decode)
         def decode(z,*args,capture=capture,name=name,width=width,height=height,seed=seed,original_decode=original_decode,**kwargs):
@@ -286,7 +291,7 @@ def main():
             "hint_transmission":a.hint_transmission,"hint_foreground":a.hint_foreground,
             "fresh_rim_reports":[str(v) for v in a.fresh_rim_reports or []],
             "image_adapter":getattr(pipe,"_image_adapter",None),"caption_job":a.caption_job,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
-            "source_flow_context":a.source_flow_context,"separate_vae_decode":a.separate_vae_decode},
+            "source_flow_context":a.source_flow_context,"context_margin_cells":a.context_margin_cells,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
