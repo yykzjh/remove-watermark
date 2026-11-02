@@ -22,19 +22,28 @@ def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--job",required=True)
     p.add_argument("--model",type=Path,required=True)
-    p.add_argument("--weights",type=Path,required=True)
-    p.add_argument("--sha256",required=True)
+    p.add_argument("--weights",type=Path)
+    p.add_argument("--sha256",default="")
+    p.add_argument("--original-decoder",action="store_true",help="Output-only SR comparison using the same original BF16 VAE")
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--tag",required=True)
     p.add_argument("--super-resolution-weights",type=Path,
         help="Optional pinned RGB x4 operator applied directly to model-scale decoder pixels")
     p.add_argument("--super-resolution-sha256",default="")
+    p.add_argument("--super-resolution-profile",choices=["rrdb","swinir-classical","swinir-lightweight"],default="rrdb")
     p.add_argument("--precision",choices=["bfloat16","float16"],default="bfloat16")
     a=p.parse_args()
     if a.gpu<0 or not re.fullmatch(r"[a-f0-9]{32}",a.job) or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
         p.error("Exact source job, GPU and new simple tag required")
     if bool(a.super_resolution_weights)!=bool(a.super_resolution_sha256):
         p.error("Pinned SR weights and SHA must be specified together")
+    if a.original_decoder:
+        if a.weights or a.sha256 or not a.super_resolution_weights or a.precision != "bfloat16":
+            p.error("Original decoder requires SR only and original BF16 precision")
+    elif not a.weights or not a.sha256:
+        p.error("Alternative decoder requires weights and SHA")
+    if not a.super_resolution_weights and a.super_resolution_profile != "rrdb":
+        p.error("An SR profile requires its pinned weights")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
         server=helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
@@ -66,11 +75,23 @@ def main():
     from watermark_studio.source_panel_rims import effective_rim_scope, restore_proven_rims
     torch.set_num_threads(1)
     revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
-    began=time.monotonic();old,new=decoder_pair(a.model,a.weights,a.sha256,"cuda:0",a.precision)
+    began=time.monotonic()
+    if a.original_decoder:
+        from watermark_studio.decoder_probe import original_decoder
+        old=new=original_decoder(a.model,"cuda:0")
+    else:
+        old,new=decoder_pair(a.model,a.weights,a.sha256,"cuda:0",a.precision)
     sr=None
     if a.super_resolution_weights:
-        from watermark_studio.super_resolution_probe import load_upscaler
-        sr=load_upscaler(a.super_resolution_weights,a.super_resolution_sha256,"cuda:0")
+        if a.super_resolution_profile == "rrdb":
+            from watermark_studio.super_resolution_probe import load_upscaler, upscale_tiled
+            sr=load_upscaler(a.super_resolution_weights,a.super_resolution_sha256,"cuda:0")
+            upscale=upscale_tiled
+        else:
+            from watermark_studio.swinir_probe import load_swinir, upscale_swinir
+            sr=load_swinir(a.super_resolution_weights,a.super_resolution_sha256,"cuda:0",
+                a.super_resolution_profile.removeprefix("swinir-"))
+            upscale=upscale_swinir
     load_seconds=time.monotonic()-began
     work=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")/a.tag
     work.mkdir(exist_ok=False);out=work/"output";out.mkdir()
@@ -133,8 +154,7 @@ def main():
             frame=frame.convert("RGB")
             sr_input_size=list(frame.size)
             if label=="modified" and sr is not None:
-                from watermark_studio.super_resolution_probe import upscale_tiled
-                frame=upscale_tiled(frame,sr)
+                frame=upscale(frame,sr)
             frame=restore_full_frame(frame,before.size,sampling)
             if label=="baseline" and hashlib.sha256(frame.tobytes()).hexdigest()!=capture["native_generated_rgb_sha256"]:
                 raise ValueError("Original decoder does not reproduce captured GEN RGB exactly")
@@ -162,7 +182,8 @@ def main():
                         "seconds":round(time.monotonic()-started,4),"additional_generations":0,"quality_permission":False,
                         "model_scale_super_resolution":({
                             "artifact_sha256":a.super_resolution_sha256,
-                            "input_size":sr_input_size,"decoded_native_pixels":True,"factor":4
+                            "input_size":sr_input_size,"decoded_native_pixels":True,"factor":4,
+                            "profile":a.super_resolution_profile,"original_decoder":a.original_decoder
                         } if sr is not None else None)}}
                 with (folder/"results.jsonl").open("a") as f:
                     f.write(json.dumps(result,ensure_ascii=False)+"\n")
@@ -175,6 +196,8 @@ def main():
     report=summary|{"job":job,"source_job":a.job,"output_dir":str(out),"code_revision":revision,
         "scope":"Same original target latent, decoder/SR A/B, fresh strict QA required",
         "super_resolution_sha256":a.super_resolution_sha256 or None,
+        "super_resolution_profile":a.super_resolution_profile if sr is not None else None,
+        "original_decoder":a.original_decoder,
         "seconds":round(time.monotonic()-began,3),"decoder_load_seconds":round(load_seconds,3),
         "decoder_sha256":a.sha256,"decoder_precision":a.precision,"additional_generations":0,
         "quality_evaluated":False,"all_baseline_rgb_and_bytes_reproduced":True}

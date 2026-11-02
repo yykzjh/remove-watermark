@@ -56,3 +56,22 @@ def decoder_pair(original_model,weights,sha256,device,precision="bfloat16"):
             _unpack_latents=QwenImage21Pipeline._unpack_latents,
             image_processor=VaeImageProcessor(vae_scale_factor=16,vae_latent_channels=64))
     return proxy(original),proxy(modified)
+
+
+def original_decoder(original_model, device):
+    """Load only the frozen original BF16 VAE for output-only SR comparisons."""
+    from types import SimpleNamespace
+
+    import torch
+    from diffusers import AutoencoderKLQwenImage21
+    from diffusers.image_processor import VaeImageProcessor
+    from diffusers.pipelines.qwenimage21.pipeline_qwenimage21 import QwenImage21Pipeline
+
+    vae = AutoencoderKLQwenImage21.from_pretrained(
+        Path(original_model) / "vae", dtype=torch.bfloat16, local_files_only=True
+    ).eval().requires_grad_(False).to(device)
+    return SimpleNamespace(
+        vae=vae, vae_scale_factor=16,
+        _unpack_latents=QwenImage21Pipeline._unpack_latents,
+        image_processor=VaeImageProcessor(vae_scale_factor=16, vae_latent_channels=64),
+    )

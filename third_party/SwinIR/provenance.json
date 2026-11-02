@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/JingyunLiang/SwinIR",
+  "revision": "6545850fbf8df298df73d81f3e8cba638787c8bd",
+  "files": {
+    "models/network_swinir.py": "9e143898679ebeebc5d2fc94ad1b89c38aa4a4d43da4e0fcba0f93e476994913",
+    "LICENSE": "d66ccc11682c7458b19b376e1335e8665cbe412ff71f554bfec25f1791cddfa0",
+    "main_test_swinir.py": "812671208d948a7a36241aeb2cd7371dfb19cac9cd976c7bc296fd786ebfca2e"
+  }
+}

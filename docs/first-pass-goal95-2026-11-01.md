@@ -1796,3 +1796,48 @@ The model only vetoes candidate source pixels and cannot approve image quality.
 Independent-of-training source evaluation is pending. Nontrivial recoverable background
 coverage is required; rejecting all pixels is not a useful or qualified result.
 No additional Qwen generation,production deployment,or sealed1000 model call is involved.
+
+
+### Output-only detail restoration and higher-step follow-up (2026-11-02)
+
+The faint foreground/JPEG stress screen invalidated source high-frequency copying:
+with OCR plus an 8-pixel exclusion margin, foreground-induced restoration changes
+exceeded 2 RGB levels in 205/288 Sans variants and 211/288 Serif variants. These
+are 24 held-out development originals under 12 synthetic encodings/styles, not
+288 independent native photos. No production permission follows from this test.
+
+Two trained foreground pixel classifiers were also rejected. Both the raw
+source/reference model (a0acf2361a1126b1acb4eb4ccabedfae7dfd45a6d9fb0578873db4d3995ed53e)
+and affine-residual model (7d94eb7b36b8eda0bca6ad3dae69a9b806c57c4a91dd7b46951a5cf88f7148ba)
+produced zero useful recovery coverage on both 288-case stress suites. Their
+zero leakage therefore means reject-all, not safe useful restoration. No
+threshold was relaxed and neither model is deployed.
+
+A bounded follow-up compares 2048-input uniform 24-step generation on the same
+six already-exposed native hard examples, split across idle GPUs 2 and 5.
+Jobs 7d0ee3e074324410a5de05444ed1dfdc and
+683022da2d694792aad37eea247a611a each contain three one-generation images.
+This is not the frozen 1000 acceptance set; throughput and fresh strict QA are
+required before interpreting it.
+
+Research-only SwinIR classical/lightweight x4 operators are now available for
+same-latent output-only comparisons. The network is attributed to the pinned
+official upstream revision in third_party/SwinIR/provenance.json, with its
+Apache-2.0 license. The only network edits replace timm's evaluation helpers and
+remove the executable demo. No new dependency or production option is enabled.
+
+replay-vae-decoder.py --original-decoder --super-resolution-profile swinir-lightweight
+requires pinned SR weights and SHA, reconstructs the original BF16 VAE pixels
+and encoded baseline bytes before evaluating any alternative, then applies SR
+only to generated model-scale RGB. Original protected pixels are composed
+afterward and output dimensions remain unchanged. There are zero extra Qwen
+generations and no quality permission. Official checkpoint loading uses
+torch.load(weights_only=True) with no executable-pickle fallback, followed by
+strict tensor key/shape/dtype/finiteness checks. The local SHA establishes
+reproducibility; old official release assets have no publisher digest, so it is
+not represented as a publisher-verified checksum.
+
+The SwinIR result is pending artifact download, remote Torch tests, baseline
+reproduction, native QA, and measured cost. It must not replace a production
+default merely because SR looks sharper. Local verification: Ruff passed,
+680 tests passed and 34 skipped (Torch unavailable in the WSL test environment).
