@@ -144,7 +144,14 @@ uv run --no-sync watermark-batch /home/zjh/photos /home/zjh/photos-clean \
 当前未接入 TP/Ulysses/Ring 等单图计算并行。Flex 在当前固定版本实测编译失败，
 不能作为生产启动方案；SDPA 编译的速度、显存与动态形状代价见实测记录。
 
-服务默认沿用 checkpoint 中的 8 步 sample_sigmas。没有提供会被该调度忽略的 num_inference_steps 滑块，也不默认打开 CFG 或额外负向提示词。
+服务的 `--uniform-steps 0` 默认沿用 checkpoint 中的 8 步 `sample_sigmas`。
+显式选择 `--uniform-steps 12`（也支持 16、20、24、40）会切换当前加载实例为官方均匀采样调度，
+并传入、校验实际推理步数；磁盘 checkpoint 不变。它不同于在固定8步调度上单独传入一个可能被忽略的步数。
+例如：`bash scripts/launch-throughput-quality.sh --uniform-steps 12`；完整启动脚本也接受该参数，
+默认仍选全部8张GPU和每卡独立实例。步数影响耗时与修补效果，通常不改变最终输出分辨率；
+更多步数不保证更好，需同组图像比较质量、返工率及端到端吞吐。目前64张开发集12/24步均50通过、
+40步49通过，尚未达到千张首轮95%的目标，不能将某个步数称为已验收配置。
+不会默认开启CFG或额外负向提示词。
 
 ```bash
 bash scripts/stop-server.sh

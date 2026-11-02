@@ -1730,3 +1730,27 @@ coarse/spatial fit checks,foreground exclusions,24-level correction limit,and im
 outside-support pixels. It changes no quality acceptance rules. Synthetic calibration
 cannot certify a real image's neutral foreground/body; native application is not authorized
 by this diagnostic and remains absent from deployment.
+
+### 2026-11-02 Explicit deployment step selection
+
+The formal service now accepts uniform_steps=0/12/16/20/24/40 via TOML or --uniform-steps.
+0 retains checkpoint Turbo8. Positive values clear sample_sigmas only on the loaded
+pipeline instance, pass num_inference_steps through ordinary independent_batch calls,
+and reject a mismatch between requested and actual scheduler timesteps. The checkpoint
+files are not changed. A conflicting offline per-item schedule is rejected.
+The default remains checkpoint sampling; more steps are an explicit user choice.
+The complete launch-server.sh includes --uniform-steps0 and trailing arguments override it.
+README gives the12-step example and documents the measured quality limits.
+The ordinary deployment sampler shares the same uniform-configuration helper as offline
+probes. A separate native probe route --deployment-uniform-steps verifies the real
+deployment path without setting any offline per-item step override.
+
+The scheduled reference-only six comparison completed: both cutoff.5 and.25 give3/6,
+the same as base12 and full-time target-only exclusion. No deployment adoption.
+
+Low-transmission synthetic known-target calibration: old24 and lower56 mask-only
+diagnostics show zero glyph leaks. In the existing actual-Qwen synthetic6 output pairs,
+2 qualify for a bounded detail correction,zero glyph-leak cases; on those measured
+supports PSNR21.55496 ->24.69496dB,additional_generations=0. This is preliminary evidence
+of recoverable source detail, not native body certification or watermark-removal acceptance.
+Native source/foreground safety remains unresolved; no production application is enabled.

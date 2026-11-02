@@ -104,6 +104,7 @@ class DeploymentConfig(BaseModel):
     model: str = "Qwen/Qwen-Image-2.1-Turbo"
     revision: str = "main"
     model_source: Literal["huggingface", "modelscope"] = "huggingface"
+    uniform_steps: Literal[0,12,16,20,24,40] = 0
     cache_dir: str = "~/.cache/huggingface/hub"
     gpus: list[int] = Field(default_factory=lambda: list(range(8)), min_length=1, max_length=16)
     parallelism: Literal["single", "data"] = "data"

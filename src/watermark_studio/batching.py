@@ -163,7 +163,8 @@ def independent_batch(pipe, items, resolution, kv_cache):
             with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents), schedule_scope:
                 separate=getattr(pipe,"_watermark_separate_vae_decode",False)
                 from .probe_schedules import probe_inference_step_options
-                step_options=probe_inference_step_options(items)
+                from .sampling import runtime_step_options, verify_sampling_steps
+                step_options=runtime_step_options(pipe,probe_inference_step_options(items))
                 output=pipe(
                     prompt=[item["prompt"] for item in items], image=items[0]["image"],
                     height=height, width=width, output_resolution=resolution,
@@ -171,6 +172,7 @@ def independent_batch(pipe, items, resolution, kv_cache):
                     output_type="latent" if separate else "pil",
                     **callback_options, **step_options,
                 ).images
+                verify_sampling_steps(pipe,step_options)
             if context is not None:
                 context.finish()
             # Returning from the pipeline releases its local prefix K/V and denoising

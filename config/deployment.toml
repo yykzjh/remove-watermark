@@ -3,6 +3,8 @@ port = 8765
 model = "Qwen/Qwen-Image-2.1-Turbo"
 model_source = "modelscope"
 revision = "master"
+#0 keeps the checkpoint Turbo8 grid;12/16/20/24/40 explicitly select uniform sampling.
+uniform_steps = 0
 cache_dir = "~/.cache/watermark-models"
 gpus = [0, 1, 2, 3, 4, 5, 6, 7]
 replicas_per_gpu = 1

@@ -31,6 +31,7 @@ exec bash scripts/start-server.sh \
   --port 8765 \
   --model Qwen/Qwen-Image-2.1-Turbo \
   --revision master \
+  --uniform-steps 0 \
   --model-source modelscope \
   --cache-dir "$HOME/.cache/watermark-models" \
   --gpus 0,1,2,3,4,5,6,7 \

@@ -119,6 +119,16 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
             compile_fn(mode=config.compile_mode, dynamic=config.compile_dynamic)
     if not getattr(pipe.config, "sample_sigmas", None) and not _allow_unconfigured_sampling:
         raise RuntimeError("模型缺少 Turbo sample_sigmas；请检查模型及 Diffusers 版本")
+    if config.uniform_steps and _allow_unconfigured_sampling:
+        raise ValueError("Deployment uniform sampling cannot be mixed with a base-only model probe")
+    pipe._watermark_uniform_steps=config.uniform_steps
+    if config.uniform_steps:
+        from .sampling import configure_uniform_sampling
+        pipe._watermark_sampling_info=configure_uniform_sampling(pipe,config.uniform_steps)
+    else:
+        pipe._watermark_sampling_info={"sampling":"checkpoint_sample_sigmas",
+            "requested_steps":len(getattr(pipe.config,"sample_sigmas",None) or []),
+            "checkpoint_modified":False}
     return pipe
 
 

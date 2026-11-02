@@ -51,12 +51,6 @@ def validate_base_probe(model,steps):
 
 
 def configure_turbo_uniform_probe(pipe,steps):
-    """Explicit offline de-distilled sampling; never change the checkpoint on disk."""
-    if type(steps) is not int or steps not in (12,16,20,24,40):
-        raise ValueError("Explicit offline uniform comparison step count required")
-    original=list(getattr(pipe.config,"sample_sigmas",None) or [])
-    tail_sigma_grid(original,"native")
-    pipe.register_to_config(sample_sigmas=None)
-    return {"requested_steps":steps,"original_sigmas":original,
-        "sampling":"official_pipeline_uniform_schedule_on_turbo_weights",
-        "checkpoint_modified":False,"quality_permission":False}
+    """Explicit offline comparison, sharing the exact opt-in deployment sampler."""
+    from .sampling import configure_uniform_sampling
+    return configure_uniform_sampling(pipe,steps)

@@ -32,6 +32,8 @@ def main():
         help="Offline original Qwen2.1 family checkpoint only; never overrides a Turbo grid")
     p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0,
         help="Explicit offline Turbo uniform schedule comparison; leaves checkpoint/default deployment unchanged")
+    p.add_argument("--deployment-uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0,
+        help="Verify the actual deployment sampler without per-item offline overrides")
     p.add_argument("--foveation-mass",type=float,default=0.,
         help="Offline reversible complete-frame sampling mass in0..0.35; 0 keeps native input")
     p.add_argument("--hint-transmission",type=float,default=0.,
@@ -110,6 +112,9 @@ def main():
         p.error("Prefix exclusion and margins require --exclude-reference-keys")
     if a.exclude_reference_keys and (not a.source_flow_context or not a.fresh_rim_reports):
         p.error("Offline reference exclusion requires source flow context and fresh original rim proofs")
+    if a.deployment_uniform_steps and (a.base_steps or a.uniform_steps or a.sigma_profile!="native"
+            or a.hint_transmission or a.foveation_mass):
+        p.error("Deployment sampler verification requires a standalone whole-frame schedule")
     base_probe=None
     if a.base_steps:
         if a.sigma_profile!="native" or a.lora_path or a.hint_transmission or a.foveation_mass:
@@ -176,6 +181,7 @@ def main():
     torch.set_num_threads(1)
     cfg=DeploymentConfig(model=str(a.model),gpus=[a.gpu],quantization=a.quantization,float8_granularity=a.granularity,
         transformer_phase_offload=a.transformer_phase_offload,prompt_encoder="lean",
+        uniform_steps=a.deployment_uniform_steps,
         compile=a.compile_projections,compile_scope="projections",compile_dynamic=a.compile_projections,
         separate_vae_decode=a.separate_vae_decode,vae_tiling=a.vae_tiling,
         vae_tile_size=1024,vae_tile_stride=768,lora_path=str(a.lora_path) if a.lora_path else "",
@@ -194,10 +200,13 @@ def main():
     if a.base_steps and original_sigmas:
         raise ValueError("Base probe cannot discard a stored Turbo schedule")
     uniform_probe=None
+    if a.deployment_uniform_steps:
+        uniform_probe=pipe._watermark_sampling_info
+        original_sigmas=list(uniform_probe["original_sigmas"])
     if a.uniform_steps:
         from watermark_studio.probe_schedules import configure_turbo_uniform_probe
         uniform_probe=configure_turbo_uniform_probe(pipe,a.uniform_steps)
-    experimental_sigmas=(None if a.base_steps or a.uniform_steps else tail_sigma_grid(original_sigmas,a.sigma_profile))
+    experimental_sigmas=(None if a.base_steps or a.uniform_steps or a.deployment_uniform_steps else tail_sigma_grid(original_sigmas,a.sigma_profile))
     if a.sigma_profile!="native":
         pipe.register_to_config(sample_sigmas=experimental_sigmas)
     options=ProcessingConfig.model_validate(summary["options"])
@@ -267,7 +276,7 @@ def main():
                 compact_cache=a.compact_reference_cache,
                 max_sigma=a.reference_exclusion_max_sigma) as reference_audit:
             generated=restore_full_frame(independent_batch(pipe,[item],budget,a.kv_cache)[0],source.size,sampling)
-        if (a.base_steps or a.uniform_steps) and len(pipe.scheduler.timesteps)!=(a.base_steps or a.uniform_steps):
+        if (a.base_steps or a.uniform_steps or a.deployment_uniform_steps) and len(pipe.scheduler.timesteps)!=(a.base_steps or a.uniform_steps or a.deployment_uniform_steps):
             raise ValueError("Actual diffusion forward count differs from explicit requested steps")
         if a.exclude_reference_keys:
             if reference_audit["forward_calls"]!=len(pipe.scheduler.timesteps):
@@ -330,7 +339,7 @@ def main():
             "exclude_prefix_reference_keys":a.exclude_prefix_reference_keys,
             "reference_exclusion_margin_cells":a.reference_exclusion_margin_cells,
             "compact_reference_cache":a.compact_reference_cache,
-            "reference_exclusion_max_sigma":a.reference_exclusion_max_sigma,"separate_vae_decode":a.separate_vae_decode},
+            "reference_exclusion_max_sigma":a.reference_exclusion_max_sigma,"deployment_uniform_steps":a.deployment_uniform_steps,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
