@@ -75,3 +75,32 @@ def test_alias_refinement_preserves_unflagged_positions_and_rejects_unbound_matc
     ])==[1,2]
     with pytest.raises(ValueError,match="outside"):
         slots(["town/a.jpg"],[{"sealed_path":"not-in-reservation.jpg"}])
+
+
+def test_refined_reservation_parent_is_not_exposure_but_api_inputs_cannot_be_hidden(tmp_path):
+    import hashlib
+    import json
+    import runpy
+    from pathlib import Path
+
+    import pytest
+
+    script=runpy.run_path(str(Path(__file__).resolve().parents[1]/"scripts/audit-evaluation-isolation.py"))
+    root=tmp_path/"root";root.mkdir();parent=root/"parent";parent.mkdir()
+    (parent/"input").mkdir();(parent/"sources.json").write_text("[]")
+    raw=b'{"sources": []}';(parent/"source-selection.json").write_bytes(raw)
+    sealed=root/"sealed";sealed.mkdir()
+    (sealed/"source-selection.json").write_text(json.dumps({
+        "refinement":{"parent_selection_sha256":hashlib.sha256(raw).hexdigest()}}))
+    state=tmp_path/"state";state.mkdir()
+    validate=script["validate_unexposed_parent"]
+    assert validate(root,sealed,state,parent)==parent
+    paths,catalogs,unresolved,missing=script["discover"](root,sealed,state,[parent])
+    assert not paths and not catalogs and not unresolved and not missing
+    job=state/("b"*32);job.mkdir()
+    (job/"summary.json").write_text(json.dumps({"input_dir":str(parent/"input")}))
+    with pytest.raises(ValueError,match="exposed"):
+        validate(root,sealed,state,parent)
+    (job/"summary.json").unlink();(parent/"output").mkdir()
+    with pytest.raises(ValueError,match="beyond"):
+        validate(root,sealed,state,parent)

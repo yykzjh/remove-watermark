@@ -23,13 +23,14 @@ def source_values(values):
     return result
 
 
-def discover(root,sealed,state):
+def discover(root,sealed,state,unexposed_reservations=()):
+    reservations={sealed,*unexposed_reservations}
     paths=set();catalogs=[];unresolved=[]
     for f in sorted(root.glob("*/sources.json")):
-        if f.parent==sealed:continue
+        if f.parent in reservations:continue
         paths.update(source_values(json.loads(f.read_text())));catalogs.append(str(f))
     for f in sorted(root.glob("*/source-selection.json")):
-        if f.parent==sealed:continue
+        if f.parent in reservations:continue
         data=json.loads(f.read_text());catalogs.append(str(f))
         if data.get("sources"):
             paths.update(source_values(data["sources"]));continue
@@ -51,6 +52,25 @@ def discover(root,sealed,state):
     return [p for p in photos if Path(p).is_file()],catalogs,unresolved,missing
 
 
+def validate_unexposed_parent(root,sealed,state,parent):
+    """Skip only an immutable, never-inferred reservation directly bound to the new selection."""
+    parent=parent.resolve(strict=True)
+    if parent.parent!=root or parent==sealed:
+        raise ValueError("Reservation parent must be a separate sibling")
+    if {p.name for p in parent.iterdir()}!={"input","sources.json","source-selection.json"}:
+        raise ValueError("Parent contains artifacts beyond a source-only reservation")
+    raw=(parent/"source-selection.json").read_bytes()
+    current=json.loads((sealed/"source-selection.json").read_text())
+    if current.get("refinement",{}).get("parent_selection_sha256")!=hashlib.sha256(raw).hexdigest():
+        raise ValueError("Parent must match the new selection immutable lineage")
+    for f in state.glob("*/summary.json"):
+        if not re.fullmatch("[a-f0-9]{32}",f.parent.name):continue
+        input_dir=json.loads(f.read_text()).get("input_dir")
+        if input_dir and Path(input_dir).resolve().is_relative_to(parent):
+            raise ValueError("Parent was exposed to an API job; it must remain historical")
+    return parent
+
+
 def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--root",type=Path,required=True)
@@ -60,6 +80,8 @@ def main():
     p.add_argument("--extra-history",type=Path)
     p.add_argument("--known-history-gaps",type=Path)
     p.add_argument("--workers",type=int,default=4)
+    p.add_argument("--unexposed-reservation-parent",type=Path,
+        help="Direct immutable parent of a pre-inference alias refinement; API exposure is forbidden")
     a=p.parse_args()
     root=a.root.resolve(strict=True);sealed=a.sealed.resolve(strict=True)
     if not 1<=a.workers<=8 or sealed.parent!=root or a.target.resolve().parent!=root:
@@ -76,7 +98,9 @@ def main():
         frozen.append((str(path),expected))
     if len({p for p,_ in frozen})!=len(frozen) or len({s for _,s in frozen})!=len(frozen):
         raise ValueError("Frozen selection encoded identities already repeat")
-    prior,catalogs,unresolved,missing=discover(root,sealed,a.state_dir)
+    parents=([validate_unexposed_parent(root,sealed,a.state_dir,a.unexposed_reservation_parent)]
+        if a.unexposed_reservation_parent else [])
+    prior,catalogs,unresolved,missing=discover(root,sealed,a.state_dir,parents)
     history_gaps=json.loads(a.known_history_gaps.read_text()) if a.known_history_gaps else []
     if not isinstance(history_gaps,list) or len(history_gaps)>128:
         raise ValueError("Bounded explicit unresolved history ledger required")
@@ -127,7 +151,7 @@ def main():
     report={"version":1,"state":"completed","qualified":not (matches or errors or missing or unresolved or history_gaps),
         "selection_sha256":hashlib.sha256(raw_selection).hexdigest(),"sealed_sources":len(frozen),
         "sealed_encoded_unique":len(sealed_encoded),"historical_paths":len(prior),"historical_unique_encoded":history_unique,
-        "catalogs":len(catalogs),"unresolved_catalog_paths":len(unresolved),"missing_history_paths":len(missing),
+        "catalogs":len(catalogs),"unexposed_reservation_parents":[str(v) for v in parents],"unresolved_catalog_paths":len(unresolved),"missing_history_paths":len(missing),
         "fingerprint_errors":len(errors),"known_history_gaps":len(history_gaps),"exact_matches":sum(r["relation"] in ("encoded_equal","decoded_rgb_equal") for r in matches),
         "near_duplicate_candidates":sum(r["relation"].startswith("near_") for r in matches),
         "seconds":round(time.monotonic()-began,3),"model_calls":0,"images_changed":0,"previews_created":0,
