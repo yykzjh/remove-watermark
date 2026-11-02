@@ -52,14 +52,14 @@ def target_key_keep(transformer,items,img_mask,img_shapes,device,margin_cells=0)
 
 
 @contextmanager
-def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_cells=0):
+def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_cells=0,compact_cache=False):
     """Apply only to an explicit offline probe and restore every processor/method on exit."""
     audit={"enabled":enabled,"whole_source_pixels_unchanged":True,"prefix_computation_unchanged":not exclude_prefix,
         "extra_model_forwards":0,"forward_calls":0,"quality_permission":False,
-        "reference_margin_cells":margin_cells}
+        "reference_margin_cells":margin_cells,"compact_reference_cache":compact_cache}
     if type(margin_cells) is not int or not 0<=margin_cells<=8:
         raise ValueError("Bounded integer reference-key margin required")
-    if (exclude_prefix or margin_cells) and not enabled:
+    if (exclude_prefix or margin_cells or compact_cache) and not enabled:
         raise ValueError("Prefix exclusion and margins require explicit reference exclusion")
     if not enabled:
         yield audit
@@ -75,7 +75,8 @@ def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_c
         for block in transformer.transformer_blocks}.values())
     if not processors or any(not isinstance(proc,IndependentSDPAProcessor) for proc in processors):
         raise ValueError("Only the verified independent SDPA processor supports this probe")
-    names=("_watermark_target_key_keep","_watermark_target_query_count","_watermark_exclude_prefix_keys")
+    names=("_watermark_target_key_keep","_watermark_target_query_count",
+        "_watermark_exclude_prefix_keys","_watermark_prefix_cache_plan")
     previous=[{name:(hasattr(proc,name),getattr(proc,name,None)) for name in names} for proc in processors]
     original=transformer.forward;signature=inspect.signature(original);layout={}
     def forward(*args,**kwargs):
@@ -84,6 +85,12 @@ def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_c
         if not layout:
             keep,count,fractions=target_key_keep(transformer,items,img_mask,shapes,hidden.device,margin_cells)
             layout.update(mask=img_mask.detach().clone(),shapes=shapes,keep=keep,count=count)
+            if compact_cache:
+                from .reference_cache import ReferencePrefixCache
+                layout["cache_plan"]=ReferencePrefixCache(keep,count)
+                audit.update(original_prefix_tokens=layout["cache_plan"].prefix_tokens,
+                    compact_prefix_tokens=layout["cache_plan"].compact_tokens,
+                    prefix_cache_fraction=layout["cache_plan"].compact_tokens/layout["cache_plan"].prefix_tokens)
             audit.update(method=("all_query_reference_key_exclusion_v1" if exclude_prefix
                 else "target_only_reference_key_exclusion_v1"),
                 excluded_source_fractions=fractions,target_tokens=count,joint_key_tokens=keep.shape[1])
@@ -94,6 +101,7 @@ def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_c
             proc._watermark_target_key_keep=layout["keep"]
             proc._watermark_target_query_count=layout["count"]
             proc._watermark_exclude_prefix_keys=exclude_prefix
+            proc._watermark_prefix_cache_plan=layout.get("cache_plan")
         audit["forward_calls"]+=1
         return original(*args,**kwargs)
     try:

@@ -10,6 +10,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from watermark_studio.attention import IndependentSDPAProcessor
+from watermark_studio.reference_cache import ReferencePrefixCache
 from watermark_studio.reference_exclusion import reference_exclusion
 
 
@@ -24,18 +25,20 @@ def attn_layer():
         to_out=[nn.Identity(),nn.Identity()])
 
 
-@pytest.mark.parametrize("exclude,exclude_prefix",[(False,False),(True,False),(True,True)])
-def test_target_reference_exclusion_is_exact_sdpa_and_preserves_prefix_and_cache(exclude,exclude_prefix):
+@pytest.mark.parametrize("exclude,exclude_prefix,compact",[
+    (False,False,False),(True,False,False),(True,True,False),(True,False,True),(True,True,True)])
+def test_target_reference_exclusion_is_exact_sdpa_and_preserves_prefix_and_cache(exclude,exclude_prefix,compact):
     torch.manual_seed(93)
     attn=attn_layer();processor=IndependentSDPAProcessor("native");cache=Cache()
     hidden=torch.randn(2,14,8);valid=torch.ones(2,14,dtype=torch.bool);valid[1,1]=False
     segments=[(0,2,True),(2,6,False),(6,8,True)]
     keep=torch.ones(2,14,dtype=torch.bool)
     if exclude:
-        keep[0,2:4]=False;keep[1,4:6]=False
+        keep[0,2:3]=False;keep[1,3:6]=False
         processor._watermark_target_key_keep=keep
         processor._watermark_target_query_count=6
         processor._watermark_exclude_prefix_keys=exclude_prefix
+        if compact:processor._watermark_prefix_cache_plan=ReferencePrefixCache(keep,6)
     allowed=torch.zeros(2,14,14,dtype=torch.bool)
     for start,end,is_text in segments:
         allowed[:,start:end,:start]=True
@@ -58,7 +61,11 @@ def test_target_reference_exclusion_is_exact_sdpa_and_preserves_prefix_and_cache
         torch.testing.assert_close(full[:,:8],baseline[:,:8],atol=0,rtol=0)
     else:
         assert not torch.equal(full[:,2:8],baseline[:,2:8])
-    torch.testing.assert_close(cache.values[0],k.transpose(1,2)[:,:8],atol=0,rtol=0)
+    prefix=k.transpose(1,2)[:,:8]
+    if compact:
+        prefix=processor._watermark_prefix_cache_plan.pack(prefix)
+        assert cache.values[0].shape[1]==7
+    torch.testing.assert_close(cache.values[0],prefix,atol=0,rtol=0)
 
 
 class Transformer:
@@ -71,7 +78,8 @@ class Transformer:
 
 
 @pytest.mark.parametrize("exclude_prefix",[False,True])
-def test_exact_joint_layout_independent_masks_and_exception_cleanup(exclude_prefix):
+@pytest.mark.parametrize("compact",[False,True])
+def test_exact_joint_layout_independent_masks_and_exception_cleanup(exclude_prefix,compact):
     transformer=Transformer();pipe=SimpleNamespace(transformer=transformer)
     # Four VLM slots per4x4-token image, with two interleaved text positions.
     img_mask=torch.tensor([[False,True,True,True,True,False,True,True,True,True]]*2)
@@ -80,7 +88,7 @@ def test_exact_joint_layout_independent_masks_and_exception_cleanup(exclude_pref
            {"_reference_exclusion_regions":[{"box":[.5,.5,1,1]}]}]
     old_forward=transformer.forward
     with pytest.raises(RuntimeError,match="test cleanup"), reference_exclusion(pipe,items,enabled=True,
-            exclude_prefix=exclude_prefix) as audit:
+            exclude_prefix=exclude_prefix,compact_cache=compact) as audit:
         keep=transformer.forward(torch.zeros(2,32,8),img_mask,shapes)
         assert keep.shape==(2,34) and audit["forward_calls"]==1
         assert audit["excluded_source_fractions"]==[.25,.25]
@@ -89,11 +97,14 @@ def test_exact_joint_layout_independent_masks_and_exception_cleanup(exclude_pref
         assert keep[:,[0,17]].all() and keep[:,18:].all()
         assert audit["whole_source_pixels_unchanged"]
         assert audit["prefix_computation_unchanged"] is not exclude_prefix
+        if compact:
+            assert audit["original_prefix_tokens"]==18 and audit["compact_prefix_tokens"]==14
         raise RuntimeError("test cleanup")
     assert transformer.forward==old_forward
     assert not hasattr(transformer.processor,"_watermark_target_key_keep")
     assert not hasattr(transformer.processor,"_watermark_target_query_count")
     assert not hasattr(transformer.processor,"_watermark_exclude_prefix_keys")
+    assert not hasattr(transformer.processor,"_watermark_prefix_cache_plan")
 
 
 def test_disabled_scope_does_not_modify_processor_or_forward():

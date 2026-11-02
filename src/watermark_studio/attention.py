@@ -49,6 +49,12 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
                  layer_cache=None, kv_cache_mode=None, cache_write_slice=None,
                  segments=None, key_valid=None):
         from .optimizations import prepare_qkv
+        cache_plan=getattr(self,"_watermark_prefix_cache_plan",None)
+        if cache_plan is not None:
+            if kv_cache_mode=="extract":
+                layer_cache=cache_plan.extracting(layer_cache,cache_write_slice)
+            elif kv_cache_mode!="cached" or layer_cache is None:
+                raise ValueError("Reference cache compaction requires explicit KV caching")
         query, key, value, seq_len_q = prepare_qkv(
             attn, hidden_states, rotary_emb, layer_cache, kv_cache_mode, cache_write_slice
         )
@@ -56,7 +62,12 @@ class IndependentSDPAProcessor(QwenImage21AttnProcessor):
             if getattr(self,"_watermark_target_key_keep",None) is not None:
                 if (kv_cache_mode!="cached" or query.shape[1]!=self._watermark_target_query_count):
                     raise ValueError("Reference exclusion without prefix segments requires cached target queries")
-                attention_mask=self._target_mask(attention_mask,key)
+                if cache_plan is None:
+                    attention_mask=self._target_mask(attention_mask,key)
+                else:
+                    if key.shape[1]!=cache_plan.compact_tokens+cache_plan.target_tokens:
+                        raise ValueError("Cached compact prefix length differs from attention keys")
+                    attention_mask=cache_plan.cached_mask(attention_mask)
             output = attention(query, key, value, attention_mask, self._attention_backend)
         else:
             outputs = []
