@@ -10,11 +10,13 @@ def context_support(values, height, width, margin=1):
     if type(margin) is not int or not 0<=margin<=16:
         raise ValueError("Bounded integer latent margin required")
     mask=values["edit_mask"]
-    if mask.shape!=(1,(height//16)*(width//16)) or height%32 or width%32:
+    if (mask.ndim!=2 or not 1<=mask.shape[0]<=8
+            or mask.shape!=(values["source_latents"].shape[0],(height//16)*(width//16))
+            or height%32 or width%32):
         raise ValueError("Single complete native latent grid required")
     if not torch.isfinite(mask).all() or not ((mask>=0)&(mask<=1)).all():
         raise ValueError("Finite exact overlay support required")
-    mask=(mask>0).float().reshape(1,1,height//16,width//16)
+    mask=(mask>0).float().reshape(mask.shape[0],1,height//16,width//16)
     mask=functional.max_pool2d(mask,2*margin+1,1,margin)
     return mask.flatten(2).transpose(1,2).to(values["source_latents"].dtype)
 

@@ -56,14 +56,20 @@ def model_signature(model):
 def editing_kwargs(tensors,height,width,vae_scale_factor=16):
     """Match the pinned Qwen21 production forward layout, source before target."""
     import torch
-    n=tensors["clean_latents"].shape[1]
-    if (tensors["source_latents"].shape!=tensors["clean_latents"].shape or
+    latent=tensors["clean_latents"]
+    if latent.ndim!=3:raise ValueError("Frozen full-photo Qwen21 layout mismatch")
+    batch,n,_=latent.shape
+    if (not 1<=batch<=8 or tensors["source_latents"].shape!=latent.shape or
+            tensors["prompt_embeds"].shape[0]!=batch or
+            tensors["prompt_attention_mask"].shape!=tensors["prompt_embeds"].shape[:2] or
+            tensors["image_pad_mask"].shape[0]!=batch or
+            any(not torch.equal(tensors["image_pad_mask"][0],row) for row in tensors["image_pad_mask"][1:]) or
             n!=(height//vae_scale_factor)*(width//vae_scale_factor) or n%4 or
             tensors["image_pad_mask"].shape[1]!=tensors["prompt_embeds"].shape[1]+n//4):
         raise ValueError("Frozen full-photo Qwen21 layout mismatch")
     mask=tensors["prompt_attention_mask"]
     return {"encoder_hidden_states":tensors["prompt_embeds"],
         "encoder_hidden_states_mask":None if torch.all(mask) else mask,
-        "img_shapes":[[(1,height//vae_scale_factor,width//vae_scale_factor)]*2],
+        "img_shapes":[[(1,height//vae_scale_factor,width//vae_scale_factor)]*2 for _ in range(batch)],
         "img_mask":tensors["image_pad_mask"],"attention_kwargs":None,
         "kv_cache":None,"kv_cache_mode":None,"return_dict":False}

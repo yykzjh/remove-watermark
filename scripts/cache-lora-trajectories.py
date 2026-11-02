@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import runpy
@@ -17,6 +18,8 @@ def main():
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--seed",type=int,default=20261102)
+    p.add_argument("--batch-size",type=int,choices=[1,2,4,8],default=1)
+    p.add_argument("--kv-cache",action="store_true")
     p.add_argument("--uniform-steps",type=int,choices=[12,16,20,24,40])
     p.add_argument("--source-flow-context",action="store_true")
     p.add_argument("--context-margin-cells",type=int,choices=[0,1,2,3,4,6,8,12,16],default=1)
@@ -55,6 +58,8 @@ def main():
     import numpy as np
     import torch
     from diffusers import FlowMatchEulerDiscreteScheduler, QwenImage21Transformer2DModel
+    from diffusers.models.transformers.transformer_qwenimage21 import QwenImage21KVCache
+    from safetensors import safe_open
     from safetensors.torch import load_file, save_file
 
     from watermark_studio.attention import IndependentSDPAProcessor
@@ -79,11 +84,23 @@ def main():
         "scope":"Offline synthetic training trajectories; exact clean targets remain real original crops",
         "quality_permission":False,"load_seconds":round(load_seconds,3),"rows":results}
     (work/"manifest.json").write_text(json.dumps(report,indent=2))
+    buckets={}
+    for ordinal,row in enumerate(rows):
+        with safe_open(row["path"],framework="pt",device="cpu") as frozen:
+            key=(row["height"],row["width"],tuple(frozen.get_slice("prompt_embeds").get_shape()),
+                hashlib.sha256(frozen.get_tensor("image_pad_mask").numpy().tobytes()).hexdigest())
+        buckets.setdefault(key,[]).append((ordinal,row))
+    batches=[group[offset:offset+a.batch_size] for group in buckets.values()
+        for offset in range(0,len(group),a.batch_size)]
     with torch.inference_mode():
-        for ordinal,row in enumerate(rows):
-            values={k:v.to("cuda:0") for k,v in load_file(row["path"]).items()}
-            clean=values["clean_latents"];seed=a.seed+ordinal
-            noise=cpu_packed_noise(row["height"],row["width"],clean.shape[-1],seed,clean.dtype).to("cuda:0")
+        for batch_index,group in enumerate(batches):
+            row=group[0][1]
+            frozen=[load_file(r["path"]) for _,r in group]
+            values={key:torch.cat([v[key] for v in frozen],0).to("cuda:0") for key in frozen[0]}
+            clean=values["clean_latents"]
+            seeds=[a.seed+ordinal for ordinal,_ in group]
+            noise=torch.cat([cpu_packed_noise(row["height"],row["width"],clean.shape[-1],seed,clean.dtype)
+                for seed in seeds],0).to("cuda:0")
             support=context_support(values,row["height"],row["width"],a.context_margin_cells)
             scheduler.set_timesteps(sigmas=sigmas,device="cuda:0")
             runtime=scheduler.sigmas.float().cpu().tolist()
@@ -94,24 +111,32 @@ def main():
                 return support*current+(1-support)*reference
             current=blend(noise.clone(),runtime[0]);states=[];velocities=[]
             kwargs=editing_kwargs(values,row["height"],row["width"])
+            kwargs["kv_cache"]=QwenImage21KVCache(len(model.transformer_blocks)) if a.kv_cache else None
             for i,timestep in enumerate(scheduler.timesteps):
                 states.append(current.cpu().contiguous())
+                kwargs["kv_cache_mode"]=("extract" if i==0 else "cached") if a.kv_cache else None
                 with model.cache_context("cond"):
                     prediction=model(hidden_states=torch.cat([values["source_latents"],current],1),
-                        timestep=timestep.expand(1).to(torch.bfloat16)/1000,**kwargs)[0][:,-clean.shape[1]:]
+                        timestep=timestep.expand(len(group)).to(torch.bfloat16)/1000,
+                        **kwargs)[0][:,-clean.shape[1]:]
                 velocities.append(prediction.cpu().contiguous())
                 current=scheduler.step(prediction,timestep,current,return_dict=False)[0]
                 current=blend(current,runtime[i+1])
-            path=work/(row["id"]+".safetensors")
-            save_file({"states":torch.stack(states),"velocities":torch.stack(velocities),
-                "sigmas":torch.tensor(runtime,dtype=torch.float32),"noise":noise.cpu().contiguous(),
-                "final_latents":current.cpu().contiguous()},str(path),
-                metadata={"feature_sha256":row["sha256"],"seed":str(seed)})
-            results.append({"id":row["id"],"path":str(path),"sha256":digest(path),
-                "feature_sha256":row["sha256"],"seed":seed,"steps":len(sigmas)})
+            states=torch.stack(states);velocities=torch.stack(velocities)
+            for index,((_,original),seed) in enumerate(zip(group,seeds)):
+                path=work/(original["id"]+".safetensors")
+                save_file({"states":states[:,index:index+1].contiguous(),
+                    "velocities":velocities[:,index:index+1].contiguous(),
+                    "sigmas":torch.tensor(runtime,dtype=torch.float32),
+                    "noise":noise[index:index+1].cpu().contiguous(),
+                    "final_latents":current[index:index+1].cpu().contiguous()},str(path),
+                    metadata={"feature_sha256":original["sha256"],"seed":str(seed)})
+                results.append({"id":original["id"],"path":str(path),"sha256":digest(path),
+                    "feature_sha256":original["sha256"],"seed":seed,"steps":len(sigmas),
+                    "teacher_batch_size":len(group)})
             print(json.dumps({"completed":len(results),"total":len(rows),
                 "seconds":round(time.monotonic()-began,3)}),flush=True)
-            if ordinal%20==0 and (isolation()!=reserved or revision!=subprocess.check_output(
+            if batch_index%20==0 and (isolation()!=reserved or revision!=subprocess.check_output(
                     ["git","rev-parse","HEAD"],text=True).strip()):
                 raise ValueError("Code or GPU reservation changed")
     if signature!=model_signature(cached["model"]) or digest(a.cache)!=report["feature_cache_sha256"]:

@@ -40,3 +40,14 @@ def test_editing_layout_keeps_both_full_frame_image_grids():
     assert result["encoder_hidden_states_mask"] is None
     values["image_pad_mask"]=torch.zeros(1,14,dtype=torch.bool)
     with pytest.raises(ValueError,match="layout"):editing_kwargs(values,64,64)
+
+
+def test_editing_batch_rejects_cross_image_prefix_layout_mismatch():
+    torch=pytest.importorskip("torch")
+    from watermark_studio.training_features import editing_kwargs
+    values={"clean_latents":torch.zeros(2,16,64),"source_latents":torch.zeros(2,16,64),
+        "prompt_embeds":torch.zeros(2,11,32),"prompt_attention_mask":torch.ones(2,11,dtype=torch.bool),
+        "image_pad_mask":torch.zeros(2,15,dtype=torch.bool)}
+    assert len(editing_kwargs(values,64,64)["img_shapes"])==2
+    values["image_pad_mask"][1,0]=True
+    with pytest.raises(ValueError,match="layout"):editing_kwargs(values,64,64)
