@@ -33,6 +33,7 @@ def main():
     parser.add_argument("--quality-check", action="store_true")
     parser.add_argument("--quality-cross-review", action="store_true")
     parser.add_argument("--quality-auto-retry", action="store_true")
+    parser.add_argument("--quality-retry-localized",action="store_true",help="Retry only localized measured/visible defects; keep unsupported disputes in review")
     parser.add_argument("--quality-max-attempts", type=int, default=3, help="0: until pass or cancel")
     parser.add_argument("--quality-retry-resolution", type=int, default=1024)
     parser.add_argument("--preserve-background", action="store_true", help="Enable original protection for fine crop strategies or whole-image composition")
@@ -68,6 +69,7 @@ def main():
                 "quality_check": args.quality_check,
                 "quality_cross_review": args.quality_cross_review,
                 "quality_auto_retry": args.quality_auto_retry,
+                "quality_retry_localized":args.quality_retry_localized,
                 "quality_max_attempts": args.quality_max_attempts,
                 "quality_retry_resolution": args.quality_retry_resolution,
                 "preserve_background": args.preserve_background,

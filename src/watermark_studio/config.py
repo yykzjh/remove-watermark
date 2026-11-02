@@ -48,6 +48,7 @@ class ProcessingConfig(BaseModel):
     quality_check: bool = False
     quality_cross_review: bool = False
     quality_auto_retry: bool = False
+    quality_retry_localized: bool = False
     quality_max_attempts: int = Field(default=3, ge=0, le=20)
     quality_retry_resolution: Literal[512, 768, 1024, 1280, 1536, 2048] = 1024
     quality_resolution: int = Field(default=768, ge=384, le=1280, multiple_of=32)
@@ -69,6 +70,8 @@ class ProcessingConfig(BaseModel):
             raise ValueError("首轮精细策略需要启用原图保护")
         if self.quality_cross_review and not self.quality_check:
             raise ValueError("编辑侧争议复核需要启用质量检验")
+        if self.quality_retry_localized and not self.quality_auto_retry:
+            raise ValueError("有位置依据的返工策略需要启用自动返工")
         if self.quality_auto_retry and not self.quality_check:
             raise ValueError("自动返工需要启用质量检验")
         if bool(self.output_width) != bool(self.output_height):

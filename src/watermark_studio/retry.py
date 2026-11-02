@@ -49,9 +49,43 @@ def unsupported_residual_dispute(quality):
         and not any(f.get("issue") != "physical_text" for f in explanation.get("findings", []))
     )
 
+def localized_repair_supported(quality):
+    """Only bounded measured defects or visible model evidence can trigger regeneration."""
+    from .evidence import REPAIR_ACTIONS, local_findings, valid_box
+
+    if quality.get("status")!="review" or "source_physical_ambiguity" in quality.get("guard_codes",[]):
+        return False
+    for item in quality.get("evidence",[])+local_findings(quality):
+        if not isinstance(item,dict) or item.get("issue") not in REPAIR_ACTIONS:
+            continue
+        if item["issue"] in {"physical_text","uncertain_detail"}:
+            continue
+        try:
+            box=valid_box(item.get("box"))
+        except ValueError:
+            continue
+        if box is None:
+            continue
+        if item.get("source")=="vlm" and item.get("certainty")=="visible":
+            return True
+        if item.get("source")!="local_check":
+            continue
+        if item["issue"]!="residual_text":
+            return True
+        # A suspected residual away from a confirmed original overlay is not
+        # permission to erase previously visible physical text.
+        for region in quality.get("source_regions",[]):
+            r=region["box"]
+            overlap=max(0,min(box[2],r[2])-max(box[0],r[0]))*max(0,min(box[3],r[3])-max(box[1],r[1]))
+            if overlap>=.5*(box[2]-box[0])*(box[3]-box[1]):
+                return True
+    return False
+
+
 def retry_allowed(result, options, attempt):
     return (
         options.quality_auto_retry and result.get("quality", {}).get("status") in {"review", "error"}
+        and (not options.quality_retry_localized or localized_repair_supported(result.get("quality",{})))
         and "source_physical_ambiguity" not in result.get("quality",{}).get("guard_codes",[])
         and (options.quality_max_attempts == 0 or attempt < options.quality_max_attempts)
     )
@@ -69,6 +103,29 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
     """Runtime schedules rounds; this function performs exactly one attempt per input."""
     if not options.quality_auto_retry:
         return process(tasks, options, config, pipe, batch_limits)
+    if (options.quality_retry_localized
+            and not any(t.get("_retry") or t.get("_direct_first") or t.get("reuse_existing") for t in tasks)):
+        # First candidates go straight to their atomic final path. Successful
+        # images need no candidate/best/output copy round trip.
+        first=process(tasks,options,config,pipe,batch_limits)
+        if len(first)!=len(tasks):
+            raise RuntimeError("First candidate count differs from input task count")
+        outputs=[]
+        for task,result in zip(tasks,first):
+            if not result.get("ok") or result.get("quality",{}).get("status")=="passed":
+                result["quality_attempts"]=1
+                cross=result.get("quality",{}).get("cross_review",{})
+                result.update(cross_review_attempted_now=bool(cross.get("attempted")),
+                              cross_review_corrected_now=cross.get("status")=="corrected",
+                              cross_review_error_now=cross.get("status")=="error")
+                outputs.append(result)
+                continue
+            def record_existing(prepared,*args,task=task,result=result):
+                atomic_copy(task["destination"],prepared[0]["destination"],True)
+                return [result]
+            outputs.extend(process_attempts([task|{"_direct_first":True}],options,config,pipe,
+                                             batch_limits,job,record_existing))
+        return outputs
     # Retry feedback belongs to one photograph. Never share it across a batch.
     if len(tasks) > 1 and any(t.get("_retry") for t in tasks):
         return [result for task in tasks for result in process_attempts(
@@ -218,11 +275,14 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
         if saved["best"] is result:
             saved["best_attempt"] = current_attempt
             selected["best_attempt"] = current_attempt
-        if saved["best"] is not None:
+        if saved["best"] is not None and not (task.get("_direct_first") and not task.get("_retry")):
             atomic_copy(best, task["destination"], options.overwrite or bool(task.get("_retry")))
         selected["cross_review_attempted_now"] = bool(q.get("cross_review",{}).get("attempted"))
         selected["cross_review_corrected_now"] = q.get("cross_review",{}).get("status")=="corrected"
         selected["cross_review_error_now"] = q.get("cross_review",{}).get("status")=="error"
+        if (options.quality_retry_localized and selected.get("quality",{}).get("status") in {"review","error"}
+                and not localized_repair_supported(selected.get("quality",{}))):
+            selected["retry_blocked"]="unlocalized_or_ambiguous_evidence"
         again = retry_allowed(selected, options, current_attempt)
         if (again and task.get("_protect_disputed_text") and task.get("_recheck")
                 and selected.get("quality",{}).get("status") in {"review","error"}):

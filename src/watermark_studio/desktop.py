@@ -361,12 +361,6 @@ class MainWindow(QMainWindow):
         self.first_pass_mode.addItem("自动分区完整覆盖（推荐配方）","complete")
         self.first_pass_mode.setToolTip("精细策略需启用原图保护，内部自动分配模型输入预算；细小覆盖层使用可读的输入视图，无需统一框选。它可能包含多个模型调用，不等于仅调用模型一次。")
         form.addRow("首轮去水印策略",self.first_pass_mode)
-        self.roi_grouping = QComboBox()
-        self.roi_grouping.addItem("各水印独立推理","separate")
-        self.roi_grouping.addItem("自适应合并可读的相邻区域（实验）","adaptive")
-        self.roi_grouping.setToolTip("仅自动分区有效；小防伪码保留独立输入。合并输入后仍只回填各水印区域，区域之间保留原图。")
-        form.addRow("分区输入组织",self.roi_grouping)
-        self.roi_grouping_label=form.labelForField(self.roi_grouping)
         self.strategy_label=form.labelForField(self.first_pass_mode)
         self.first_pass_mode.currentIndexChanged.connect(self.mode_changed)
         self.processing_note=QLabel("整张原图直接输入模型，完整结果直接输出；不裁切水印子图、不回贴原图。返工也采用整图处理。")
@@ -412,6 +406,11 @@ class MainWindow(QMainWindow):
         self.quality_check.toggled.connect(self.quality_retry.setEnabled)
         self.quality_check.toggled.connect(lambda checked: self.quality_retry.setChecked(False) if not checked else None)
         form.addRow(self.quality_retry)
+        self.retry_localized=QCheckBox("仅返工有明确位置依据的缺陷")
+        self.retry_localized.setToolTip("无明确依据、检验错误及实物文字分歧保留复核，避免无效重试和误改原图；不会放宽通过标准。")
+        self.retry_localized.setEnabled(False)
+        self.quality_retry.toggled.connect(self.retry_localized.setEnabled)
+        form.addRow(self.retry_localized)
         self.quality_attempts = QSpinBox()
         self.quality_attempts.setRange(0, 20)
         self.quality_attempts.setValue(3)
@@ -482,8 +481,6 @@ class MainWindow(QMainWindow):
             self.blending_label.setVisible(show_blending)
             self.repair_blending.setEnabled(show_blending)
             selected=custom and self.tabs.currentIndex()==1
-            self.roi_grouping.setVisible(not selected and self.first_pass_mode.currentData()!="whole")
-            self.roi_grouping_label.setVisible(not selected and self.first_pass_mode.currentData()!="whole")
             self.first_pass_mode.setVisible(not selected)
             self.strategy_label.setVisible(not selected)
             self.preserve_background.setVisible(not selected and self.first_pass_mode.currentData()!="regions")
@@ -559,7 +556,7 @@ class MainWindow(QMainWindow):
                 concurrency=1 if single else self.concurrency.value(),
                 resolution=self.resolution.currentData(),
                 context=getattr(self,"processing_context",.6),
-                roi_grouping="separate" if custom else self.roi_grouping.currentData(),
+                roi_grouping="separate" if custom else getattr(self,"processing_roi_grouping","separate"),
                 preset=self.preset.currentData() if single else "auto",
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
@@ -567,6 +564,7 @@ class MainWindow(QMainWindow):
                 quality_cross_review=self.quality_check.isChecked() and self.quality_cross_review.isChecked()
                     and getattr(self,"cross_review_supported",False),
                 quality_auto_retry=self.quality_retry.isChecked(),
+                quality_retry_localized=self.quality_retry.isChecked() and self.retry_localized.isChecked(),
                 quality_max_attempts=self.quality_attempts.value(),
                 quality_retry_resolution=self.retry_resolution.currentData(),
                 preserve_background=self.preserve_background.isChecked() and not custom,
@@ -725,7 +723,7 @@ def default_ssh_program():
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     window.processing_context=getattr(args,"context",.6)
-    window.roi_grouping.setCurrentIndex(window.roi_grouping.findData(getattr(args,"roi_grouping","separate")))
+    window.processing_roi_grouping=getattr(args,"roi_grouping","separate")
     window.processing_whole_prompt_profile=getattr(args,"whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default)
     mode=getattr(args,"first_pass_mode","regions")
     window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData(mode))
@@ -735,6 +733,7 @@ def apply_processing_defaults(window, args):
     window.quality_check.setChecked(args.quality_check)
     window.quality_retry.setChecked(args.quality_auto_retry)
     window.quality_attempts.setValue(getattr(args,"quality_max_attempts",3))
+    window.retry_localized.setChecked(getattr(args,"quality_retry_localized",False))
     window.quality_cross_review.setChecked(getattr(args,"quality_cross_review",False))
     window.quality_batch.setValue(args.quality_batch_size)
     window.retry_resolution.setCurrentIndex(window.retry_resolution.findData(getattr(args,"quality_retry_resolution",1024)))
@@ -764,6 +763,7 @@ def main():
     parser.add_argument("--quality-auto-retry", action="store_true", help="Preselect original-based retries")
     parser.add_argument("--preserve-background", action="store_true", help="Preselect original protection for fine automatic crop strategies or whole-image composition")
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
+    parser.add_argument("--quality-retry-localized",action="store_true",help="Retry only measured/visible localized defects; preserve disputed candidates")
     parser.add_argument("--quality-max-attempts",type=int,choices=range(21),default=3,help="Maximum attempts including first; 0 continues until pass/cancel")
     parser.add_argument("--quality-retry-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
@@ -779,6 +779,8 @@ def main():
         parser.error("--context must be finite and in 0.1..2")
     if args.quality_cross_review and not args.quality_check:
         parser.error("--quality-cross-review requires --quality-check")
+    if args.quality_retry_localized and not args.quality_auto_retry:
+        parser.error("--quality-retry-localized requires --quality-auto-retry")
     if args.quality_auto_retry and not args.quality_check:
         parser.error("--quality-auto-retry requires --quality-check")
     app = QApplication(sys.argv[:1])

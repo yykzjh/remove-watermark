@@ -55,6 +55,7 @@ for profile in a.profiles:
     opts=dict(options,quality_auto_retry=False,quality_cross_review=False,overwrite=False)
     if profile=="roi-context":opts["context"]=.85
     elif profile=="roi-grouped":opts["roi_grouping"]="adaptive"
+    elif profile=="roi-evidence":opts.update(roi_grouping="separate",context=.45,quality_auto_retry=True,quality_retry_localized=True,quality_max_attempts=2,quality_retry_resolution=1024)
     elif profile=="roi-balanced":opts.update(roi_grouping=a.balanced_grouping,context=a.balanced_context,quality_auto_retry=True,quality_max_attempts=2,quality_retry_resolution=1024)
     elif profile=="roi-grouped-retry":opts.update(roi_grouping="adaptive",quality_auto_retry=True,quality_max_attempts=2,quality_retry_resolution=1024)
     elif profile=="whole-protected":opts.update(first_pass_mode="whole",whole_prompt_profile="neutral")
