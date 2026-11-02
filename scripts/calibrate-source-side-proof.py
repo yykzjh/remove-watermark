@@ -28,10 +28,11 @@ def labelled_proposal(photo,mask,core,native):
 
 def main():
     p=argparse.ArgumentParser(__doc__)
-    p.add_argument("--mode",choices=["side","top","band","observed-band"],default="side")
+    p.add_argument("--mode",choices=["side","top","band","observed-band","bound-band"],default="side")
     p.add_argument("--proposals",type=Path,required=True)
     p.add_argument("--controls",type=Path,required=True)
     p.add_argument("--physical-fixtures",type=Path)
+    p.add_argument("--top-proofs",nargs="+",type=Path)
     p.add_argument("--files",nargs="+",help="Explicit frozen original source subset")
     p.add_argument("--max-source-cases",type=int,default=6)
     p.add_argument("--gpu",type=int,required=True)
@@ -47,6 +48,8 @@ def main():
     data=json.loads(a.proposals.read_text())
     if data.get("version")!=1 or data.get("quality_permission") is not False:
         p.error("Unapproved immutable source-geometry artifact required")
+    if a.mode=="bound-band" and not a.top_proofs:
+        p.error("Bound-band diagnosis requires exact-source fresh digital-card proofs")
     cases=[]
     if a.files and (len(set(a.files))!=len(a.files) or not set(a.files).issubset({c["file"] for c in data["cases"]})):
         p.error("Existing unique frozen source filenames required")
@@ -138,6 +141,22 @@ def main():
     ep=Qwen3VLProcessor.from_pretrained(ep_path/"processor",local_files_only=True)
     verifier=load_quality_encoder(vp_path,cfg,"cuda:0");vp=load_quality_processor(vp_path)
     ocr=TargetTextPresence();load_seconds=time.monotonic()-began;began=time.monotonic()
+    top={}
+    for proof_path in a.top_proofs or []:
+        if not 0<proof_path.stat().st_size<=16*2**20:
+            raise ValueError("Bounded source-card report required")
+        proof_data=json.loads(proof_path.read_text())
+        if (proof_data.get("mode")!="top" or proof_data.get("sources_unchanged") is not True or
+                proof_data.get("false_approvals")!=0 or proof_data.get("weight_identity")!=identity):
+            raise ValueError("Fresh top proof canonical checkpoints mismatch")
+        for item in proof_data["rows"]:
+            proof=item.get("proof",{})
+            if proof.get("approved") is not True:
+                continue
+            key=(str(Path(item["source"]).resolve()),tuple(proof["mask"]))
+            if key in top:
+                raise ValueError("Ambiguous duplicate digital-card identity proof")
+            top[key]=proof
     rows=[]
     for c in cases:
         photo=load_photo(c["source"])[0]
@@ -148,6 +167,11 @@ def main():
             proof=(inspect_photo_rims(photo,proposed,editor,ep,verifier,vp,"cuda:0",
                 identity["relation"],ocr)[0] if proposed else
                 {"approved":False,"reason":"no_source_top_geometry"})
+        elif a.mode=="bound-band":
+            bound=top.get((str(Path(c["source"]).resolve()),tuple(c["proposal"]["mask"])))
+            proof=(diagnose_observed_band(photo,c["proposal"],editor,ep,verifier,vp,"cuda:0",
+                identity["relation"],ocr,_source_card_proof=bound) if bound else
+                {"approved":False,"band_consensus":False,"reason":"no_fresh_source_card_identity"})
         elif a.mode=="observed-band":
             proof=diagnose_observed_band(photo,c["proposal"],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)
         elif a.mode=="band":

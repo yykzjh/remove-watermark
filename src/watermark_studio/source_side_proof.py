@@ -191,7 +191,7 @@ band_state只能是unoccluded、covered或uncertain；有疑问选uncertain。
 不要代码围栏，不要其它字段。"""
 
 
-def parse_observed_band(raw):
+def parse_observed_band(raw, *, native_labels=False):
     """Reject reordered/duplicate keys, truncation and contradictory explanations."""
     if not isinstance(raw,str) or len(raw)>2048:
         raise ValueError("Bounded complete observed-band JSON required")
@@ -202,15 +202,18 @@ def parse_observed_band(raw):
     value=json.loads(raw,object_pairs_hook=unique)
     if (not isinstance(value,dict) or not isinstance(value["observation"],str) or
             not 4<=len(value["observation"].strip())<=320 or
-            value["band_state"] not in ("unoccluded","covered","uncertain")):
+            value["band_state"] not in (("真实原图裸露","数字面板覆盖","无法判断")
+                if native_labels else ("unoccluded","covered","uncertain"))):
         raise ValueError("Complete visible observation and exact band state required")
+    if native_labels:
+        value["band_state"]={"真实原图裸露":"unoccluded","数字面板覆盖":"covered","无法判断":"uncertain"}[value["band_state"]]
     value["evidence"]=value.pop("observation").strip()
     if value["band_state"]=="unoccluded" and _conflicted(value):
         raise ValueError("Unoccluded state contradicts its visible observation")
     return value
 
 
-def _observed_band_assessment(chats,encoder,processor,device):
+def _observed_band_assessment(chats,encoder,processor,device,*,native_labels=False):
     import torch
     tokenizer=processor.tokenizer;previous=tokenizer.padding_side
     try:
@@ -225,13 +228,13 @@ def _observed_band_assessment(chats,encoder,processor,device):
             clean_up_tokenization_spaces=False)
         if len(texts)!=1 or tokens>=160:
             raise ValueError("Complete non-truncated visible observation required")
-        return parse_observed_band(texts[0])|{"generation_tokens":tokens,"max_tokens":160}
+        return parse_observed_band(texts[0],native_labels=native_labels)|{"generation_tokens":tokens,"max_tokens":160}
     finally:
         tokenizer.padding_side=previous
 
 
 def diagnose_observed_band(photo,proposal,editor,editor_processor,verifier,verifier_processor,
-                            device,weights_relation,text_detector):
+                            device,weights_relation,text_detector,*,_source_card_proof=None):
     """Observe-first diagnostic; cannot grant restoration or waive quality checks."""
     stale={"approved","editor","independent","editor_band","independent_band","source_rim_sha256",
            "source_rgb_sha256","reason","seconds","band_consensus"}
@@ -242,13 +245,31 @@ def diagnose_observed_band(photo,proposal,editor,editor_processor,verifier,verif
         if weights_relation!="different_weights" or editor is verifier:
             raise ValueError("Independent source-band checkpoints required")
         chats=side_proof_chats(photo,proposal)
-        chats[0][0]["content"][-1]["text"]=OBSERVED_BAND_PROMPT
+        prompt=OBSERVED_BAND_PROMPT
+        if _source_card_proof is not None:
+            from .source_panel_rims import full_source_binding, restore_proven_rims
+            if (tuple(_source_card_proof.get("mask",[]))!=tuple(proposal["mask"]) or
+                    tuple(_source_card_proof.get("core",[]))!=tuple(proposal["core"]) or
+                    not full_source_binding(photo,_source_card_proof) or
+                    restore_proven_rims(photo,photo,[_source_card_proof])[1]!=1):
+                raise ValueError("Fresh source-card identity does not bind this original and candidate")
+            row["source_card_rgb_sha256"]=_source_card_proof["source_rgb_sha256"]
+            prompt=("目标主信息卡的数字叠加身份已由两个独立权重在这张原图上核验，"
+                "并以整幅RGB指纹绑定；它不是实物蓝牌或纸张。该事实只证明主卡身份，不证明R无遮挡。"
+                "请特别判断R是否仍在这个数字信息卡的蓝色/灰白底板内部。"
+                "纯蓝色无字部分也是数字底板；半透明底下看见原景仍是数字覆盖。"
+                "只有确认R处于数字底板、边框和应用投影之外，才能判断为真实原图裸露。\n"+prompt)
+            for old,new in (("unoccluded","真实原图裸露"),("covered","数字面板覆盖"),("uncertain","无法判断")):
+                prompt=prompt.replace(old,new)
+            row["profile"]="bound_observed_band_diagnostic_v1"
+        chats[0][0]["content"][-1]["text"]=prompt
         row["ocr"]=text_detector.inspect(photo,[proposal["restore_box"]])
         if row["ocr"].get("status")!="clear":
             raise ValueError("OCR uncertainty blocks band diagnosis")
         for label,model,processor in (("editor_band",editor,editor_processor),
                                        ("independent_band",verifier,verifier_processor)):
-            row[label]=_observed_band_assessment(chats,model,processor,device)
+            row[label]=(_observed_band_assessment(chats,model,processor,device,native_labels=True)
+                if _source_card_proof is not None else _observed_band_assessment(chats,model,processor,device))
             if row[label]["band_state"]!="unoccluded":
                 raise ValueError(label+" did not establish unoccluded source pixels")
         row["band_consensus"]=True

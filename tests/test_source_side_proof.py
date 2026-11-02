@@ -117,3 +117,18 @@ def test_observe_first_consensus_never_approves_source_pixels(monkeypatch):
     assert row["band_consensus"] and row["approved"] is False
     assert "source_rim_sha256" not in row
     assert restore_proven_rims(source,source,[row])[1]==0
+
+
+def test_bound_band_rejects_english_labels_and_stale_whole_source_proof():
+    import pytest
+
+    from watermark_studio.source_side_proof import diagnose_observed_band, parse_observed_band
+    assert parse_observed_band('{"observation":"R位于无字蓝色底板中","band_state":"数字面板覆盖"}',
+        native_labels=True)["band_state"]=="covered"
+    with pytest.raises(ValueError):
+        parse_observed_band('{"observation":"R显示连续草地，无数字覆盖。","band_state":"unoccluded"}',native_labels=True)
+    source=Image.new("RGB",(400,300),(80,110,60))
+    row=diagnose_observed_band(source,proposal(),object(),None,object(),None,
+        "cpu","different_weights",OCR(),_source_card_proof={"approved":True})
+    assert row["approved"] is False and not row["band_consensus"]
+    assert "bind this original" in row["reason"]
