@@ -61,6 +61,8 @@ def main():
         help="Offline target-only attention probe; complete original source pixels still enter both encoders")
     p.add_argument("--exclude-prefix-reference-keys",action="store_true",
         help="Offline all-query reference ablation, including constant source/text prefix; implies neither an extra generation nor changed source pixels")
+    p.add_argument("--reference-exclusion-margin-cells",type=int,choices=[0,1,2,3,4,6,8],default=0,
+        help="Offline VAE reference-token exclusion buffer only; never expands output pixel edits")
     p.add_argument("--separate-vae-decode",action="store_true")
     a=p.parse_args()
     selector_sha=None
@@ -92,8 +94,8 @@ def main():
         p.error("Select one encoder residency mechanism")
     if a.uniform_steps and (a.base_steps or a.sigma_profile!="native" or a.hint_transmission or a.foveation_mass):
         p.error("Uniform Turbo comparison cannot mix base mode, custom grids or conditioning")
-    if a.exclude_prefix_reference_keys and not a.exclude_reference_keys:
-        p.error("Prefix exclusion requires --exclude-reference-keys")
+    if (a.exclude_prefix_reference_keys or a.reference_exclusion_margin_cells) and not a.exclude_reference_keys:
+        p.error("Prefix exclusion and margins require --exclude-reference-keys")
     if a.exclude_reference_keys and (not a.source_flow_context or not a.fresh_rim_reports):
         p.error("Offline reference exclusion requires source flow context and fresh original rim proofs")
     base_probe=None
@@ -248,7 +250,8 @@ def main():
         from watermark_studio.reference_exclusion import reference_exclusion
         with override_methods(pipe.vae,decode=decode), reference_exclusion(
                 pipe,[item],enabled=a.exclude_reference_keys,
-                exclude_prefix=a.exclude_prefix_reference_keys) as reference_audit:
+                exclude_prefix=a.exclude_prefix_reference_keys,
+                margin_cells=a.reference_exclusion_margin_cells) as reference_audit:
             generated=restore_full_frame(independent_batch(pipe,[item],budget,a.kv_cache)[0],source.size,sampling)
         if (a.base_steps or a.uniform_steps) and len(pipe.scheduler.timesteps)!=(a.base_steps or a.uniform_steps):
             raise ValueError("Actual diffusion forward count differs from explicit requested steps")
@@ -310,7 +313,8 @@ def main():
             "image_adapter":getattr(pipe,"_image_adapter",None),"caption_job":a.caption_job,"original_sigmas":original_sigmas,"actual_sigmas":experimental_sigmas,
             "source_flow_context":a.source_flow_context,"context_margin_cells":a.context_margin_cells,
             "exclude_reference_keys":a.exclude_reference_keys,
-            "exclude_prefix_reference_keys":a.exclude_prefix_reference_keys,"separate_vae_decode":a.separate_vae_decode},
+            "exclude_prefix_reference_keys":a.exclude_prefix_reference_keys,
+            "reference_exclusion_margin_cells":a.reference_exclusion_margin_cells,"separate_vae_decode":a.separate_vae_decode},
         "server_isolation":isolation,"scope":"Frozen-source native whole-photo GEN1 with exact VAE-input capture"}
     (folder/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     (work/"summary.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))

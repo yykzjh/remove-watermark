@@ -1640,3 +1640,45 @@ excludes historical sources, retained sources, discarded sources, recovered user
 and their declared pixel/recompression candidates. Original reservation and audit files
 remain immutable. This is source isolation, without quality labels or generated outputs.
 A separate fresh full audit is required before claiming the new reservation is qualified.
+
+### 2026-11-02 Source-reference attention ablation, native whole-frame probes
+
+Pinned2533815 target-only exclusion leaves all prefix computations byte-identical in the
+real-Torch SDPA test. It removes only source-reference K/V positions within each automatically
+detected editable area for target queries. Actual source pixels enter both complete-frame
+encoders unchanged; all target/text keys remain. Prefix KV caching remains supported.
+Native six at12steps:3/6,62.462s generation;24steps:4/6 (job
+d0d6a70b652b4fb8a244027735246ccb). Matched QA tag
+goal95-reference-exclusion-lower600-matched30-quality-v1,95.668s.
+
+Pinnedaa26ada additionally tests all-query exclusion of the same source-reference keys.
+The constant source/text prefix changes in this variant but remains timestep-independent;
+cache/full-SDPA equality and per-image independent masks are tested explicitly.
+Native12 job42febfe20a054651be01f79024d36e21:5/6,62.252s generation,22.703s load.
+Native24 jobea5040d1d7b24d8cb3eae48d94f3aa36:4/6,100.564s,20.818s load.
+Fresh matched QA goal95-reference-prefix-lower800-matched36-quality-v1:
+base12/24=3/6 each,all-query12=5/6,all-query24=4/6;
+lower-balanced800 LoRA12/24=2/6 each. No QA criteria change.
+The remaining all-query12 native case0343 has a strict source-proven boundary warning.
+Six images cannot establish general improvement; two60-GEN development comparisons are
+running on the same original64-source set, preserving the4 genuine source-copy cases.
+
+The lower-balanced training finished4787.126s,peak20,974,609,920B.
+Final adapter SHA2560065288565063f63cb522f1b54ea6e1ffd6f95ca774b2a37566d7a1dca4ae415.
+It is rejected as a default because real native QA did not improve.
+LoRA loss reduction and internal validation are not image acceptance evidence.
+
+The optional offline reference-exclusion-margin-cells buffer changes source token selection
+only. It does not expand output edits or original-pixel composition scope. Default0 preserves
+the tested no-buffer ablations. A small buffer tests whether VAE reference receptive fields
+near a digital card carry unwanted overlay information; this is a hypothesis, not a quality claim.
+All new boolean ablations default false; no production/client options are enabled.
+
+The refined1000-source reservation SHA256 is
+1ba9f659343ffd5f11a5ef6f486d541f2c6eb5c8e3463a6468f4d4cb200bf39f:
+988 unchanged,12 same-town replacements without quality labels/model calls.
+A fresh audit distinguishes the direct, never-inferred parent reservation from actual
+historical inference inputs. Parent lineage, its source-only directory contents, and absence
+of API job exposure are required; all other history catalogs and API inputs stay in the audit.
+The first v2 audit was explicitly stopped before completion to add this lineage check;
+it is not qualification evidence. The separate v3 audit is running; no sealed inference.

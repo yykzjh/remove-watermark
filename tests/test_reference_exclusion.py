@@ -101,3 +101,19 @@ def test_disabled_scope_does_not_modify_processor_or_forward():
     with reference_exclusion(pipe,[],enabled=False) as audit:
         assert transformer.forward==original and audit["forward_calls"]==0
         assert not hasattr(transformer.processor,"_watermark_target_key_keep")
+
+
+def test_reference_margin_dilates_only_source_keys_and_rejects_all_source_removal():
+    transformer=Transformer();pipe=SimpleNamespace(transformer=transformer)
+    mask=torch.tensor([[False,True,True,True,True,False,True,True,True,True]])
+    shapes=[[(1,4,4),(1,4,4)]]
+    items=[{"_reference_exclusion_regions":[{"box":[0,0,.5,.5]}]}]
+    with reference_exclusion(pipe,items,enabled=True,margin_cells=1) as audit:
+        keep=transformer.forward(torch.zeros(1,32,8),mask,shapes)
+        assert audit["excluded_source_fractions"]==[.5625]
+        assert (~keep[0,1:17]).sum().item()==9
+        assert keep[:,[0,17]].all() and keep[:,18:].all()
+    with pytest.raises(ValueError,match="partial"), reference_exclusion(
+            pipe,items,enabled=True,margin_cells=2):
+        transformer.forward(torch.zeros(1,32,8),mask,shapes)
+    assert not hasattr(transformer.processor,"_watermark_target_key_keep")

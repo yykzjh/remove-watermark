@@ -8,13 +8,15 @@ from contextlib import contextmanager
 from .batching import override_methods
 
 
-def target_key_keep(transformer,items,img_mask,img_shapes,device):
+def target_key_keep(transformer,items,img_mask,img_shapes,device,margin_cells=0):
     """Use the pinned transformer's exact image-token metadata, never guessed joint offsets."""
     import torch
     from diffusers.models.transformers.transformer_qwenimage21 import _IMG_TOKENS_PER_SLOT
 
     from .denoising_context import pixel_edit_masks
 
+    if type(margin_cells) is not int or not 0<=margin_cells<=8:
+        raise ValueError("Bounded integer reference-key margin required")
     batch=len(items)
     if (img_mask.ndim!=2 or img_mask.shape[0]!=batch or len(img_shapes)!=batch
             or not torch.equal(img_mask,img_mask[:1].expand_as(img_mask))):
@@ -29,7 +31,11 @@ def target_key_keep(transformer,items,img_mask,img_shapes,device):
     # The original pixel image is never rewritten or cropped.
     masks=pixel_edit_masks([{"_denoising_context_regions":item["_reference_exclusion_regions"]}
         for item in items],(width,height))
-    excluded=torch.from_numpy(masks).to(device=device,dtype=torch.bool).flatten(1)
+    excluded=torch.from_numpy(masks).to(device=device,dtype=torch.float32).unsqueeze(1)
+    if margin_cells:
+        excluded=torch.nn.functional.max_pool2d(excluded,2*margin_cells+1,
+            stride=1,padding=margin_cells)
+    excluded=excluded.bool().flatten(1)
     if any(not row.any().item() or row.all().item() for row in excluded):
         raise ValueError("A nonempty, partial source reference exclusion is required")
     repeats=torch.where(img_mask,_IMG_TOKENS_PER_SLOT,1)[0]
@@ -46,12 +52,15 @@ def target_key_keep(transformer,items,img_mask,img_shapes,device):
 
 
 @contextmanager
-def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False):
+def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False,margin_cells=0):
     """Apply only to an explicit offline probe and restore every processor/method on exit."""
     audit={"enabled":enabled,"whole_source_pixels_unchanged":True,"prefix_computation_unchanged":not exclude_prefix,
-        "extra_model_forwards":0,"forward_calls":0,"quality_permission":False}
-    if exclude_prefix and not enabled:
-        raise ValueError("Prefix exclusion requires explicit reference exclusion")
+        "extra_model_forwards":0,"forward_calls":0,"quality_permission":False,
+        "reference_margin_cells":margin_cells}
+    if type(margin_cells) is not int or not 0<=margin_cells<=8:
+        raise ValueError("Bounded integer reference-key margin required")
+    if (exclude_prefix or margin_cells) and not enabled:
+        raise ValueError("Prefix exclusion and margins require explicit reference exclusion")
     if not enabled:
         yield audit
         return
@@ -73,7 +82,7 @@ def reference_exclusion(pipe,items,*,enabled=False,exclude_prefix=False):
         values=signature.bind(*args,**kwargs).arguments
         img_mask=values["img_mask"];shapes=values["img_shapes"];hidden=values["hidden_states"]
         if not layout:
-            keep,count,fractions=target_key_keep(transformer,items,img_mask,shapes,hidden.device)
+            keep,count,fractions=target_key_keep(transformer,items,img_mask,shapes,hidden.device,margin_cells)
             layout.update(mask=img_mask.detach().clone(),shapes=shapes,keep=keep,count=count)
             audit.update(method=("all_query_reference_key_exclusion_v1" if exclude_prefix
                 else "target_only_reference_key_exclusion_v1"),
