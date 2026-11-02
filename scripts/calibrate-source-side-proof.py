@@ -33,6 +33,7 @@ def main():
     p.add_argument("--controls",type=Path,required=True)
     p.add_argument("--physical-fixtures",type=Path)
     p.add_argument("--top-proofs",nargs="+",type=Path)
+    p.add_argument("--band-fixture",type=Path,help="Exact-SHA offline synthetic band challenge manifest")
     p.add_argument("--files",nargs="+",help="Explicit frozen original source subset")
     p.add_argument("--max-source-cases",type=int,default=6)
     p.add_argument("--gpu",type=int,required=True)
@@ -99,6 +100,20 @@ def main():
             cases.append({"cohort":"native_physical_object","file":str(c["source"]),"source":c["source"],
                 "proposal":labelled_proposal(source,c["box"],c["box"],native),
                 "expected_clear":None,"expected_digital":False})
+    if a.band_fixture:
+        if not 0<a.band_fixture.stat().st_size<=16*2**20:
+            raise ValueError("Bounded exact-source synthetic fixture required")
+        fixture=json.loads(a.band_fixture.read_text())
+        if fixture.get("version")!=1 or fixture.get("quality_permission") is not False:
+            raise ValueError("Diagnostic fixture cannot grant permissions")
+        cases=fixture["cases"]
+        if not 1<=len(cases)<=512 or len({c["file"] for c in cases})!=len(cases):
+            raise ValueError("Bounded unique synthetic fixture cases required")
+        fixture_root=a.band_fixture.resolve().parent
+        for c in cases:
+            source=Path(c["source"]).resolve(strict=True)
+            if not source.is_relative_to(fixture_root) or digest(source)!=c["source_file_sha256"]:
+                raise ValueError("Fixture source changed or escaped its root")
     if a.mode=="top":
         identities={}
         for c in cases:
