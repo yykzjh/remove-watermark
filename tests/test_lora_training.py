@@ -46,3 +46,47 @@ def test_flow_loss_has_exact_noise_minus_clean_target_and_preserves_outside_weig
     assert flow_objective(error,noise,clean,mask)>0
     with pytest.raises(ValueError):
         flow_objective(error,noise,clean,mask,outside_weight=0)
+
+
+def test_attention_mlp_scope_trains_and_fuses_each_separate_swiglu_projection(tmp_path):
+    import copy
+
+    import pytest
+    torch=pytest.importorskip("torch")
+    from torch import nn
+
+    from watermark_studio.adapters import fuse_cpu_adapter
+    from watermark_studio.lora_training import adapter_tensors, install_attention_lora
+    class Mlp(nn.Module):
+        def __init__(self):
+            super().__init__();self.proj=nn.Linear(4,12,bias=False)
+            self.gate_layer=nn.Linear(4,12,bias=False);self.out=nn.Linear(12,4,bias=False)
+        def forward(self,value):
+            return self.out(torch.nn.functional.silu(self.gate_layer(value))*self.proj(value))
+    class Attention(nn.Module):
+        def __init__(self):
+            super().__init__();self.to_q=nn.Linear(4,4,bias=False);self.to_k=nn.Linear(4,4,bias=False)
+            self.to_v=nn.Linear(4,4,bias=False);self.to_out=nn.ModuleList([nn.Linear(4,4,bias=False)])
+        def forward(self,value):return self.to_out[0](self.to_q(value)+self.to_k(value)+self.to_v(value))
+    class Block(nn.Module):
+        def __init__(self):
+            super().__init__();self.attn=Attention();self.img_mlp=Mlp()
+        def forward(self,value):return value+self.img_mlp(self.attn(value))
+    class Model(nn.Module):
+        def __init__(self):
+            super().__init__();self.transformer_blocks=nn.ModuleList([Block()])
+        def forward(self,value):return self.transformer_blocks[0](value)
+    model=Model();base=copy.deepcopy(model)
+    spec=install_attention_lora(model,rank=4,alpha=4,include_mlp=True)
+    assert spec["scope"]=="attention_mlp" and len(spec["targets"])==7
+    parameters=[v for v in model.parameters() if v.requires_grad]
+    optimizer=torch.optim.AdamW(parameters,lr=.01)
+    inputs=torch.randn(2,5,4)
+    for _ in range(3):
+        optimizer.zero_grad();model(inputs).square().mean().backward();optimizer.step()
+    assert all(p.grad is None for p in model.parameters() if not p.requires_grad)
+    safe=pytest.importorskip("safetensors.torch")
+    path=tmp_path/"lora.safetensors";safe.save_file(adapter_tensors(model),str(path))
+    fused=fuse_cpu_adapter(base,path,alpha=4)
+    assert fused["pairs"]==7
+    torch.testing.assert_close(model(inputs),base(inputs),rtol=1e-5,atol=1e-6)

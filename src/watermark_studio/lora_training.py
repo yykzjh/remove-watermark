@@ -5,7 +5,7 @@ import math
 import re
 
 
-def install_attention_lora(model,rank=8,alpha=8.):
+def install_attention_lora(model,rank=8,alpha=8.,*,include_mlp=False):
     import torch
     from torch import nn
     from torch.nn import functional
@@ -13,14 +13,20 @@ def install_attention_lora(model,rank=8,alpha=8.):
         raise ValueError("Small explicit LoRA rank and positive alpha required")
     if any("lora_" in name for name,_ in model.named_parameters()):
         raise ValueError("Start from an unadapted, unquantized backbone")
+    if type(include_mlp) is not bool:raise ValueError("Explicit boolean MLP scope required")
     pattern=re.compile(r"^transformer_blocks\.\d+\.attn\.(?:to_q|to_k|to_v|to_out\.0)$")
+    mlp_pattern=re.compile(r"^transformer_blocks\.\d+\.img_mlp\.(?:proj|out|gate_layer)$")
     targets=[(name,module) for name,module in model.named_modules() if pattern.fullmatch(name)]
     blocks=getattr(model,"transformer_blocks",[])
     if not blocks or len(targets)!=4*len(blocks):
         raise ValueError("Every Qwen21 attention block needs all four separate projections")
+    if include_mlp:
+        extra=[(name,module) for name,module in model.named_modules() if mlp_pattern.fullmatch(name)]
+        if len(extra)!=3*len(blocks):raise ValueError("All three separate Qwen21 SwiGLU projections required")
+        targets.extend(extra)
     if any(not isinstance(module,nn.Linear) or module.weight.dtype not in (
             torch.float32,torch.float16,torch.bfloat16) for _,module in targets):
-        raise ValueError("Unquantized separate Linear attention projections required")
+        raise ValueError("Unquantized separate Linear projections required")
     for parameter in model.parameters():parameter.requires_grad_(False)
     class TrainLinear(nn.Module):
         def __init__(self,base):
@@ -46,7 +52,7 @@ def install_attention_lora(model,rank=8,alpha=8.):
         parent,_,leaf=name.rpartition(".")
         setattr(model.get_submodule(parent),leaf,TrainLinear(module))
     count=sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return {"rank":rank,"alpha":alpha,"targets":[name for name,_ in targets],"trainable_parameters":count}
+    return {"rank":rank,"alpha":alpha,"scope":"attention_mlp" if include_mlp else "attention","targets":[name for name,_ in targets],"trainable_parameters":count}
 
 
 def adapter_tensors(model):

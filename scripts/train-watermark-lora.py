@@ -21,6 +21,7 @@ def main():
     p.add_argument("--steps",type=int,default=200)
     p.add_argument("--rank",type=int,choices=[4,8,16],default=8)
     p.add_argument("--alpha",type=float,default=8.)
+    p.add_argument("--lora-targets",choices=["attention","attention_mlp"],default="attention")
     p.add_argument("--learning-rate",type=float,default=5e-5)
     p.add_argument("--warmup",type=int,default=20)
     p.add_argument("--save-every",type=int,default=100)
@@ -90,7 +91,7 @@ def main():
     for block in model.transformer_blocks:
         if hasattr(block.attn,"to_qkv"):raise ValueError("Separate unquantized QKV required")
         block.attn.set_processor(IndependentSDPAProcessor("native"))
-    spec=install_attention_lora(model,a.rank,a.alpha)
+    spec=install_attention_lora(model,a.rank,a.alpha,include_mlp=a.lora_targets=="attention_mlp")
     if a.gradient_checkpointing:model.enable_gradient_checkpointing()
     parameters=[v for v in model.parameters() if v.requires_grad]
     if any(v.dtype!=torch.float32 for v in parameters):
