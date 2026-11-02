@@ -1,4 +1,4 @@
-"""Construct held-out digital-matte band challenges with exact clean-pixel provenance."""
+"""Construct expanded digital-matte band challenges with exact clean-pixel provenance."""
 from __future__ import annotations
 
 import argparse

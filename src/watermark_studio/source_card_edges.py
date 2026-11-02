@@ -92,7 +92,27 @@ def _body_bottom(blurred,header,expected):
     return {k:v for k,v in best.items() if k!="_segments"}|{"edge_phase_support":support}
 
 
-def propose_card_side_rims(photo,regions,top_records,feather=12):
+
+def _body_side(blurred,header,bottom,side):
+    """Separate body edge evidence: a blue header alone cannot bound a gray card."""
+    height,width=blurred.shape[:2]
+    start=header["body_start"]+8;end=min(height,bottom)-8
+    if end-start<128:
+        return None
+    view=blurred.transpose(1,0,2)
+    expected=header[side]
+    if side=="left":
+        view=view[::-1];expected=width-expected
+    body={"left":start,"right":end,"body_start":0}
+    edge=_body_bottom(view,body,expected)
+    if edge is None:
+        return None
+    if side=="left":
+        edge=edge|{"pixel":width-edge["pixel"]}
+    return edge
+
+
+def propose_card_side_rims(photo,regions,top_records,feather=12,*,verify_body_sides=False):
     """Find conservative candidate clear strips left/right/below known blue cards.
 
     Existing top certificates are geometry anchors only. Every returned strip
@@ -122,9 +142,18 @@ def propose_card_side_rims(photo,regions,top_records,feather=12):
         ml,mt,mr,mb=pixel_box(mask,photo.size)
         _left,_top,_right,bottom=pixel_box(core,photo.size)
         lower=_body_bottom(blurred,header,bottom)
-        candidates=[
-            ("left",header["left"],(max(0,ml-feather),max(0,mt-feather),header["left"]-8,min(height,mb+feather))),
-            ("right",header["right"],(header["right"]+8,max(0,mt-feather),min(width,mr+feather),min(height,mb+feather)))]
+        side_bodies=({side:_body_side(blurred,header,bottom,side) for side in ("left","right")}
+                     if verify_body_sides else {})
+        candidates=[]
+        for side in ("left","right"):
+            body=side_bodies.get(side)
+            if verify_body_sides and body is None:
+                continue
+            edge=(min(header[side],body["pixel"]) if side=="left" else max(header[side],body["pixel"])) if body else header[side]
+            native=((max(0,ml-feather),max(0,mt-feather),edge-8,min(height,mb+feather))
+                    if side=="left" else
+                    (edge+8,max(0,mt-feather),min(width,mr+feather),min(height,mb+feather)))
+            candidates.append((side,edge,native))
         if lower:
             candidates.append(("bottom",lower["pixel"],(max(0,ml-feather),lower["pixel"]+8,min(width,mr+feather),min(height,mb+feather))))
         for side,edge,native in candidates:
@@ -143,6 +172,6 @@ def propose_card_side_rims(photo,regions,top_records,feather=12):
                 "mask":list(mask),"core":list(core),"header_top_pixel":record["header_top_pixel"],
                 "card_edge_pixel":edge,"uncertainty_gap_pixels":8,"source_size":list(photo.size),
                 "restore_pixels":list(native),"restore_box":box,"approved":False,
-                "source_geometry":{"blue_header":header,"bottom":lower},
+                "source_geometry":{"blue_header":header,"body_sides":side_bodies,"bottom":lower},
                 "anchor_band_sha256":record["source_rim_sha256"]})
     return proposals[:12]

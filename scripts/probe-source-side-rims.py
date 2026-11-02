@@ -20,6 +20,8 @@ def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--source-job",required=True)
     p.add_argument("--tag",required=True)
+    p.add_argument("--verify-body-sides",action="store_true",
+        help="Also require a separately detected neutral body edge; proposals still cannot restore pixels")
     a=p.parse_args()
     if not re.fullmatch(r"[a-f0-9]{32}",a.source_job) or not re.fullmatch(r"[a-zA-Z0-9_-]+",a.tag):
         p.error("Exact development source and new simple tag required")
@@ -34,7 +36,7 @@ def main():
     for c in cases:
         source=load_photo(c["source"])[0]
         proposals=(propose_card_side_rims(source,[Region.model_validate(r) for r in c["regions"]],
-            c.get("source_rim_protection",[])) if c["scene"]!="document" else [])
+            c.get("source_rim_protection",[]),verify_body_sides=a.verify_body_sides) if c["scene"]!="document" else [])
         records.append({"file":c["file"],"source":c["source"],"source_file_sha256":hashes[c["source"]],
             "source_rgb_sha256":hashlib.sha256(source.convert("RGB").tobytes()).hexdigest(),
             "regions":c["regions"],"source_cores":c.get("source_cores",[]),
@@ -44,7 +46,7 @@ def main():
     work=Path("/mnt/sdb/zjh/baidu-download/1mQf6F6g-20261031")/a.tag
     work.mkdir(exist_ok=False)
     report={"version":1,"source_job":a.source_job,"revision":revision,"images":len(records),
-        "proposals":sum(len(r["proposals"]) for r in records),"sides":dict(Counter(
+        "verify_body_sides":a.verify_body_sides,"proposals":sum(len(r["proposals"]) for r in records),"sides":dict(Counter(
             p["side"] for r in records for p in r["proposals"])),"seconds":round(time.monotonic()-began,3),
         "scope":"CV proposals only; fresh independent VLM/OCR/full-source identity proof required",
         "sources_and_candidates_unchanged":True,"quality_permission":False,"cases":records,"file_sha256":hashes}
