@@ -509,6 +509,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                if small else build_focused_prompt(region.kind,box,crop,extra_prompt,scene)
                                if focused else build_prompt(region.kind,box,crop,extra_prompt)),
                     "seed": (options.seed + stable + index) % (2**32),
+                    "_context":options.context,"_extra_prompt":extra_prompt,
                     "scene_hint":scene,"core_box":core_box,"prefilled":prefilled,"translucent_hint":hint_audits,
                     "resolution":budget, "size": dimensions(reference,budget),
                 })
@@ -519,6 +520,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 "file": task["relative"], "ok": False,
                 "error": f"{type(error).__name__}: {error}"[:800],
             }
+
+    from .roi_grouping import coalesce_edits
+    edits=coalesce_edits(edits,options.roi_grouping)
+    for edit in edits:
+        if edit.get("_roi_members"):
+            edit["size"]=dimensions(edit["image"],edit["resolution"])
 
     buckets = defaultdict(list)
     # Disable bucketing => adjacent compatible edits only; never mix different layouts.
@@ -602,10 +609,12 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         core_boxes=state["composition_cores"],
                     )
             else:
-                state["result"] = blend_patch(
-                    state["result"],edit["patch"],edit["box"],edit["crop"],options.feather,options.repair_blending,
-                    reference_original=state["source"],exclude_regions=state["regions"],core_box=edit.get("core_box")
-                )
+                # Shared model input does not grant authority to edit between masks.
+                for member in edit.get("_roi_members",[edit]):
+                    state["result"] = blend_patch(
+                        state["result"],edit["patch"],member["box"],edit["crop"],options.feather,options.repair_blending,
+                        reference_original=state["source"],exclude_regions=state["regions"],core_box=member.get("core_box")
+                    )
     for state in states:
         task = state["task"]
         result = {
@@ -621,7 +630,11 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "source_detail_views":detail_counts.get(task["relative"],0),
             "source_edge_completion":edge_evidence.get(task["relative"],[]),
             "source_detail_context_requeries":context_evidence.get(task["relative"],[]),
-            "model_inferences":len(state["regions"]),
+            "model_inferences":sum(e["state"] is state for e in edits),
+            "roi_grouping":options.roi_grouping,
+            "roi_groups":[{"members":[list(m["box"]) for m in e.get("_roi_members",[e])],
+                           "crop":list(e["crop"]),"budget":e["resolution"]}
+                          for e in edits if e["state"] is state],
             "model_input_budgets":[e["resolution"] for e in edits if e["state"] is state],
             "encoder_generation_transfer":[e.get("_encoder_generation_log") for e in edits if e["state"] is state],
             "whole_prompt_profile":options.whole_prompt_profile,

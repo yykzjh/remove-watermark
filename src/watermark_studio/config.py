@@ -56,6 +56,7 @@ class ProcessingConfig(BaseModel):
     quality_detail_patches: int = Field(default=4, ge=0, le=8)
     remove_logo: bool = False
     resolution: int = Field(default=1024, ge=256, le=2048, multiple_of=32)
+    roi_grouping: Literal["separate", "adaptive"] = "separate"
     context: float = Field(default=0.6, ge=0.1, le=2)
     feather: int = Field(default=12, ge=0, le=64)
     seed: int = Field(default=42, ge=0, le=2**32 - 1)

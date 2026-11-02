@@ -361,6 +361,12 @@ class MainWindow(QMainWindow):
         self.first_pass_mode.addItem("自动分区完整覆盖（推荐配方）","complete")
         self.first_pass_mode.setToolTip("精细策略需启用原图保护，内部自动分配模型输入预算；细小覆盖层使用可读的输入视图，无需统一框选。它可能包含多个模型调用，不等于仅调用模型一次。")
         form.addRow("首轮去水印策略",self.first_pass_mode)
+        self.roi_grouping = QComboBox()
+        self.roi_grouping.addItem("各水印独立推理","separate")
+        self.roi_grouping.addItem("自适应合并可读的相邻区域","adaptive")
+        self.roi_grouping.setToolTip("仅自动分区有效；小防伪码保留独立输入。合并输入后仍只回填各水印区域，区域之间保留原图。")
+        form.addRow("分区输入组织",self.roi_grouping)
+        self.roi_grouping_label=form.labelForField(self.roi_grouping)
         self.strategy_label=form.labelForField(self.first_pass_mode)
         self.first_pass_mode.currentIndexChanged.connect(self.mode_changed)
         self.processing_note=QLabel("整张原图直接输入模型，完整结果直接输出；不裁切水印子图、不回贴原图。返工也采用整图处理。")
@@ -476,6 +482,8 @@ class MainWindow(QMainWindow):
             self.blending_label.setVisible(show_blending)
             self.repair_blending.setEnabled(show_blending)
             selected=custom and self.tabs.currentIndex()==1
+            self.roi_grouping.setVisible(not selected and self.first_pass_mode.currentData()!="whole")
+            self.roi_grouping_label.setVisible(not selected and self.first_pass_mode.currentData()!="whole")
             self.first_pass_mode.setVisible(not selected)
             self.strategy_label.setVisible(not selected)
             self.preserve_background.setVisible(not selected and self.first_pass_mode.currentData()!="regions")
@@ -551,6 +559,7 @@ class MainWindow(QMainWindow):
                 concurrency=1 if single else self.concurrency.value(),
                 resolution=self.resolution.currentData(),
                 context=getattr(self,"processing_context",.6),
+                roi_grouping="separate" if custom else self.roi_grouping.currentData(),
                 preset=self.preset.currentData() if single else "auto",
                 regions=self.parsed_regions() if custom else [],
                 remove_logo=True,
@@ -716,6 +725,7 @@ def default_ssh_program():
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     window.processing_context=getattr(args,"context",.6)
+    window.roi_grouping.setCurrentIndex(window.roi_grouping.findData(getattr(args,"roi_grouping","separate")))
     window.processing_whole_prompt_profile=getattr(args,"whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default)
     mode=getattr(args,"first_pass_mode","regions")
     window.first_pass_mode.setCurrentIndex(window.first_pass_mode.findData(mode))
@@ -755,6 +765,7 @@ def main():
     parser.add_argument("--quality-batch-size", type=int, choices=[1, 2, 3, 4], default=1)
     parser.add_argument("--quality-retry-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
+    parser.add_argument("--roi-grouping",choices=["separate","adaptive"],default="separate")
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["regions","whole","focused","thorough","complete"],default="regions")
     parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral","clean-photo","clean-photo-detailed"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="neutral: source-material fidelity; fidelity/baseline: historical comparisons; concise: material-mismatch retry; scene/located/clean-photo/clean-photo-detailed: experimental")

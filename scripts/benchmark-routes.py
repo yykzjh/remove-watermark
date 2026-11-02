@@ -15,6 +15,7 @@ p=argparse.ArgumentParser()
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--images",type=int,default=64)
+p.add_argument("--selection-start",type=int,default=0)
 p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--profiles",nargs="+",default=["roi","roi-context","whole-protected"])
 a=p.parse_args()
@@ -28,7 +29,7 @@ if selection.exists():
 else:
     rng=random.Random(20261103)
     names=sorted(r["file"] for r in rows);rng.shuffle(names)
-    chosen=names[:a.images]
+    chosen=names[a.selection_start:a.selection_start+a.images]
     selection.write_text(json.dumps(chosen,ensure_ascii=False,indent=2))
 assert len(chosen)==a.images and len(set(chosen))==a.images
 inputs=work/"input";inputs.mkdir(exist_ok=True)
@@ -51,6 +52,8 @@ for profile in a.profiles:
     assert h["stage"]=="ready" and (not h.get("job") or h["job"]["state"] in {"completed","failed","cancelled"})
     opts=dict(options,quality_auto_retry=False,quality_cross_review=False,overwrite=False)
     if profile=="roi-context":opts["context"]=.85
+    elif profile=="roi-grouped":opts["roi_grouping"]="adaptive"
+    elif profile=="roi-grouped-retry":opts.update(roi_grouping="adaptive",quality_auto_retry=True,quality_max_attempts=2,quality_retry_resolution=1024)
     elif profile=="whole-protected":opts.update(first_pass_mode="whole",whole_prompt_profile="neutral")
     elif profile!="roi":raise ValueError(profile)
     started=time.monotonic()
@@ -71,7 +74,7 @@ for profile in a.profiles:
     rs=[json.loads(x) for x in (state/job/"results.jsonl").read_text().splitlines()]
     assert len(rs)==len(chosen)==len({r["file"] for r in rs})
     assert {r["file"] for r in rs}==set(chosen) and not s["failed"] and not s["invalid"]
-    assert all(r.get("quality_attempts",1)==1 for r in rs)
+    if not opts["quality_auto_retry"]:assert all(r.get("quality_attempts",1)==1 for r in rs)
     dims=0
     for name in chosen:
         with (inputs/name).open("rb") as f:assert hashlib.file_digest(f,"sha256").hexdigest()==hashes[name]
@@ -83,7 +86,8 @@ for profile in a.profiles:
         "first_counts":s["first_pass_counts"],"final_counts":s["quality_counts"],
         "bad_sizes":dims,"failed":s["failed"],"options":opts,"loaded_revision":current["code_revision"],
         "paths":dict(collections.Counter(r.get("processing_path") for r in rs)),
-        "model_inputs":sum(r.get("model_inferences",0) for r in rs),
+        "model_inputs":sum(sum(t.get("model_inferences",0) for t in r.get("attempt_history",[r])) for r in rs),
+        "attempt_counts":dict(collections.Counter(r.get("quality_attempts",1) for r in rs)),
         "baseline_pass_to_review":sum(original[r["file"]]["quality"]["status"]=="passed" and r["quality"]["status"]!="passed" for r in rs),
         "baseline_review_to_pass":sum(original[r["file"]]["quality"]["status"]!="passed" and r["quality"]["status"]=="passed" for r in rs)}
     report.write_text(json.dumps(result,ensure_ascii=False,indent=2))

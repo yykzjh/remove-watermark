@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--quality-max-attempts", type=int, default=3, help="0: until pass or cancel")
     parser.add_argument("--quality-retry-resolution", type=int, default=1024)
     parser.add_argument("--preserve-background", action="store_true", help="Enable original protection for fine crop strategies or whole-image composition")
+    parser.add_argument("--roi-grouping", choices=["separate","adaptive"], default="separate", help="adaptive: combine readable nearby ROI references; composite only original masks")
     parser.add_argument("--context",type=float,default=.6,help="Reconstruction context factor, 0.1..2")
     parser.add_argument("--first-pass-mode",choices=["regions","whole","focused","thorough","complete"],default="regions")
     parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral","clean-photo","clean-photo-detailed"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="neutral: source-material fidelity; fidelity/baseline: historical comparisons; concise: material-mismatch retry; scene/located/clean-photo/clean-photo-detailed: experimental")
@@ -60,6 +61,7 @@ def main():
                 "concurrency": args.concurrency,
                 "resolution": args.resolution,
                 "context":args.context,
+                "roi_grouping":args.roi_grouping,
                 "output_width": args.output_width,
                 "output_height": args.output_height,
                 "overwrite": args.overwrite,
