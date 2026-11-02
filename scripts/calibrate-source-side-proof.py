@@ -32,6 +32,7 @@ def main():
     p.add_argument("--proposals",type=Path,required=True)
     p.add_argument("--controls",type=Path,required=True)
     p.add_argument("--physical-fixtures",type=Path)
+    p.add_argument("--files",nargs="+",help="Explicit frozen original source subset")
     p.add_argument("--max-source-cases",type=int,default=6)
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--rank",type=int,default=0)
@@ -47,7 +48,19 @@ def main():
     if data.get("version")!=1 or data.get("quality_permission") is not False:
         p.error("Unapproved immutable source-geometry artifact required")
     cases=[]
-    selected=[c for c in data["cases"] if c["proposals"]][:a.max_source_cases]
+    if a.files and (len(set(a.files))!=len(a.files) or not set(a.files).issubset({c["file"] for c in data["cases"]})):
+        p.error("Existing unique frozen source filenames required")
+    pool=[c for c in data["cases"] if not a.files or c["file"] in set(a.files)]
+    selected=[]
+    for c in pool:
+        targets=c["proposals"]
+        if a.mode=="top":
+            targets=[{"mask":item["mask"],"core":item["core"]} for item in c["source_cores"]
+                if any(r["kind"]=="panel" and tuple(r["box"])==tuple(item["mask"])
+                    and (r["box"][2]-r["box"][0])*(r["box"][3]-r["box"][1])>=.035 for r in c["regions"])]
+        if targets:
+            selected.append(c|{"proposals":targets})
+    selected=selected[:a.max_source_cases]
     for c in selected:
         if digest(c["source"])!=c["source_file_sha256"]:
             raise ValueError("Frozen proposal source file changed")
@@ -135,7 +148,7 @@ def main():
             proof=diagnose_unoccluded_band(photo,c["proposal"],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)
         else:
             proof=inspect_side_rims(photo,[c["proposal"]],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)[0]
-        rows.append(c|{"proof":proof})
+        rows.append(c|{"proof":proof,"source_file_sha256":hashes[c["source"]]})
         print(json.dumps({"completed":len(rows),"total":len(cases)}),flush=True)
     if hashes!={name:digest(name) for name in hashes} or revision!=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip():
         raise RuntimeError("Source or code changed during read-only calibration")
