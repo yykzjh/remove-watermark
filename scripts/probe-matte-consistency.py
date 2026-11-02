@@ -46,7 +46,7 @@ def main():
         helper["manifest_cases"](a.pair_manifest)
     else:
         from watermark_studio.artifact_pairs import physical_shadow_background
-        from watermark_studio.training_pairs import render_pair
+        from watermark_studio.training_pairs import render_profile_pair
         data,_=validate_pairs(a.dataset_manifest)
         if data.get("font_sha256")!=digest(a.font):raise ValueError("Exact original font required")
         for row in data["pairs"]:
@@ -57,7 +57,7 @@ def main():
             width,height=clean.size;l,t,r,b=panel
             regions=[Region(kind="panel",box=(l/width,t/height,r/width,b/height))]
             variant=int(row["id"].rsplit("-",1)[-1])
-            rendered,_,_,overlay=render_pair(clean,variant,random.Random(row["seed"]),a.font,return_overlay=True)
+            rendered,_,_,overlay=render_profile_pair(clean,variant,random.Random(row["seed"]),a.font,profile=row.get("render",{}).get("profile","legacy"),return_overlay=True)
             if rendered.tobytes()!=before.tobytes():raise ValueError("Overlay replay failed")
             measure(row["id"]+"/clean",before,clean,regions,"known_clean","passed")
             stream=io.BytesIO();clean.save(stream,format="JPEG",quality=95);stream.seek(0)

@@ -97,9 +97,9 @@ def main():
         original=photo(row["input"]);clean=photo(row["target"])
         if a.source_shadow_negatives:
             if row["id"] not in overlays:
-                from watermark_studio.training_pairs import render_pair
+                from watermark_studio.training_pairs import render_profile_pair
                 variant=int(row["id"].rsplit("-",1)[-1])
-                rendered,_,_,overlay=render_pair(clean,variant,random.Random(row["seed"]),a.font,return_overlay=True)
+                rendered,_,_,overlay=render_profile_pair(clean,variant,random.Random(row["seed"]),a.font,profile=row.get("render",{}).get("profile","legacy"),return_overlay=True)
                 if rendered.tobytes()!=original.tobytes():
                     raise ValueError("Overlay re-render does not reproduce exact original training source")
                 overlays[row["id"]]=overlay

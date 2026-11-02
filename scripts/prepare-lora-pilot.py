@@ -30,6 +30,7 @@ def main():
     p.add_argument("--candidate-limit",type=int,default=320)
     p.add_argument("--candidate-files-from",type=Path)
     p.add_argument("--require-native-pixels",action="store_true")
+    p.add_argument("--render-profile",choices=["legacy","camera-v2"],default="legacy")
     p.add_argument("--seed",type=int,default=2026110204)
     p.add_argument("--resolution",type=int,choices=[512,768],default=512)
     p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
@@ -108,7 +109,7 @@ def main():
     from watermark_studio.model_identity import compare_model_weights
     from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
     from watermark_studio.text_presence import TargetTextPresence
-    from watermark_studio.training_pairs import clean_crop, render_pair
+    from watermark_studio.training_pairs import clean_crop, render_profile_pair
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
         health=json.load(response)
     import runpy
@@ -184,7 +185,7 @@ def main():
         target=load_photo(row["target"])[0]
         for variant in range(4):
             seed=(a.seed+int(row["source_sha256"][:16],16)+variant)%(2**32)
-            edited,mask,render=render_pair(target,variant,random.Random(seed),a.font)
+            edited,mask,render=render_profile_pair(target,variant,random.Random(seed),a.font,profile=a.render_profile)
             name=row["source_sha256"][:24]+"-"+str(variant)+".png"
             input_path=work/"pairs"/name;mask_path=work/"masks"/name
             edited.save(input_path);mask.save(mask_path)
@@ -203,7 +204,7 @@ def main():
     manifest={"version":1,"state":"completed","revision":revision,"resolution":a.resolution,
         "source_identity":identity,"train_originals":len(train_sha),"validation_originals":len(val_sha),
         "source_overlap":0,"previous_exposure_overlap":0,"candidate_selector_sha256":selector_sha,
-        "require_native_pixels":a.require_native_pixels,"font_sha256":digest(a.font),"pairs":pairs,
+        "require_native_pixels":a.require_native_pixels,"render_profile":a.render_profile,"font_sha256":digest(a.font),"pairs":pairs,
         "source_screening":"union original hypotheses + .04 frame padding; fresh dual crop localization empty + OCR clear"}
     path=work/"manifest.json";path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
     report={"state":"completed","train_pairs":sum(r["split"]=="train" for r in pairs),
