@@ -41,3 +41,22 @@ def test_invalid_assumptions_cannot_silently_apply_recovery():
     clean,source,target=photos();support=np.ones(clean.shape[:2])
     with pytest.raises(ValueError):recover_patch_detail(source,target,support,transmission=.1)
     with pytest.raises(ValueError):recover_patch_detail(source,target,support*float("nan"))
+
+def test_coarse_transmission_estimate_rejects_healthy_and_unrelated_references():
+    from PIL import ImageFilter
+
+    from watermark_studio.transmitted_detail import estimate_patch_transmission
+    y,x=np.mgrid[:128,:128]
+    base=130+35*np.sin(x/128*2*np.pi)+22*np.cos(y/128*2*np.pi)+8*((x+y)%2*2-1)
+    clean=np.repeat(base[...,None],3,axis=2)
+    photo=Image.fromarray(np.rint(clean).astype(np.uint8))
+    source=Image.fromarray(np.rint(.55*clean+.45*235).astype(np.uint8))
+    support=np.ones((128,128))
+    degraded=photo.filter(ImageFilter.GaussianBlur(2))
+    estimate=estimate_patch_transmission(source,degraded,support,radius=16)
+    assert estimate["eligible"] and abs(estimate["transmission"]-.55)<.04
+    assert estimate["quality_permission"] is False
+    healthy=estimate_patch_transmission(source,photo,support,radius=16)
+    assert not healthy["eligible"] and healthy["reason"]=="no_observable_detail_deficit"
+    unrelated=Image.fromarray(np.rint(255-clean).astype(np.uint8))
+    assert not estimate_patch_transmission(source,unrelated,support,radius=16)["eligible"]
