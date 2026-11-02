@@ -34,7 +34,13 @@ def main():
     p.add_argument("--initial-lora-path",type=Path)
     p.add_argument("--initial-lora-sha256",default="")
     p.add_argument("--prefix-weight",type=float,default=1.)
+    p.add_argument("--pixel-supervision",action="store_true")
+    p.add_argument("--pixel-weight",type=float,default=1.)
     a=p.parse_args()
+    if (a.pixel_supervision and not a.trajectory_cache) or (a.pixel_weight!=1 and not a.pixel_supervision):
+        p.error("Pixel supervision requires a frozen terminal trajectory; weight requires explicit supervision")
+    if not math.isfinite(a.pixel_weight) or not .1<=a.pixel_weight<=4:
+        p.error("Bounded positive pixel supervision weight required")
     if bool(a.initial_lora_path)!=bool(a.initial_lora_sha256):
         p.error("Both pinned initial adapter path and SHA required")
     if a.prefix_weight!=1 and not a.trajectory_cache:
@@ -54,7 +60,7 @@ def main():
     cached=json.loads(a.cache.read_text())
     if cached.get("state")!="completed" or cached.get("version")!=1:
         p.error("Completed frozen feature cache required")
-    dataset=Path(cached["dataset_manifest"]);validate_pairs(dataset)
+    dataset=Path(cached["dataset_manifest"]);pair_data,_=validate_pairs(dataset)
     if digest(dataset)!=cached["dataset_manifest_sha256"]:
         p.error("Dataset manifest changed")
     if a.target.resolve().parent!=dataset.parent.resolve():
@@ -127,8 +133,33 @@ def main():
     optimizer=torch.optim.AdamW(parameters,lr=a.learning_rate,betas=(.9,.999),weight_decay=.01)
     if {id(v) for group in optimizer.param_groups for v in group["params"]}!={id(v) for v in parameters}:
         raise ValueError("Optimizer escaped adapter-only training")
+    vae=None;pixel_cache={}
+    pair_rows={r["id"]:r for r in pair_data["pairs"]}
+    if a.pixel_supervision:
+        from diffusers import AutoencoderKLQwenImage21
+        vae=AutoencoderKLQwenImage21.from_pretrained(model_path,subfolder="vae",
+            dtype=torch.bfloat16,local_files_only=True).eval().requires_grad_(False).to("cuda:0")
     load_seconds=time.monotonic()-began
     tensor_cache={};trajectory_tensors={};loss_components={}
+    def pixels(row):
+        if row["id"] not in pixel_cache:
+            import numpy as np
+            from PIL import Image
+
+            from watermark_studio.images import load_photo
+            original=pair_rows[row["id"]]
+            if (digest(original["target"])!=original["target_sha256"]
+                    or digest(original["mask"])!=original["mask_sha256"]):
+                raise ValueError("Exact pixel supervision files changed")
+            target=load_photo(original["target"])[0].convert("RGB")
+            with Image.open(original["mask"]) as support:
+                support=np.asarray(support.convert("L"),dtype=np.float32).copy()/255
+            if target.size!=(row["width"],row["height"]) or support.shape!=(row["height"],row["width"]):
+                raise ValueError("Exact pixel/latent grid mismatch")
+            rgb=torch.from_numpy(np.asarray(target,dtype=np.float32).copy()/127.5-1).permute(2,0,1).unsqueeze(0)
+            pixel_cache[row["id"]]=(rgb,torch.from_numpy(support).unsqueeze(0).unsqueeze(0))
+        return tuple(v.to("cuda:0") for v in pixel_cache[row["id"]])
+
     def trajectory_loss(row,generator):
         from watermark_studio.trajectory_training import prefix_objective, terminal_objective
         values=tensors(row);clean=values["clean_latents"]
@@ -148,12 +179,27 @@ def main():
                 return model(hidden_states=torch.cat([values["source_latents"],mixed],dim=1),
                     timestep=torch.tensor([time_value*1000],device="cuda:0",dtype=torch.bfloat16)/1000,
                     **kwargs)[0][:,-clean.shape[1]:]
-        terminal=terminal_objective(predict(-1),states[-1].to("cuda:0"),clean,
+        terminal_prediction=predict(-1)
+        terminal=terminal_objective(terminal_prediction,states[-1].to("cuda:0"),clean,
             float(sigmas[-2]),values["edit_mask"])
+        pixel_loss=None
+        if vae is not None:
+            from watermark_studio.pixel_training import decode_exact_pixels, exact_pixel_objective
+            from watermark_studio.trajectory_training import context_support
+            endpoint=(states[-1].to("cuda:0").float()-float(sigmas[-2])*terminal_prediction.float()).to(clean.dtype)
+            if a.source_flow_context:
+                support=context_support(values,row["height"],row["width"],
+                    trajectory["arguments"]["context_margin_cells"])
+                endpoint=support*endpoint+(1-support)*values["source_latents"]
+            target,mask=pixels(row)
+            decoded=decode_exact_pixels(vae,endpoint,row["height"],row["width"],
+                checkpoint=a.gradient_checkpointing and torch.is_grad_enabled())
+            pixel_loss=exact_pixel_objective(decoded,target,mask)
         prefix=int(torch.randint(states.shape[0]-1,(1,),device="cuda:0",generator=generator).item())
         preservation=prefix_objective(predict(prefix),velocities[prefix].to("cuda:0"))
         loss_components.update(terminal_loss=float(terminal.detach()),prefix_loss=float(preservation.detach()))
-        return terminal+a.prefix_weight*preservation
+        if pixel_loss is not None:loss_components["pixel_loss"]=float(pixel_loss.detach())
+        return terminal+a.prefix_weight*preservation+(a.pixel_weight*pixel_loss if pixel_loss is not None else 0)
 
     def tensors(row):
         if row["id"] not in tensor_cache:tensor_cache[row["id"]]=load_file(row["path"],device="cpu")
@@ -195,7 +241,7 @@ def main():
             "not_image_quality_acceptance":True}
         if trajectory:
             result.update({key:sum(part[key] for part in parts)/len(parts)
-                for key in ("terminal_loss","prefix_loss")})
+                for key in loss_components})
         return result
     def record(value):
         with (work/"metrics.jsonl").open("a") as stream:stream.write(json.dumps(value)+"\n")
@@ -209,6 +255,7 @@ def main():
             "conditional_flow_noise_minus_clean; overlay_weight4; preservation_weight1"),
         "trajectory_cache_sha256":digest(a.trajectory_cache) if trajectory else None,
         "initial_adapter":initialization,
+        "pixel_supervision":"exact_RGB_L1_plus_0.25_local_texture_amplitude" if a.pixel_supervision else None,
         "training_generations":0,"source_overlap":0,"production_changed":False,
         "train_pairs":len(train),"validation_pairs":len([r for r in rows if r["split"]=="validation"]),
         "load_seconds":round(load_seconds,3)}
@@ -225,6 +272,8 @@ def main():
         started=time.monotonic();value=loss(row,gen)
         if not torch.isfinite(value):raise ValueError("Nonfinite conditional-flow loss")
         value.backward()
+        if vae is not None and any(v.requires_grad or v.grad is not None for v in vae.parameters()):
+            raise ValueError("Frozen decoder must not receive parameter gradients")
         if any(v.grad is not None for v in model.parameters() if not v.requires_grad):
             raise ValueError("Frozen backbone unexpectedly received gradients")
         norm=torch.nn.utils.clip_grad_norm_(parameters,1.,error_if_nonfinite=True)
