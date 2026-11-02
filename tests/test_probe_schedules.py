@@ -57,3 +57,22 @@ def test_base_probe_steps_cannot_mix_runtime_batches_or_replace_turbo(tmp_path):
     index.write_text(json.dumps({"_class_name":"QwenImage21Pipeline","sample_sigmas":[1.,.5]}))
     with pytest.raises(ValueError):
         validate_base_probe(tmp_path,40)
+
+
+def test_turbo_uniform_probe_requires_explicit_valid_grid_and_does_not_modify_default():
+    from types import SimpleNamespace
+
+    from watermark_studio.probe_schedules import configure_turbo_uniform_probe
+    class Pipe:
+        def __init__(self):
+            self.config=SimpleNamespace(sample_sigmas=[1.,.98,.95,.93,.9,.85,.7,.4])
+        def register_to_config(self,**values):
+            for key,value in values.items():setattr(self.config,key,value)
+    native=Pipe();probe=Pipe()
+    result=configure_turbo_uniform_probe(probe,24)
+    assert result["original_sigmas"]==native.config.sample_sigmas
+    assert probe.config.sample_sigmas is None and len(native.config.sample_sigmas)==8
+    assert result["checkpoint_modified"] is False and result["quality_permission"] is False
+    for invalid in (8,0,24.,True):
+        with pytest.raises(ValueError):configure_turbo_uniform_probe(Pipe(),invalid)
+    with pytest.raises(ValueError):configure_turbo_uniform_probe(probe,40)

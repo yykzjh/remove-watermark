@@ -25,13 +25,13 @@ def tail_sigma_grid(original,profile="native"):
 
 
 def probe_inference_step_options(items):
-    """Only explicit homogeneous offline base-model batches can change step count."""
+    """Only explicit homogeneous offline comparison batches can change step count."""
     values=[item.get("_probe_num_inference_steps") for item in items]
     if all(value is None for value in values):
         return {}
     if (not values or any(type(value) is not int or value not in (12,16,20,24,40) for value in values)
             or len(set(values))!=1):
-        raise ValueError("Homogeneous explicit base-model probe step counts required")
+        raise ValueError("Homogeneous explicit offline probe step counts required")
     return {"num_inference_steps":values[0]}
 
 
@@ -48,3 +48,15 @@ def validate_base_probe(model,steps):
         raise ValueError("Base-family checkpoint without a saved Turbo schedule required")
     return {"model_index_sha256":hashlib.sha256(raw).hexdigest(),"requested_steps":steps,
         "sampling":"official_pipeline_uniform_schedule","quality_permission":False}
+
+
+def configure_turbo_uniform_probe(pipe,steps):
+    """Explicit offline de-distilled sampling; never change the checkpoint on disk."""
+    if type(steps) is not int or steps not in (12,16,20,24,40):
+        raise ValueError("Explicit offline uniform comparison step count required")
+    original=list(getattr(pipe.config,"sample_sigmas",None) or [])
+    tail_sigma_grid(original,"native")
+    pipe.register_to_config(sample_sigmas=None)
+    return {"requested_steps":steps,"original_sigmas":original,
+        "sampling":"official_pipeline_uniform_schedule_on_turbo_weights",
+        "checkpoint_modified":False,"quality_permission":False}

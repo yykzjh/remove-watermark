@@ -28,6 +28,8 @@ def main():
     p.add_argument("--files",nargs="+")
     p.add_argument("--base-steps",type=int,choices=[0,12,16,20,24,40],default=0,
         help="Offline original Qwen2.1 family checkpoint only; never overrides a Turbo grid")
+    p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0,
+        help="Explicit offline Turbo uniform schedule comparison; leaves checkpoint/default deployment unchanged")
     p.add_argument("--foveation-mass",type=float,default=0.,
         help="Offline reversible complete-frame sampling mass in0..0.35; 0 keeps native input")
     p.add_argument("--hint-transmission",type=float,default=0.,
@@ -71,6 +73,8 @@ def main():
         p.error("Explicit resolution override cannot be combined with frozen budgets")
     if a.generation_encoder_offload and a.transformer_phase_offload:
         p.error("Select one encoder residency mechanism")
+    if a.uniform_steps and (a.base_steps or a.sigma_profile!="native" or a.hint_transmission or a.foveation_mass):
+        p.error("Uniform Turbo comparison cannot mix base mode, custom grids or conditioning")
     base_probe=None
     if a.base_steps:
         if a.sigma_profile!="native" or a.lora_path or a.hint_transmission or a.foveation_mass:
@@ -154,7 +158,11 @@ def main():
     original_sigmas=list(getattr(pipe.config,"sample_sigmas",None) or [])
     if a.base_steps and original_sigmas:
         raise ValueError("Base probe cannot discard a stored Turbo schedule")
-    experimental_sigmas=(None if a.base_steps else tail_sigma_grid(original_sigmas,a.sigma_profile))
+    uniform_probe=None
+    if a.uniform_steps:
+        from watermark_studio.probe_schedules import configure_turbo_uniform_probe
+        uniform_probe=configure_turbo_uniform_probe(pipe,a.uniform_steps)
+    experimental_sigmas=(None if a.base_steps or a.uniform_steps else tail_sigma_grid(original_sigmas,a.sigma_profile))
     if a.sigma_profile!="native":
         pipe.register_to_config(sample_sigmas=experimental_sigmas)
     options=ProcessingConfig.model_validate(summary["options"])
@@ -197,8 +205,8 @@ def main():
         item={"image":model_source,"prompt":prompt,"seed":seed}
         if any(r["applied"] for r in hint_audits):
             item["_semantic_reference"]=source
-        if a.base_steps:
-            item["_probe_num_inference_steps"]=a.base_steps
+        if a.base_steps or a.uniform_steps:
+            item["_probe_num_inference_steps"]=a.base_steps or a.uniform_steps
         if a.source_flow_context:
             item["_denoising_context_regions"]=[r.model_dump() for r in model_regions]
         capture={};original_decode=pipe.vae.decode
@@ -215,6 +223,8 @@ def main():
         started=time.monotonic()
         with override_methods(pipe.vae,decode=decode):
             generated=restore_full_frame(independent_batch(pipe,[item],budget,a.kv_cache)[0],source.size,sampling)
+        if (a.base_steps or a.uniform_steps) and len(pipe.scheduler.timesteps)!=(a.base_steps or a.uniform_steps):
+            raise ValueError("Actual diffusion forward count differs from explicit requested steps")
         if sampling is not None:
             capture["full_frame_sampling"]=sampling
             capture["forward_source_rgb_sha256"]=hashlib.sha256(model_source.tobytes()).hexdigest()
@@ -249,7 +259,7 @@ def main():
             source_rim_composition={"regions":[r.model_dump() for r in scoped],"cores":cores},
             native_generation_probe={"model_input_size":[width,height],"seed":seed,"whole_frame":True,
                 "seconds":round(time.monotonic()-started,4),"kv_cache":a.kv_cache,
-                "base_model":base_probe,"encoder_residency":item.get("_encoder_generation_log"),"sigma_profile":a.sigma_profile,"steps":len(pipe.scheduler.timesteps),
+                "base_model":base_probe,"uniform_turbo":uniform_probe,"encoder_residency":item.get("_encoder_generation_log"),"sigma_profile":a.sigma_profile,"steps":len(pipe.scheduler.timesteps),
                 "full_frame_sampling":sampling})
         with (folder/"results.jsonl").open("a") as f:f.write(json.dumps(result,ensure_ascii=False)+"\n")
         print(json.dumps({"completed":index+1,"total":len(rows),"job":job}),flush=True)
@@ -260,7 +270,7 @@ def main():
     report={"state":"completed","job":job,"source_job":a.source_job,"input_dir":str(source_root),"output_dir":str(outputs),
         "total":len(rows),"options":options.model_dump(),"code_revision":revision,"sources_sha256":hashes,
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),"quality_evaluated":False,
-        "native_settings":{"base_model":base_probe,"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
+        "native_settings":{"base_model":base_probe,"uniform_turbo":uniform_probe,"quantization":a.quantization,"granularity":a.granularity,"kv_cache":a.kv_cache,
             "compile":a.compile_projections,"transformer_phase_offload":a.transformer_phase_offload,
             "sigma_profile":a.sigma_profile,"frozen_input_budget":a.frozen_input_budget,"foveation_mass":a.foveation_mass,"resolution_override":a.resolution,
             "generation_encoder_offload":a.generation_encoder_offload,"vae_tiling":a.vae_tiling,
