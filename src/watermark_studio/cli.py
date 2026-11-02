@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--input-resolution", "--resolution", dest="resolution", type=int, choices=[512, 768, 1024, 1280, 1536, 2048], default=1024)
     parser.add_argument("--output-width", type=int, default=0)
     parser.add_argument("--output-height", type=int, default=0)
+    parser.add_argument("--seed",type=int,default=42,help="Base image seed; retries use different deterministic seeds, larger values do not mean stronger randomness")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--remove-logo", action="store_true", help="Also process detected app logos and their small attached codes")
     parser.add_argument("--quality-check", action="store_true")
@@ -47,6 +48,8 @@ def main():
     parser.add_argument("--quality-max-tokens", type=int, default=128)
     parser.add_argument("--quality-detail-patches", type=int, choices=range(9), default=4)
     args = parser.parse_args()
+    if not 0<=args.seed<=2**32-1:
+        parser.error("--seed must be in 0..4294967295")
     if not .1<=args.context<=2:
         parser.error("--context must be finite and in 0.1..2")
     scope,first_mode=processing_route(args.first_pass_mode)
@@ -66,6 +69,7 @@ def main():
                 "output_width": args.output_width,
                 "output_height": args.output_height,
                 "overwrite": args.overwrite,
+                "seed":args.seed,
                 "quality_check": args.quality_check,
                 "quality_cross_review": args.quality_cross_review,
                 "quality_auto_retry": args.quality_auto_retry,

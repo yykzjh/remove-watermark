@@ -1,4 +1,4 @@
-"""Paired route ablation on a fixed development cohort, no retries or promotion."""
+"""Paired route and bounded-retry ablations on a fixed reused-source cohort."""
 import argparse
 import collections
 import hashlib

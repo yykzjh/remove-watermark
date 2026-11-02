@@ -428,6 +428,9 @@ class MainWindow(QMainWindow):
         self.overwrite = QCheckBox("覆盖输出目录中的同名文件")
         self.overwrite.setToolTip("同时开启检验和自动返工时，已有输出先检验，通过的沿用，只更新不通过的图像。")
         form.addRow(self.overwrite)
+        self.seed=QLineEdit("42")
+        self.seed.setToolTip("0至4294967295。不同种子可产生不同候选，不代表数值越大随机性越强；返工自动更换种子，合格后停止。")
+        form.addRow("基础随机种子",self.seed)
         self.extra_prompt = QLineEdit()
         self.extra_prompt.setPlaceholderText("可选：补充地面、人物衣着、建筑线条等场景说明")
         form.addRow("补充提示词", self.extra_prompt)
@@ -575,6 +578,7 @@ class MainWindow(QMainWindow):
                 quality_batch_size=self.quality_batch.value(),
                 quality_detail_patches=self.quality_details.value(),
                 overwrite=self.overwrite.isChecked(),
+                seed=int(self.seed.text().strip()),
                 output_width=self.output_width.value() if self.output_mode.currentIndex() else 0,
                 output_height=self.output_height.value() if self.output_mode.currentIndex() else 0,
                 extra_prompt=self.extra_prompt.text(),
@@ -723,6 +727,7 @@ def default_ssh_program():
 def apply_processing_defaults(window, args):
     """Explicit launch flags prefill controls; submitting always remains a user action."""
     window.processing_context=getattr(args,"context",.6)
+    window.seed.setText(str(getattr(args,"seed",42)))
     window.processing_roi_grouping=getattr(args,"roi_grouping","separate")
     window.processing_whole_prompt_profile=getattr(args,"whole_prompt_profile",ProcessingConfig.model_fields["whole_prompt_profile"].default)
     mode=getattr(args,"first_pass_mode","regions")
@@ -768,6 +773,7 @@ def main():
     parser.add_argument("--quality-retry-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--input-resolution",type=int,choices=[512,768,1024,1280,1536,2048],default=1024)
     parser.add_argument("--roi-grouping",choices=["separate","adaptive"],default="separate")
+    parser.add_argument("--seed",type=int,default=42,help="Base image seed; retries vary automatically")
     parser.add_argument("--context",type=float,default=.6,help="Advanced reconstruction context factor, 0.1..2; does not select a fixed batch region")
     parser.add_argument("--first-pass-mode",choices=["regions","whole","focused","thorough","complete"],default="regions")
     parser.add_argument("--whole-prompt-profile",choices=["baseline","fidelity","scene","located","concise","neutral","clean-photo","clean-photo-detailed"],default=ProcessingConfig.model_fields["whole_prompt_profile"].default,help="neutral: source-material fidelity; fidelity/baseline: historical comparisons; concise: material-mismatch retry; scene/located/clean-photo/clean-photo-detailed: experimental")
@@ -775,6 +781,8 @@ def main():
     parser.add_argument("--input-dir", default="", help="Prefill a development-machine input path")
     parser.add_argument("--output-dir", default="", help="Prefill a development-machine output path")
     args = parser.parse_args()
+    if not 0<=args.seed<=2**32-1:
+        parser.error("--seed must be in 0..4294967295")
     if not .1<=args.context<=2:
         parser.error("--context must be finite and in 0.1..2")
     if args.quality_cross_review and not args.quality_check:

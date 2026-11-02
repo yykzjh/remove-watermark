@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Connect-only defaults; deployment remains a separate action.
+# Connect-only: original-based ROI editing, strict QA, and at most one evidence-backed retry.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 uv_bin=$(command -v uv || true)
@@ -15,6 +15,9 @@ exec "$uv_bin" run --no-sync watermark-batch \
   --repair-blending harmonic \
   --quality-check \
   --quality-batch-size 1 \
-  --quality-retry-resolution 1536 \
+  --quality-auto-retry \
+  --quality-retry-localized \
+  --quality-max-attempts 2 \
+  --quality-retry-resolution 1024 \
   --remove-logo \
   "$@"
