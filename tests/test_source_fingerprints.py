@@ -58,3 +58,20 @@ def test_history_inventory_excludes_sealed_reservation_but_includes_api_sources_
     assert set(paths)=={str(first),str(second)}
     assert str(secret) not in paths and not unresolved
     assert missing_paths==[str(missing)]
+
+
+def test_alias_refinement_preserves_unflagged_positions_and_rejects_unbound_matches():
+    import runpy
+    from pathlib import Path
+
+    import pytest
+
+    script=runpy.run_path(str(Path(__file__).resolve().parents[1]/"scripts/refine-evaluation-selection.py"))
+    slots=script["replacement_slots"]
+    assert slots(["town/a.jpg","town/b.jpg","other/c.jpg"],[
+        {"sealed_path":"town/b.jpg","other_partition":"history"},
+        {"sealed_path":"other/c.jpg","other_partition":"sealed"},
+        {"sealed_path":"town/b.jpg","other_partition":"extra_history"},
+    ])==[1,2]
+    with pytest.raises(ValueError,match="outside"):
+        slots(["town/a.jpg"],[{"sealed_path":"not-in-reservation.jpg"}])

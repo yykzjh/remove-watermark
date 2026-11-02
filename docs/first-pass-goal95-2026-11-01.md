@@ -1607,3 +1607,36 @@ source-flow-context和gradient-checkpointing均显式启用。
 这不是允许原生复制的证书，仍需可靠中性底板/无字支持和全部现有QA。
 新增精确GT与JPEG95健康目标拒绝回归及轻度模糊可观测测试；
 所有真实图像保持未修改，后续先看完整泄漏统计，不能只挑PSNR改善样本。
+
+### 2026-11-02 More-step checks and source-alias isolation refinement
+
+The user explicitly allows more than 8 inference steps. Existing diverse64 results remain
+uniform12=50/64, uniform24=50/64, uniform40=49/64; these are development results, not a
+qualified thousand-photo acceptance result. Additional matched native six:
+uniform16 job a580c6762e344413b069455a8e7e12e4,72.969s generation;
+uniform20 job77800db5bb3f4c0e853002ba958221ed,86.837s.
+Unchanged strict QA tag goal95-steps16-20-lower600-matched24-quality-v1:
+base12=3/6,base16=3/6,base20=2/6,lower-balanced checkpoint600 uniform12=2/6.
+Checkpoint400 lower-balanced comparison was12=2/6,24=3/6.
+No new default, quality threshold, retry count, or production configuration is adopted.
+
+The first pixel/recompression isolation audit completed in1027.173s:
+20,281 historical paths,9,535 distinct encoded historical images,1,000 sealed images;
+no exact matches,12 near-duplicate candidate pairs,zero missing/error/unresolved catalog paths.
+It remains unqualified. The two initially missing user reference images were recovered from
+the exact embedded user image payloads in the original local archived session, without
+changing or exposing the archive. Their encoded SHA256 values are
+a1b06644e3a2375ab80ec22a34a1457fca09d62616533b5dc927877a8da667c2
+and f8e544ca736d064971b5b5ffd7dc3e7235134ae21b2264144794bdbd625a3d16.
+The second recovered image is the actual1824x1368 chat-resized reference, not the missing
+4000x3000 original encoding. Aspect/low-frequency alias comparisons are also included.
+Only3,421 bytes of bounded descriptors crossed SSH, with zero image bytes.
+Neither reference matches the current sealed1000 under the declared fingerprint comparison.
+
+scripts/refine-evaluation-selection.py conservatively replaces only flagged source-alias
+reservations, before any model inference. It preserves all other original positions and
+the town distribution, samples replacements with a fixed seed from the same town, and
+excludes historical sources, retained sources, discarded sources, recovered user examples,
+and their declared pixel/recompression candidates. Original reservation and audit files
+remain immutable. This is source isolation, without quality labels or generated outputs.
+A separate fresh full audit is required before claiming the new reservation is qualified.
