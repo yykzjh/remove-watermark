@@ -28,6 +28,7 @@ def labelled_proposal(photo,mask,core,native):
 
 def main():
     p=argparse.ArgumentParser(__doc__)
+    p.add_argument("--mode",choices=["side","top"],default="side")
     p.add_argument("--proposals",type=Path,required=True)
     p.add_argument("--controls",type=Path,required=True)
     p.add_argument("--physical-fixtures",type=Path)
@@ -82,6 +83,13 @@ def main():
             cases.append({"cohort":"native_physical_object","file":str(c["source"]),"source":c["source"],
                 "proposal":labelled_proposal(source,c["box"],c["box"],native),
                 "expected_clear":None,"expected_digital":False})
+    if a.mode=="top":
+        identities={}
+        for c in cases:
+            key=(c["source"],tuple(c["proposal"]["mask"]))
+            identities.setdefault(key,c|{"expected_clear":None,
+                "cohort":"synthetic_digital_card" if c["expected_digital"] is True else c["cohort"]})
+        cases=list(identities.values())
     cases=cases[a.rank::a.shards]
     hashes={c["source"]:digest(c["source"]) for c in cases}
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
@@ -94,9 +102,10 @@ def main():
     import torch
     from transformers import Qwen3VLProcessor
 
-    from watermark_studio.config import DeploymentConfig
+    from watermark_studio.config import DeploymentConfig, Region
     from watermark_studio.model_identity import compare_model_weights
     from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
+    from watermark_studio.source_panel_rims import inspect_photo_rims, propose_blue_card_rims
     from watermark_studio.source_side_proof import inspect_side_rims
     from watermark_studio.text_presence import TargetTextPresence
     torch.set_num_threads(1)
@@ -115,7 +124,15 @@ def main():
     rows=[]
     for c in cases:
         photo=load_photo(c["source"])[0]
-        proof=inspect_side_rims(photo,[c["proposal"]],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)[0]
+        if a.mode=="top":
+            prop=c["proposal"]
+            proposed=propose_blue_card_rims(photo,[Region(kind="panel",box=prop["mask"])],
+                [{"mask":prop["mask"],"core":prop["core"]}])
+            proof=(inspect_photo_rims(photo,proposed,editor,ep,verifier,vp,"cuda:0",
+                identity["relation"],ocr)[0] if proposed else
+                {"approved":False,"reason":"no_source_top_geometry"})
+        else:
+            proof=inspect_side_rims(photo,[c["proposal"]],editor,ep,verifier,vp,"cuda:0",identity["relation"],ocr)[0]
         rows.append(c|{"proof":proof})
         print(json.dumps({"completed":len(rows),"total":len(cases)}),flush=True)
     if hashes!={name:digest(name) for name in hashes} or revision!=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip():
@@ -123,7 +140,7 @@ def main():
     with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
         assert server==h["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
     summary={"scope":"Source proof calibration only; no image restoration or production job",
-        "revision":revision,"images":len(rows),"rank":a.rank,"shards":a.shards,
+        "mode":a.mode,"revision":revision,"evaluations":len(rows),"images":len({c["source"] for c in rows}),"rank":a.rank,"shards":a.shards,
         "seconds":round(time.monotonic()-began,3),"load_seconds":round(load_seconds,3),
         "cohorts":dict(Counter(c["cohort"] for c in rows)),
         "approved":dict(Counter(c["cohort"] for c in rows if c["proof"]["approved"])),

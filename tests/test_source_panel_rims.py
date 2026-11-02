@@ -285,3 +285,25 @@ def test_explicit_nonapproval_cannot_restore_pixels_despite_old_positive_model_f
     for approval in (False,None,1,"true"):
         result,count=restore_proven_rims(source,candidate,[record|{"approved":approval}])
         assert count==0 and result.tobytes()==candidate.tobytes()
+
+
+def test_hashing_failure_after_positive_flags_never_keeps_approval(monkeypatch):
+    from watermark_studio.source_panel_rims import inspect_photo_rims
+    source,region,core=fixture()
+    proposed=propose_blue_card_rims(source,[region],[core])
+    yes={"digital_card":True,"rim_clear":True,"uncertain":False,"area":"none"}
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",lambda *a:([yes],.01))
+    class OCR:
+        def inspect(self,*args):return {"status":"clear"}
+    original=hashlib.sha256;calls=0
+    def failing(value):
+        nonlocal calls
+        calls+=1
+        if calls==2:raise MemoryError("simulated full-frame hashing failure")
+        return original(value)
+    monkeypatch.setattr("watermark_studio.source_panel_rims.hashlib.sha256",failing)
+    record=inspect_photo_rims(source,proposed,object(),None,object(),None,"cpu","different_weights",OCR())[0]
+    assert not record["approved"] and record["reason"]=="source_proof_error"
+    assert "source_rim_sha256" in record
+    _result,count=restore_proven_rims(source,source,[record])
+    assert count==0

@@ -198,7 +198,7 @@ def inspect_photo_rims(photo, proposals, editor, editor_processor, verifier,
                     source_rgb_sha256 = hashlib.sha256(photo.convert("RGB").tobytes()).hexdigest()
                 record["source_rgb_sha256"] = source_rgb_sha256
         except Exception as error:  # noqa: BLE001 - never restore uncertain source pixels
-            record.update(reason="source_proof_error", error=f"{type(error).__name__}: {error}"[:240])
+            record.update(approved=False,reason="source_proof_error", error=f"{type(error).__name__}: {error}"[:240])
         finally:
             record["seconds"] = round(time.monotonic()-began, 5)
         audited.append(record)
