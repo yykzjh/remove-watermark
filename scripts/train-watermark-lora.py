@@ -34,9 +34,12 @@ def main():
     p.add_argument("--initial-lora-path",type=Path)
     p.add_argument("--initial-lora-sha256",default="")
     p.add_argument("--prefix-weight",type=float,default=1.)
+    p.add_argument("--terminal-velocity-supervision",action="store_true")
     p.add_argument("--pixel-supervision",action="store_true")
     p.add_argument("--pixel-weight",type=float,default=1.)
     a=p.parse_args()
+    if a.terminal_velocity_supervision and not a.trajectory_cache:
+        p.error("Terminal velocity supervision requires frozen sampling trajectories")
     if (a.pixel_supervision and not a.trajectory_cache) or (a.pixel_weight!=1 and not a.pixel_supervision):
         p.error("Pixel supervision requires a frozen terminal trajectory; weight requires explicit supervision")
     if not math.isfinite(a.pixel_weight) or not .1<=a.pixel_weight<=4:
@@ -181,7 +184,7 @@ def main():
                     **kwargs)[0][:,-clean.shape[1]:]
         terminal_prediction=predict(-1)
         terminal=terminal_objective(terminal_prediction,states[-1].to("cuda:0"),clean,
-            float(sigmas[-2]),values["edit_mask"])
+            float(sigmas[-2]),values["edit_mask"],normalize_velocity=a.terminal_velocity_supervision)
         pixel_loss=None
         if vae is not None:
             from watermark_studio.pixel_training import decode_exact_pixels, exact_pixel_objective
@@ -204,7 +207,8 @@ def main():
                 record({"stage":"pixel_gradient_check",**pixel_gradient_check})
         prefix=int(torch.randint(states.shape[0]-1,(1,),device="cuda:0",generator=generator).item())
         preservation=prefix_objective(predict(prefix),velocities[prefix].to("cuda:0"))
-        loss_components.update(terminal_loss=float(terminal.detach()),prefix_loss=float(preservation.detach()))
+        loss_components.update(terminal_loss=float(terminal.detach()),prefix_loss=float(preservation.detach()),
+            endpoint_loss=float(terminal.detach())*(float(sigmas[-2])**2 if a.terminal_velocity_supervision else 1))
         if pixel_loss is not None:loss_components["pixel_loss"]=float(pixel_loss.detach())
         return terminal+a.prefix_weight*preservation+(a.pixel_weight*pixel_loss if pixel_loss is not None else 0)
 
@@ -261,6 +265,7 @@ def main():
         "objective":("native_terminal_exact_clean_with_frozen_prefix_preservation" if trajectory else
             "conditional_flow_noise_minus_clean; overlay_weight4; preservation_weight1"),
         "trajectory_cache_sha256":digest(a.trajectory_cache) if trajectory else None,
+        "terminal_loss_units":"velocity" if a.terminal_velocity_supervision else "endpoint",
         "initial_adapter":initialization,
         "pixel_supervision":"exact_RGB_L1_plus_0.25_local_texture_amplitude" if a.pixel_supervision else None,
         "pixel_gradient_check":pixel_gradient_check,
@@ -296,7 +301,8 @@ def main():
             save_file(adapter_tensors(model),str(path),metadata={"alpha":str(a.alpha),"rank":str(a.rank),
                 "model_index_sha256":signature["model_index.json"],
                 "dataset_manifest_sha256":cached["dataset_manifest_sha256"],
-                "code_revision":revision,"steps":str(step),"objective":provenance["objective"]})
+                "code_revision":revision,"steps":str(step),"objective":provenance["objective"],
+                "terminal_loss_units":provenance["terminal_loss_units"],"pixel_supervision":str(a.pixel_supervision)})
             saved.append({"path":str(path),"sha256":digest(path),"step":step,"alpha":a.alpha})
         if step%25==0 and (reserved!=isolation() or revision!=subprocess.check_output(
                 ["git","rev-parse","--short","HEAD"],text=True).strip()):

@@ -29,16 +29,21 @@ def cpu_packed_noise(height,width,channels,seed,dtype):
     return value.squeeze(2).flatten(2).transpose(1,2).contiguous()
 
 
-def terminal_objective(prediction,terminal,clean,sigma,mask):
+def terminal_objective(prediction,terminal,clean,sigma,mask,*,normalize_velocity=False):
     """Supervise final Euler x0 against exact real clean VAE target, never teacher x0."""
     import torch
 
     from .lora_training import flow_objective
+    if type(normalize_velocity) is not bool:
+        raise ValueError("Explicit terminal velocity normalization flag required")
     if isinstance(sigma,bool) or not math.isfinite(sigma) or not 0<sigma<=1:
         raise ValueError("Positive final native sigma required")
     # Flow objective's algebra supplies common shape/support/weight validation.
     predicted=terminal.float()-sigma*prediction.float()
-    return flow_objective(predicted,clean.float(),torch.zeros_like(clean),mask)
+    value=flow_objective(predicted,clean.float(),torch.zeros_like(clean),mask)
+    # Prefix regularization is measured in velocity units. Optional division
+    # removes the sigma-squared attenuation of an endpoint-space objective.
+    return value/(sigma*sigma) if normalize_velocity else value
 
 
 def prefix_objective(prediction,teacher):

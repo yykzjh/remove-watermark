@@ -38,3 +38,17 @@ def test_prefix_preservation_uses_full_frame_velocity():
     assert prefix_objective(teacher,teacher)==0
     altered=teacher.clone();altered[:,-1]+=1
     assert prefix_objective(altered,teacher)>0
+
+
+def test_terminal_velocity_units_remove_sigma_squared_gradient_attenuation():
+    torch=pytest.importorskip("torch")
+    from watermark_studio.trajectory_training import terminal_objective
+    state=torch.randn(1,12,4);clean=torch.randn_like(state);mask=torch.ones(1,12);sigma=1/12
+    prediction=torch.randn_like(state,requires_grad=True)
+    ordinary=terminal_objective(prediction,state,clean,sigma,mask)
+    normalized=terminal_objective(prediction,state,clean,sigma,mask,normalize_velocity=True)
+    expected=(prediction-(state-clean)/sigma).square().mean()
+    torch.testing.assert_close(normalized,expected)
+    a=torch.autograd.grad(ordinary,prediction,retain_graph=True)[0]
+    b=torch.autograd.grad(normalized,prediction)[0]
+    torch.testing.assert_close(b,a/(sigma*sigma))
