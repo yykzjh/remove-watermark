@@ -1765,3 +1765,34 @@ No per-item offline step override is used in this deployment-route verification.
 Remote CPU sampling/probe/batching checks28 passed; WSL full suite677 passed32 optional
 Torch-dependent tests skipped. The existing API process has not been restarted by these probes.
 Current sealed1000 remains untouched and the>=95% first-pass goal is still unachieved.
+
+### 2026-11-02 Faint-foreground/JPEG safety challenge and paired pixel veto pilot
+
+The prior24/56 black-text synthetic checks did not cover faint ink or encoded text halos.
+New source-only stress tests use the same24 previously screened validation parent originals,
+six controlled foreground styles,PNG/JPEG95,and Sans/Serif fonts. Known foreground pixels
+are measured from the actual encoded source versus an identically encoded constant-body
+counterfactual. This truth only measures leakage; it never corrects a candidate support.
+Synthetic photographs are rendered in RAM; original/production/sealed images are unchanged.
+
+Sans288 cases per support:pixel-only264 leaks,OCR2 239,OCR8 235.
+Serif288 per support:pixel-only264 leaks,OCR2 255,OCR8 232.
+Under coarse-fit/noise checks,the OCR8 variants still have205/211 cases respectively
+with>2RGB potential foreground-induced correction. Expanded OCR boxes alone are inadequate.
+These are derived challenge variants of24 originals,not hundreds of independent real photos.
+Native detail recovery stays disabled; the previous2-case synthetic PSNR improvement cannot
+be treated as safe native restoration or as watermark-removal acceptance.
+
+An offline803,017-parameter paired pixel UNet is trained from96 original TRAIN identities,
+using1,024 native256px source/reference tiles. Source foreground labels include low-contrast
+text,small codes,periodic overlays,and actual JPEG text influence. Clean-body and physically
+photographed texture remain negatives. Reference blur/tone/compression and tile orientation
+vary. Validation24 originals and Serif font are excluded from training. Threshold.01 and
+dilation4 are precommitted; the single final1000-step checkpoint is used without validation
+checkpoint/threshold selection. Training69.865s,preparation134.854s,
+cached array469,762,048B,peakGPU2,784,223,744B.
+Artifact SHA256a0acf2361a1126b1acb4eb4ccabedfae7dfd45a6d9fb0578873db4d3995ed53e.
+The model only vetoes candidate source pixels and cannot approve image quality.
+Independent-of-training source evaluation is pending. Nontrivial recoverable background
+coverage is required; rejecting all pixels is not a useful or qualified result.
+No additional Qwen generation,production deployment,or sealed1000 model call is involved.

@@ -80,6 +80,8 @@ def main():
         from safetensors import safe_open
         from safetensors.torch import load_file
         torch.set_num_threads(2)
+        torch.backends.cuda.matmul.allow_tf32=training["arguments"].get("tf32",False)
+        torch.backends.cudnn.allow_tf32=training["arguments"].get("tf32",False)
         with safe_open(training["checkpoint"],framework="pt") as weights:
             if weights.metadata().get("model_type")!=MODEL_TYPE:
                 raise ValueError("Classifier architecture metadata differs")
