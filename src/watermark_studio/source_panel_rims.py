@@ -104,7 +104,7 @@ def restore_proven_rims(source, candidate, records):
     result = candidate.copy()
     count = 0
     for row in records:
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or row.get("approved") is not True:
             continue
         if (row.get("source_size") != list(source.size)
                 or not proven_photo_rim(row.get("editor"), row.get("independent"),

@@ -54,7 +54,7 @@ def test_proven_source_pixels_are_exact_without_changing_a_single_other_pixel():
     candidate = Image.new("RGB", source.size, (20, 30, 40))
     record = propose_blue_card_rims(source, [region], [core])[0]
     yes = {"digital_card": True, "rim_clear": True, "uncertain": False, "area": "none"}
-    record.update(editor=yes, independent=yes, weights_relation="different_weights",
+    record.update(approved=True, editor=yes, independent=yes, weights_relation="different_weights",
                   ocr={"status": "clear"})
     record["source_rim_sha256"] = hashlib.sha256(source.crop(tuple(record["restore_pixels"])).tobytes()).hexdigest()
     result, count = restore_proven_rims(source, candidate, [record])
@@ -276,3 +276,12 @@ def test_whole_source_binding_is_distinct_from_exact_band_restoration():
     # cannot authorize changing or initializing any other original pixels.
     _result,count=restore_proven_rims(changed,changed,[record])
     assert count==1
+
+
+def test_explicit_nonapproval_cannot_restore_pixels_despite_old_positive_model_fields():
+    source,region,core=fixture()
+    record=approved_record(source,propose_blue_card_rims(source,[region],[core])[0])
+    candidate=Image.new("RGB",source.size,"black")
+    for approval in (False,None,1,"true"):
+        result,count=restore_proven_rims(source,candidate,[record|{"approved":approval}])
+        assert count==0 and result.tobytes()==candidate.tobytes()
