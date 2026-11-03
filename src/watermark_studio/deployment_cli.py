@@ -11,6 +11,8 @@ HELP = {
     "port": "API port, 1024..65535",
     "model": "Model repository ID or a local model directory",
     "revision": "Model repository revision (main on HF, master on ModelScope, or pinned commit)",
+    "roi_steps": "Experimental source-area ROI routing: 0 disables; selected large source masks use this uniform schedule, other ROIs retain the native Turbo grid; mutually exclusive with uniform-steps",
+    "roi_step_min_area": "Fraction of original photograph covered by the ROI mask union before generation; select roi-steps at or above this threshold (default 0.14)",
     "uniform_steps": "0: preserve checkpoint Turbo8 schedule;12/16/20/24/40: explicitly use the official uniform schedule on Turbo weights; more steps are not guaranteed better",
     "model_source": "Model download provider; ignored for a local model directory",
     "cache_dir": "Model download cache directory",

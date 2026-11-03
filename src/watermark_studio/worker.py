@@ -129,6 +129,11 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
         pipe._watermark_sampling_info={"sampling":"checkpoint_sample_sigmas",
             "requested_steps":len(getattr(pipe.config,"sample_sigmas",None) or []),
             "checkpoint_modified":False}
+    if config.roi_steps:
+        if _allow_unconfigured_sampling:
+            raise ValueError("ROI sampling routing requires the stored Turbo checkpoint")
+        from .roi_sampling import configure_roi_sampling
+        configure_roi_sampling(pipe,config.roi_steps,config.roi_step_min_area)
     return pipe
 
 
@@ -536,16 +541,21 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
         if edit.get("_roi_members"):
             edit["size"]=dimensions(edit["image"],edit["resolution"])
 
+    from .roi_sampling import prepare_roi_sampling
+    prepare_roi_sampling(edits,config)
     buckets = defaultdict(list)
     # Disable bucketing => adjacent compatible edits only; never mix different layouts.
     run, previous = 0, None
     for edit in edits:
         if edit["state"]["failed"]:
             continue
-        if edit["size"] != previous:
+        schedule=edit.get("_roi_uniform_steps",0)
+        layout=(edit["resolution"],edit["size"],schedule)
+        if layout != previous:
             run += 1
-        previous = edit["size"]
-        key = (edit["resolution"],edit["size"]) if config.batch_bucketing else (run,edit["resolution"],edit["size"])
+        previous = layout
+        key = ((edit["resolution"],edit["size"],schedule) if config.batch_bucketing
+               else (run,edit["resolution"],edit["size"],schedule))
         buckets[key].append(edit)
     phase_offload=bool(phase_offload or (phase_manage and config.quality_phase_offload_above
                         and any(e["resolution"]>config.quality_phase_offload_above for e in edits)))

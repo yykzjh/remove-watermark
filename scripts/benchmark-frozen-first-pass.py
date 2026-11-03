@@ -16,6 +16,9 @@ p.add_argument("--work",type=Path,required=True)
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--context",type=float,default=.45)
 p.add_argument("--url",default="http://127.0.0.1:8765")
+p.add_argument("--expected-uniform-steps",type=int,choices=[0,12,16,20,24,40],required=True)
+p.add_argument("--expected-roi-steps",type=int,choices=[0,12,16,20,24,40],required=True)
+p.add_argument("--expected-roi-min-area",type=float,default=.14)
 a=p.parse_args()
 assert .1<=a.context<=2
 frozen=a.frozen.resolve(strict=True);selection=frozen/"source-selection.json"
@@ -29,7 +32,10 @@ base=json.loads((state/a.baseline_job/"summary.json").read_text())
 opts=dict(base["options"],context=a.context,quality_auto_retry=False,quality_cross_review=False,
           quality_retry_localized=False,overwrite=False)
 h=request(a.url,"/health")
-assert h["stage"]=="ready" and h["gpus"]==[0,1,2,3]
+assert h["stage"]=="ready" and h["backend"]=="qwen" and h["gpus"]==[0,1,2,3]
+assert h["optimization"]["uniform_steps"]==a.expected_uniform_steps
+assert h["optimization"]["roi_steps"]==a.expected_roi_steps
+assert not a.expected_roi_steps or abs(h["optimization"]["roi_step_min_area"]-a.expected_roi_min_area)<1e-12
 assert h["quality_weight_identity"]["relation"]=="different_weights" and h["quality_rectangle_guard"]
 assert not h.get("job") or h["job"]["state"] in {"completed","failed","cancelled"}
 assert not a.work.exists(),"Fresh outputs only; inspect existing request instead of resubmitting"
@@ -67,16 +73,22 @@ output_dirs={p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_dir()
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
 assert counts==s["first_pass_counts"]==s["quality_counts"]
 seconds=s["finished_at"]-s["started_at"]
+sampling=[log for row in rows for log in row.get("model_sampling",[])]
+model_inputs=sum(r.get("model_inferences",0) for r in rows)
+expected_steps={8,a.expected_roi_steps} if a.expected_roi_steps else {a.expected_uniform_steps or 8}
+sampling_complete=(len(sampling)==model_inputs>0 and all(log.get("actual_steps") in expected_steps for log in sampling))
+oom_retries=sum(r.get("oom_retries",0) for r in rows)
 report={"job":job,"images":1000,"first_counts":counts,"final_counts":counts,
     "first_pass_rate":counts.get("passed",0)/1000,"seconds":seconds,"images_per_hour":3600000/seconds,
     "failed":s["failed"],"invalid":s["invalid"],"bad_sizes":bad_sizes,"missing_outputs":missing,
     "filename_mismatches":len(set(hashes)^output_names),"directory_mismatches":len(input_dirs^output_dirs),
     "directories":len(input_dirs),"source_bytes_unchanged":True,"no_generation_retries":True,
-    "generation_region_inputs":sum(r.get("model_inferences",0) for r in rows),
+    "generation_region_inputs":model_inputs,"actual_denoising_steps":dict(collections.Counter(log.get("actual_steps") for log in sampling)),
+    "sampling_audit_complete":sampling_complete,"generation_oom_retries":oom_retries,
     "paths":dict(collections.Counter(r.get("processing_path") for r in rows)),
     "selection_sha256":hashlib.sha256(raw).hexdigest(),"loaded_revision":current["code_revision"],
     "options":opts,"optimization":current["optimization"],"weight_identity":current["quality_weight_identity"],
-    "qualified90":counts.get("passed",0)>=900 and not any([s["failed"],s["invalid"],bad_sizes,missing,
+    "qualified90":counts.get("passed",0)>=900 and sampling_complete and not oom_retries and not any([s["failed"],s["invalid"],bad_sizes,missing,
         len(set(hashes)^output_names),len(input_dirs^output_dirs)])}
 (a.work/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
 print(json.dumps({k:v for k,v in report.items() if k not in {"options","optimization","weight_identity"}}),flush=True)

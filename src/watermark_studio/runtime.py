@@ -479,6 +479,8 @@ class Runtime:
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
                     "uniform_steps": self.config.uniform_steps,
+                    "roi_steps": self.config.roi_steps,
+                    "roi_step_min_area": self.config.roi_step_min_area,
                     "prefill_overlays": self.config.prefill_overlays,
                     "prefill_style": self.config.prefill_style,
                     "prefill_original_semantics": self.config.prefill_original_semantics,

@@ -118,6 +118,8 @@ class DeploymentConfig(BaseModel):
     revision: str = "main"
     model_source: Literal["huggingface", "modelscope"] = "huggingface"
     uniform_steps: Literal[0,12,16,20,24,40] = 0
+    roi_steps: Literal[0,12,16,20,24,40] = 0
+    roi_step_min_area: float = Field(default=.14,ge=0,le=1,allow_inf_nan=False)
     cache_dir: str = "~/.cache/huggingface/hub"
     gpus: list[int] = Field(default_factory=lambda: list(range(8)), min_length=1, max_length=16)
     parallelism: Literal["single", "data"] = "data"
@@ -192,6 +194,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.uniform_steps and self.roi_steps:
+            raise ValueError("Select global uniform-steps or source-area ROI steps, not both")
         if self.prefill_style=="gray" and (not self.prefill_overlays or not self.protect_source_rims or self.prefill_original_semantics):
             raise ValueError("Gray whole conditioning requires prefill-overlays and protect-source-rims; original-semantics is incompatible")
         if self.translucent_body_hint and (not self.protect_source_rims or self.prefill_overlays):

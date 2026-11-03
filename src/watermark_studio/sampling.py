@@ -7,14 +7,19 @@ from itertools import pairwise
 UNIFORM_STEPS=(12,16,20,24,40)
 
 
-def configure_uniform_sampling(pipe,steps):
-    if type(steps) is not int or steps not in UNIFORM_STEPS:
-        raise ValueError("Explicit supported uniform sampling step count required")
+def original_turbo_grid(pipe):
     original=list(getattr(pipe.config,"sample_sigmas",None) or [])
     if (len(original)!=8 or any(isinstance(v,bool) or not isinstance(v,(int,float))
             or not math.isfinite(v) or not 0<v<=1 for v in original)
             or any(a<=b for a,b in pairwise(original))):
         raise ValueError("Original descending positive eight-sigma Turbo grid required")
+    return original
+
+
+def configure_uniform_sampling(pipe,steps):
+    if type(steps) is not int or steps not in UNIFORM_STEPS:
+        raise ValueError("Explicit supported uniform sampling step count required")
+    original=original_turbo_grid(pipe)
     pipe.register_to_config(sample_sigmas=None)
     return {"requested_steps":steps,"original_sigmas":original,
         "sampling":"official_pipeline_uniform_schedule_on_turbo_weights",

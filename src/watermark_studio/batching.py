@@ -158,8 +158,9 @@ def independent_batch(pipe, items, resolution, kv_cache):
                           if context is not None else nullcontext())
 
         generators = [torch.Generator("cpu").manual_seed(item["seed"]) for item in items]
+        from .roi_sampling import roi_sampling_scope
         from .source_residency import encoder_generation_phase
-        with encoder_generation_phase(pipe, items):
+        with roi_sampling_scope(pipe,items), encoder_generation_phase(pipe, items):
             with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents), schedule_scope:
                 separate=getattr(pipe,"_watermark_separate_vae_decode",False)
                 from .probe_schedules import probe_inference_step_options
@@ -174,7 +175,9 @@ def independent_batch(pipe, items, resolution, kv_cache):
                 ).images
                 sampling_log=verify_sampling_steps(pipe,step_options)
                 for item in items:
-                    item["_sampling_log"]=dict(sampling_log)
+                    item["_sampling_log"]={**sampling_log,**(
+                        {"roi_route":dict(item["_roi_sampling_route"])}
+                        if "_roi_sampling_route" in item else {})}
             if context is not None:
                 context.finish()
             # Returning from the pipeline releases its local prefix K/V and denoising
