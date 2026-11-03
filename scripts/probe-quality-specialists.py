@@ -27,30 +27,27 @@ def detection_role(original, inspector, locator, locator_processor, counters, re
 
 
 def source_aware_output_chat(chat, source, regions):
-    """Extra original evidence is never a conclusion or an output image."""
-    from watermark_studio.images import context_box, pixel_box
+    """Use an ordinary before/after layout; only results are inspected."""
     from watermark_studio.quality import preview
     messages = [dict(message, content=[dict(item) for item in message["content"]]) for message in chat]
     content = messages[-1]["content"]
-    tail = content.pop()
-    content.append({"type": "text", "text":
-        "SOURCE REFERENCE ONLY: The following images are the untouched ORIGINAL, not results. "
-        "The ORIGINAL still has its overlays. Their presence in these references is not a result defect. "
-        "Use the original only to establish real object boundaries, perspective and visible physical printing. "
-        "A character being present in both pictures does NOT prove it is physical."})
-    content.append({"type": "image", "image": preview(source, 768)})
-    for region in sorted(regions, key=lambda r: (r.box[2]-r.box[0])*(r.box[3]-r.box[1]), reverse=True)[:2]:
-        box = context_box(pixel_box(region.box, source.size), source.size, .45)
-        content.extend([{"type": "text", "text": "ORIGINAL reference crop; this is NOT a result detail."},
-                        {"type": "image", "image": preview(source.crop(box), 512)}])
+    if content[0].get("type") != "text" or content[1].get("type") != "image":
+        raise ValueError("Unknown result-view layout")
+    content[0]["text"] = (
+        "图1是未经修改的原照片，仅作实体载体参照，可能有水印也可能没有；"
+        "图2是完整RESULT结果照片，其后局部裁切全部来自同一RESULT。只验收RESULT。")
+    content.insert(1, {"type": "image", "image": preview(source, 768)})
+    content.insert(2, {"type": "text", "text": "图2 RESULT，后续局部也全部为结果："})
+    tail = content[-1]
+    tail["text"] = tail["text"].replace(
+        "图1是完整结果照片，后续图是标明原照片坐标的放大局部。结合整图透视和物体关系区分真实印刷文字。",
+        "图1是原照片，图2是完整RESULT，后续图是RESULT局部。只验收RESULT。")
     tail["text"] += (
-        "\n最后标有SOURCE REFERENCE/ORIGINAL的图像仅为未经修改的原图参照，仍带输入水印，"
-        "不能将它们当作结果照片。watermark_removed只按前面的完整结果和结果细节判断；"
-        "原图只帮助辨认物体载体。文字两边都有并不证明实物：水印完全没动的结果必须判false。"
-        "真实物体上的印字必须有材质、实体边缘或透视等可见证据；"
-        "相机叠加卡片、日期、标识、细码和淡字即使与原图一致仍须判残留。"
-        "检查整张结果，不限于原图候选范围，无法辨别则uncertain=true。")
-    content.append(tail)
+        "\n只按图2及RESULT局部判断残留，不把图1原照片中的数字覆盖误算为结果残留。"
+        "原图仅帮助辨认真实物体的材质、边缘和透视；两边都有同样的文字并不能证明文字属于实物。"
+        "只要RESULT仍有任何相机叠加信息卡、文字、细码、底板或残影，watermark_removed=false。"
+        "没有水印的原照片可以原样保留，但带水印的原照片直接复制仍是不合格。"
+        "检查整张RESULT，不限于上游候选范围，看不清则uncertain=true。")
     return messages
 
 
@@ -128,18 +125,6 @@ def main():
                 if len(chats) != 1:
                     raise ValueError("Source-reference pilot requires fixed single-case correspondence")
                 chats = [source_aware_output_chat(chats[0], source_context["image"], source_context["regions"])]
-            elif fields[0] == "content_preserved":
-                chats = [[dict(message, content=[dict(item) for item in message["content"]])
-                          for message in chat] for chat in chats]
-                for chat in chats:
-                    chat[-1]["content"][-1]["text"] += (
-                        "\n上游候选框不是已经证明的不透明水印。"
-                        "先独立核实原图可见文字是否依附真实物体；"
-                        "真实标牌、机械、衣物或纸张上原本可读的字符须逐项与结果比对，"
-                        "变字、伪字、乱码或抹掉一律content_preserved=false，"
-                        "即使该文字位于上游候选范围内也不豁免。"
-                        "仅有后期数字叠加的文字可以删除，不能把真实印字当数字水印。"
-                        "看不清是否相同则uncertain=true，不能因为两边都有字就称内容一致。")
             return original_inspection(chats, fields, *args, **kwargs)
         quality._structured_vqa = source_inspection
     rows = []
