@@ -103,3 +103,4 @@ resident复用去水印编码器，health如实报告::text_encoder；它不提�
 当前官方8B检查点与图像模型text_encoder的全部750个权重张量指纹相同。independent表示单独加载的实例，不保证权重独立。
 服务会进行规范化张量指纹审计；同一基础权重或身份未知时cross_review_supported=false，API与桌面禁止双模型改判。
 8B/NF4仍可作单独检验角色；不要向该配方的客户端传--quality-cross-review。4B等不同权重也必须先通过身份核验。
+\nROI sampling: --roi-steps 0 (disabled), --roi-step-min-area 0.14.\n

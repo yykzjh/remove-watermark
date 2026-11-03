@@ -3,6 +3,8 @@ import argparse
 import collections
 import hashlib
 import json
+import math
+import subprocess
 import time
 from pathlib import Path
 
@@ -39,6 +41,10 @@ assert not a.expected_roi_steps or abs(h["optimization"]["roi_step_min_area"]-a.
 assert h["quality_weight_identity"]["relation"]=="different_weights" and h["quality_rectangle_guard"]
 assert not h.get("job") or h["job"]["state"] in {"completed","failed","cancelled"}
 assert not a.work.exists(),"Fresh outputs only; inspect existing request instead of resubmitting"
+source_tree=subprocess.check_output(["git","rev-parse","HEAD:src"],text=True).strip()
+loaded_tree=subprocess.check_output(["git","rev-parse",h["code_revision"]+":src"],text=True).strip()
+assert source_tree==loaded_tree,"Restart before measuring changed inference sources"
+lock_sha256=hashlib.sha256(Path("uv.lock").read_bytes()).hexdigest()
 for name,expected in hashes.items():
     with (inputs/name).open("rb") as f:assert hashlib.file_digest(f,"sha256").hexdigest()==expected
 a.work.mkdir(parents=True)
@@ -78,17 +84,35 @@ model_inputs=sum(r.get("model_inferences",0) for r in rows)
 expected_steps={8,a.expected_roi_steps} if a.expected_roi_steps else {a.expected_uniform_steps or 8}
 sampling_complete=(len(sampling)==model_inputs>0 and all(log.get("actual_steps") in expected_steps for log in sampling))
 oom_retries=sum(r.get("oom_retries",0) for r in rows)
+routes_match=True
+if a.expected_roi_steps:
+    for log in sampling:
+        route=log.get("roi_route",{})
+        fraction=route.get("source_area_fraction")
+        if route.get("whole_generation_ignored") is True:
+            selected=0
+        elif type(fraction) not in (int,float) or not math.isfinite(fraction):
+            routes_match=False;continue
+        else:
+            selected=a.expected_roi_steps if fraction>=a.expected_roi_min_area else 0
+        routes_match=routes_match and route.get("policy")=="source_area_v1" and (
+            route.get("selected_uniform_steps")==selected and log.get("actual_steps")==(selected or 8))
+assert source_tree==subprocess.check_output(["git","rev-parse","HEAD:src"],text=True).strip()
+assert lock_sha256==hashlib.sha256(Path("uv.lock").read_bytes()).hexdigest()
+existing=s.get("first_pass_existing",0)+s.get("existing_outputs",0)
 report={"job":job,"images":1000,"first_counts":counts,"final_counts":counts,
     "first_pass_rate":counts.get("passed",0)/1000,"seconds":seconds,"images_per_hour":3600000/seconds,
     "failed":s["failed"],"invalid":s["invalid"],"bad_sizes":bad_sizes,"missing_outputs":missing,
     "filename_mismatches":len(set(hashes)^output_names),"directory_mismatches":len(input_dirs^output_dirs),
     "directories":len(input_dirs),"source_bytes_unchanged":True,"no_generation_retries":True,
     "generation_region_inputs":model_inputs,"actual_denoising_steps":dict(collections.Counter(log.get("actual_steps") for log in sampling)),
-    "sampling_audit_complete":sampling_complete,"generation_oom_retries":oom_retries,
+    "sampling_audit_complete":sampling_complete,"sampling_routes_match":routes_match,
+    "source_tree":source_tree,"uv_lock_sha256":lock_sha256,
+    "generation_oom_retries":oom_retries,"existing_outputs":existing,
     "paths":dict(collections.Counter(r.get("processing_path") for r in rows)),
     "selection_sha256":hashlib.sha256(raw).hexdigest(),"loaded_revision":current["code_revision"],
     "options":opts,"optimization":current["optimization"],"weight_identity":current["quality_weight_identity"],
-    "qualified90":counts.get("passed",0)>=900 and sampling_complete and not oom_retries and not any([s["failed"],s["invalid"],bad_sizes,missing,
+    "qualified90":counts.get("passed",0)>=900 and sampling_complete and routes_match and not oom_retries and not existing and not any([s["failed"],s["invalid"],bad_sizes,missing,
         len(set(hashes)^output_names),len(input_dirs^output_dirs)])}
 (a.work/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
 print(json.dumps({k:v for k,v in report.items() if k not in {"options","optimization","weight_identity"}}),flush=True)
