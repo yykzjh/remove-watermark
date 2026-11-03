@@ -1,0 +1,133 @@
+"""Read-only fixed semantic-inspector / residual-locator comparison."""
+from __future__ import annotations
+
+import argparse
+import collections
+import json
+import os
+import runpy
+import subprocess
+import time
+from pathlib import Path
+
+
+def detection_role(original, inspector, locator, locator_processor, counters):
+    def routed(images, encoder, processor, device, *args, **kwargs):
+        if encoder is inspector:
+            counters["calls"] += 1
+            counters["images"] += len(images)
+            return original(images, locator, locator_processor, device, *args, **kwargs)
+        return original(images, encoder, processor, device, *args, **kwargs)
+    return routed
+
+
+def enforce_frozen_constraints(case, verdict):
+    if case.get("frozen_vetoes"):
+        if verdict["status"] != "error":
+            verdict["status"] = "review"
+        verdict["guard_codes"] = sorted(set(verdict.get("guard_codes", []) + case["frozen_vetoes"]))
+        verdict["reason"] = (verdict.get("reason", "") + " 保留冻结候选的不可豁免约束。").strip()
+    return verdict
+
+
+def main():
+    parser = argparse.ArgumentParser(__doc__)
+    parser.add_argument("--manifests", type=Path, nargs="+", required=True)
+    parser.add_argument("--target", type=Path, required=True)
+    parser.add_argument("--gpu", type=int, choices=[0, 1, 2, 3], required=True)
+    parser.add_argument("--inspection-profile", choices=["legacy", "defects"], default="legacy")
+    args = parser.parse_args()
+    from watermark_studio.training_reservation import offline_reservation
+    reserved = offline_reservation(args.gpu)
+    helper = runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
+    cases = [case for path in args.manifests for case in helper["manifest_cases"](path)]
+    if len(cases) != len({case["file"] for case in cases}) or not 1 <= len(cases) <= 1000:
+        raise ValueError("Unique bounded frozen cases required")
+    args.target.mkdir(parents=True, exist_ok=False)
+    original_hashes = helper["file_hashes"](cases)
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    import torch
+    from transformers.utils import logging
+
+    from watermark_studio import detection
+    from watermark_studio.config import DeploymentConfig, Region
+    from watermark_studio.images import load_photo
+    from watermark_studio.model_identity import compare_model_weights
+    from watermark_studio.quality import verify_batch
+    from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
+
+    logging.disable_progress_bar()
+    torch.set_num_threads(1)
+    models = Path.home()/".cache/watermark-models/models"
+    inspector_path = models/"OpenGVLab--InternVL3_5-8B-HF/snapshots/master"
+    locator_path = models/"Qwen--Qwen3-VL-4B-Instruct/snapshots/master"
+    editor_path = models/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master/text_encoder"
+    identities = {"inspector": compare_model_weights(editor_path, inspector_path),
+                  "locator": compare_model_weights(editor_path, locator_path),
+                  "inspector_locator": compare_model_weights(inspector_path, locator_path)}
+    if any(identity["relation"] != "different_weights" for identity in identities.values()):
+        raise ValueError("Three explicitly different weight sets required")
+    cfg = DeploymentConfig(quality_verifier=True, quality_backend="independent")
+    began = time.monotonic()
+    inspector = load_quality_encoder(inspector_path, cfg, "cuda:0")
+    inspector_processor = load_quality_processor(inspector_path)
+    locator = load_quality_encoder(locator_path, cfg, "cuda:0")
+    locator_processor = load_quality_processor(locator_path)
+    load_seconds = time.monotonic()-began
+    counters = collections.Counter()
+    original_detect = detection.locate_watermarks_batch
+    detection.locate_watermarks_batch = detection_role(
+        original_detect, inspector, locator, locator_processor, counters)
+    rows = []
+    began = time.monotonic()
+    try:
+        with (args.target/"results.jsonl").open("w") as output:
+            for case in cases:
+                started = time.monotonic()
+                pair = (load_photo(case["source"])[0], load_photo(case["output"])[0])
+                try:
+                    verdict = verify_batch(
+                        [pair], inspector, inspector_processor, "cuda:0", resolution=768,
+                        detail_patches=4, detection_batch_size=2,
+                        source_regions=[[Region.model_validate(r) for r in case["regions"]]],
+                        editor_context=[helper["case_context"](case)],
+                        cross_review_allowed=[False], reviewer="fixed_role_specialists",
+                        weights_relation=identities["inspector"]["relation"],
+                        rectangle_guard=True, inspection_profile=args.inspection_profile)[0]
+                    verdict = enforce_frozen_constraints(case, verdict)
+                    torch.cuda.synchronize()
+                except Exception as error:  # noqa: BLE001 - errors remain in the fixed denominator
+                    verdict = {"status": "error", "reason": f"{type(error).__name__}: {error}"[:400]}
+                rows.append(case | {"quality": verdict, "seconds": round(time.monotonic()-started, 4)})
+                output.write(json.dumps(rows[-1], ensure_ascii=False)+"\n")
+                output.flush()
+                if len(rows)%4 == 0:
+                    print(json.dumps({"done": len(rows), "total": len(cases),
+                                      "counts": dict(collections.Counter(r["quality"]["status"] for r in rows))}), flush=True)
+    finally:
+        detection.locate_watermarks_batch = original_detect
+    if helper["file_hashes"](cases) != original_hashes:
+        raise ValueError("Frozen source/candidate bytes changed")
+    if revision != subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip():
+        raise ValueError("Frozen source code changed")
+    if reserved != offline_reservation(args.gpu):
+        raise ValueError("Reserved GPU/API state changed")
+    errors = sum(row["quality"]["status"] == "error" for row in rows)
+    report = {"state": "completed" if not errors else "completed_with_errors", "revision": revision,
+              "images": len(rows), "errors": errors, "seconds": round(time.monotonic()-began, 3),
+              "load_seconds": round(load_seconds, 3), "inspection_profile": args.inspection_profile,
+              "identities": identities, "locator_calls": dict(counters),
+              "counts": dict(collections.Counter(r["quality"]["status"] for r in rows)),
+              "false_accept_files": [r["file"] for r in rows if r.get("expected") == "review" and r["quality"]["status"] == "passed"],
+              "false_refuse_files": [r["file"] for r in rows if r.get("expected") == "passed" and r["quality"]["status"] != "passed"],
+              "pixels_changed": False, "additional_generations": 0,
+              "scope": "Offline QA-only fixed roles; every semantic, residual and numeric check remains mandatory"}
+    (args.target/"report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    print(json.dumps(report, ensure_ascii=False), flush=True)
+
+
+if __name__ == "__main__":
+    main()
