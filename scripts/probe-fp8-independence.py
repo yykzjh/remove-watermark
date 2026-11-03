@@ -20,7 +20,7 @@ from torchao.quantization import (
 
 torch.set_num_threads(1);torch.manual_seed(42)
 assert torch.cuda.mem_get_info()[0]>40*2**30
-base=torch.nn.Sequential(torch.nn.Linear(512,512,bias=False)).to(device="cuda",dtype=torch.bfloat16)
+base=torch.nn.Sequential(torch.nn.Linear(512,512,bias=False)).to(device="cuda",dtype=torch.bfloat16).eval().requires_grad_(False)
 first=torch.randn(32,512,device="cuda",dtype=torch.bfloat16)
 second=torch.randn_like(first)*32
 rows=[]

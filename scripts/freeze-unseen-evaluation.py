@@ -17,6 +17,7 @@ p.add_argument("--extra-history",type=Path,required=True)
 p.add_argument("--target",type=Path,required=True)
 p.add_argument("--images",type=int,default=1000)
 p.add_argument("--seed",type=int,default=2026110301)
+p.add_argument("--additional-history",type=Path,action="append",default=[])
 a=p.parse_args()
 root=a.root.resolve(strict=True);data=(root/"八标照片集").resolve(strict=True)
 audit=a.history_audit.resolve(strict=True);target=a.target.resolve()
@@ -33,6 +34,14 @@ for line in (audit/"fingerprints.jsonl").open():
         index.add(row);seen.add(row["encoded_sha256"])
 for row in extra:
     if row["encoded_sha256"] not in seen:index.add(row);seen.add(row["encoded_sha256"])
+additional={}
+for path in a.additional_history:
+    assert 0<path.stat().st_size<=50_000_000
+    raw=path.read_bytes();additional[str(path.resolve())]=hashlib.sha256(raw).hexdigest()
+    for line in raw.decode().splitlines():
+        row=json.loads(line)
+        if row["encoded_sha256"] not in seen:
+            index.add(row);seen.add(row["encoded_sha256"])
 manifest_path=data/".download-state/manifest.json"
 manifest_raw=manifest_path.read_bytes();manifest=json.loads(manifest_raw)
 prefix="/codex-download-1mQf6F6g-20261031/八标照片集/"
@@ -74,7 +83,7 @@ selection={"sources":[row["path"] for row in selected],
     "manifest_sha256":hashlib.sha256(manifest_raw).hexdigest(),
     "history_report_sha256":hashlib.sha256((audit/"report.json").read_bytes()).hexdigest(),
     "extra_history_sha256":hashlib.sha256(a.extra_history.read_bytes()).hexdigest(),
-    "history_unique_encoded":len(seen),"model_calls":0,"previews_created":0,"images_changed":0}
+    "history_unique_encoded":len(seen),"additional_history_sha256":additional,"model_calls":0,"previews_created":0,"images_changed":0}
 raw=json.dumps(selection,ensure_ascii=False,indent=2)
 (target/"source-selection.json").write_text(raw)
 (target/"fingerprints.jsonl").write_text("".join(json.dumps(fp,ensure_ascii=False)+"\n" for fp in selected))
