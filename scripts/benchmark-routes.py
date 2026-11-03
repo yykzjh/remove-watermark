@@ -20,7 +20,9 @@ p.add_argument("--balanced-grouping",choices=["separate","adaptive"],default="ad
 p.add_argument("--balanced-context",type=float,default=.85)
 p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--profiles",nargs="+",default=["roi","roi-context","whole-protected"])
+p.add_argument("--roi-context",type=float,default=.45)
 a=p.parse_args()
+assert .1<=a.roi_context<=2
 work=a.work.resolve();work.mkdir(parents=True,exist_ok=True)
 state=Path.home()/".local/state/watermark-studio"
 baseline=json.loads((state/a.baseline_job/"summary.json").read_text())
@@ -53,7 +55,8 @@ for profile in a.profiles:
     h=request(a.url,"/health")
     assert h["stage"]=="ready" and (not h.get("job") or h["job"]["state"] in {"completed","failed","cancelled"})
     opts=dict(options,quality_auto_retry=False,quality_cross_review=False,overwrite=False)
-    if profile=="roi-context":opts["context"]=.85
+    if profile=="roi":opts["context"]=a.roi_context
+    elif profile=="roi-context":opts["context"]=.85
     elif profile=="roi-grouped":opts["roi_grouping"]="adaptive"
     elif profile=="roi-evidence":opts.update(roi_grouping="separate",context=.45,quality_auto_retry=True,quality_retry_localized=True,quality_max_attempts=2,quality_retry_resolution=1024)
     elif profile=="roi-balanced":opts.update(roi_grouping=a.balanced_grouping,context=a.balanced_context,quality_auto_retry=True,quality_max_attempts=2,quality_retry_resolution=1024)
