@@ -15,6 +15,7 @@ p.add_argument("--manifest",type=Path)
 p.add_argument("--controls",type=Path)
 p.add_argument("--frozen-baseline-job")
 p.add_argument("--known-bad",type=Path)
+p.add_argument("--stress-inquiry",action="store_true")
 p.add_argument("--output",type=Path,required=True)
 a=p.parse_args()
 assert a.gpu in (0,1,2,3) and not a.output.exists()
@@ -40,6 +41,8 @@ extra=helper.manifest_cases(a.known_bad) if a.known_bad else []
 assert all(c.get("expected")=="review" for c in extra)
 cases+=extra
 assert len(cases)<=1000 and len({c["file"] for c in cases})==len(cases)
+if a.stress_inquiry:
+    assert not a.frozen_baseline_job and all(c["cohort"]=="inquiry_stress" and c["expected"]=="review" for c in cases)
 hashes=helper.file_hashes(cases)
 baseline={}
 if a.frozen_baseline_job:
@@ -67,7 +70,13 @@ with (a.output/"results.jsonl").open("w") as stream:
     for case in cases:
         before,after=load_photo(case["source"])[0],load_photo(case["output"])[0]
         context=helper.case_context(case)
-        if case["file"] in baseline:
+        if a.stress_inquiry:
+            verdict={"status":"review","watermark_removed":False,"natural":True,"content_preserved":True,
+                "uncertain":False,"guard_codes":[],"outside_repair_change":{"tiles":0},
+                "residual_regions":[],"source_regions":case["regions"],"evidence_conflict":True,
+                "model_explanation":{"status":"ok","assessment":"no_clear_defect","findings":[]},
+                "seconds":0,"synthetic_initial_verdict":True}
+        elif case["file"] in baseline:
             verdict=copy.deepcopy(baseline[case["file"]]["quality"])
         else:
             verdict=verify_batch([(before,after)],validator,vp,"cuda:0",
@@ -87,7 +96,7 @@ with (a.output/"results.jsonl").open("w") as stream:
 seconds=time.monotonic()-start
 assert hashes==helper.file_hashes(cases)
 report={"scope":"read-only verifier development ablation; NOT a first-pass thousand-image evaluation",
-    "images":len(rows),"weight_identity":identity,"revision":revision,"gpu":a.gpu,"seconds":seconds,
+    "synthetic_initial_verdict":a.stress_inquiry,"images":len(rows),"weight_identity":identity,"revision":revision,"gpu":a.gpu,"seconds":seconds,
     "initial_counts":dict(collections.Counter(r["initial_quality"]["status"] for r in rows)),
     "final_counts":dict(collections.Counter(r["quality"]["status"] for r in rows)),
     "corrected":sum(r["quality"].get("physical_text_review",{}).get("status")=="corrected" for r in rows),
