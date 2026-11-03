@@ -58,8 +58,9 @@ def main():
     p.add_argument("--task-state", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--workers", type=int, choices=range(1, 9), default=4)
+    p.add_argument("--resume", action="store_true")
     a = p.parse_args()
-    a.output.mkdir(parents=True, exist_ok=False)
+    a.output.mkdir(parents=True, exist_ok=a.resume)
     metadata = json.loads(a.metadata.read_text())
     roots = metadata["file_list"]
     if isinstance(roots, dict):
@@ -69,11 +70,25 @@ def main():
     manifest = a.task_state/"manifest.json"
     cloud_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
     source = json.loads((a.task_state/"source.json").read_text())
+    identity = {"root": root, "shareid": metadata["shareid"], "uk": metadata["share_uk"],
+                "cloud_manifest_sha256": cloud_sha, "cloud_root": source["cloud_root"]}
+    identity_path = a.output/"source-identity.json"
+    if identity_path.exists() and json.loads(identity_path.read_text()) != identity:
+        raise ValueError("Cannot resume an audit for a different frozen source")
+    identity_path.write_text(json.dumps(identity, sort_keys=True))
+    cache = a.output/"directory-cache"
+    cache.mkdir(exist_ok=True)
     def save(name, data):
         tmp = a.output/(name+".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
         tmp.replace(a.output/name)
     def listing(directory):
+        cached = cache/(hashlib.sha256(directory.encode()).hexdigest()+".json")
+        if cached.exists():
+            entry = json.loads(cached.read_text())
+            if entry["directory"] != directory:
+                raise ValueError("Cached share directory changed")
+            return entry["rows"]
         found = []
         for page in range(1, 100000):
             query = urllib.parse.urlencode({"uk": metadata["share_uk"], "shareid": metadata["shareid"],
@@ -87,6 +102,10 @@ def main():
                     with urllib.request.urlopen(request, timeout=30) as f:
                         data = json.load(f)
                     if data.get("errno") != 0:
+                        failure = {"directory": directory, "errno": data.get("errno"),
+                                   "message": data.get("errmsg", data.get("message", data.get("show_msg")))}
+                        if attempt == 5:
+                            (cache/(cached.stem+"-error.json")).write_text(json.dumps(failure, ensure_ascii=False))
                         raise RuntimeError("Original-share inventory errno="+str(data.get("errno")))
                     rows = data["list"]
                     break
@@ -96,6 +115,9 @@ def main():
                     time.sleep(2**attempt)
             found.extend(rows)
             if not rows or data.get("has_more") in (0, False) or len(rows) < 100:
+                temp = cached.with_suffix(".tmp")
+                temp.write_text(json.dumps({"directory": directory, "rows": found}, ensure_ascii=False))
+                temp.replace(cached)
                 return found
         raise RuntimeError("Share pagination limit")
     began = time.monotonic()
