@@ -41,6 +41,7 @@ def main():
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--gpu", type=int, choices=[0, 1, 2, 3], required=True)
     parser.add_argument("--residual-resolution", type=int, choices=[0, 768, 1024, 1536, 2048], default=0)
+    parser.add_argument("--inspector-profile", choices=["internvl8b", "qwen4b"], default="internvl8b")
     parser.add_argument("--inspection-profile", choices=["legacy", "defects"], default="legacy")
     args = parser.parse_args()
     from watermark_studio.training_reservation import offline_reservation
@@ -68,20 +69,23 @@ def main():
     logging.disable_progress_bar()
     torch.set_num_threads(1)
     models = Path.home()/".cache/watermark-models/models"
-    inspector_path = models/"OpenGVLab--InternVL3_5-8B-HF/snapshots/master"
     locator_path = models/"Qwen--Qwen3-VL-4B-Instruct/snapshots/master"
+    inspector_path = (models/"OpenGVLab--InternVL3_5-8B-HF/snapshots/master"
+                      if args.inspector_profile == "internvl8b" else locator_path)
     editor_path = models/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master/text_encoder"
     identities = {"inspector": compare_model_weights(editor_path, inspector_path),
                   "locator": compare_model_weights(editor_path, locator_path),
                   "inspector_locator": compare_model_weights(inspector_path, locator_path)}
-    if any(identity["relation"] != "different_weights" for identity in identities.values()):
-        raise ValueError("Three explicitly different weight sets required")
+    if any(identities[role]["relation"] != "different_weights" for role in ("inspector", "locator")):
+        raise ValueError("Both QA roles must use weights independent of the image editor")
+    if args.inspector_profile == "internvl8b" and identities["inspector_locator"]["relation"] != "different_weights":
+        raise ValueError("Distinct specialist profiles require different weights")
     cfg = DeploymentConfig(quality_verifier=True, quality_backend="independent")
     began = time.monotonic()
     inspector = load_quality_encoder(inspector_path, cfg, "cuda:0")
     inspector_processor = load_quality_processor(inspector_path)
-    locator = load_quality_encoder(locator_path, cfg, "cuda:0")
-    locator_processor = load_quality_processor(locator_path)
+    locator = inspector if inspector_path == locator_path else load_quality_encoder(locator_path, cfg, "cuda:0")
+    locator_processor = inspector_processor if locator is inspector else load_quality_processor(locator_path)
     load_seconds = time.monotonic()-began
     counters = collections.Counter()
     original_detect = detection.locate_watermarks_batch
@@ -125,7 +129,7 @@ def main():
     report = {"state": "completed" if not errors else "completed_with_errors", "revision": revision,
               "images": len(rows), "errors": errors, "seconds": round(time.monotonic()-began, 3),
               "load_seconds": round(load_seconds, 3), "inspection_profile": args.inspection_profile,
-              "residual_resolution": args.residual_resolution,
+              "residual_resolution": args.residual_resolution, "inspector_profile": args.inspector_profile,
               "identities": identities, "locator_calls": dict(counters),
               "counts": dict(collections.Counter(r["quality"]["status"] for r in rows)),
               "false_accept_files": [r["file"] for r in rows if r.get("expected") == "review" and r["quality"]["status"] == "passed"],
