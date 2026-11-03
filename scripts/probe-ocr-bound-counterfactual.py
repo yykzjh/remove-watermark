@@ -32,9 +32,9 @@ def global_word(word,crop,size):
         not np.allclose(np.r_[quad.min(axis=0),quad.max(axis=0)],box,atol=1e-6)):
         raise ValueError("OCR word and quadrilateral disagree")
     mapped=copy.deepcopy(word)
-    mapped["box"]=[(left+box[0]*(right-left))/width,(top+box[1]*(bottom-top))/height,
-                   (left+box[2]*(right-left))/width,(top+box[3]*(bottom-top))/height]
-    mapped["quad"]=[[(left+x*(right-left))/width,(top+y*(bottom-top))/height] for x,y in quad]
+    mapped["box"]=[float((left+box[0]*(right-left))/width),float((top+box[1]*(bottom-top))/height),
+                   float((left+box[2]*(right-left))/width),float((top+box[3]*(bottom-top))/height)]
+    mapped["quad"]=[[float((left+x*(right-left))/width),float((top+y*(bottom-top))/height)] for x,y in quad]
     return mapped
 
 

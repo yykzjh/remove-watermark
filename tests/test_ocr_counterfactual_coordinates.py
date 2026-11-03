@@ -11,6 +11,10 @@ def test_native_word_maps_from_its_actual_crop_without_mutation():
           "confidence":.99,"transcript_sha256":"example"}
     mapped=helper["global_word"](word,(100,200,300,400),(1000,1000))
     assert mapped["box"]==pytest.approx([.15,.24,.25,.28])
+    from watermark_studio.evidence import valid_box
+    assert valid_box(mapped["box"])==pytest.approx(mapped["box"])
+    assert all(type(value) is float for value in mapped["box"])
+    assert all(type(value) is float for point in mapped["quad"] for value in point)
     assert word["box"]==[.25,.2,.75,.4]
     assert helper["inside_fraction"](mapped,[.1,.2,.3,.4])==pytest.approx(1)
 
