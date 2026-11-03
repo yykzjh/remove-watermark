@@ -10,9 +10,24 @@ from .images import pixel_box
 from .text_presence import TargetTextPresence
 
 
+def enhance_text_contrast(photo):
+    """Diagnostic luminance-only local contrast, never written to the output."""
+    import cv2
+    gray=np.asarray(photo.convert("L"))
+    clahe=cv2.createCLAHE(clipLimit=2.5,tileGridSize=(8,8))
+    return Image.fromarray(clahe.apply(gray)).convert("RGB")
+
+
+def box_iou(a,b):
+    intersection=max(0,min(a[2],b[2])-max(a[0],b[0]))*max(0,min(a[3],b[3])-max(a[1],b[1]))
+    union=(a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-intersection
+    return intersection/union if union>0 else 0
+
+
 class OutputTextPreservation:
-    def __init__(self,detector=None):
+    def __init__(self,detector=None,*,enhance_low_contrast=False):
         self.detector=detector or TargetTextPresence(max_edge=2048)
+        self.enhance_low_contrast=enhance_low_contrast
 
     def inspect(self,before,after):
         started=time.monotonic()
@@ -24,6 +39,18 @@ class OutputTextPreservation:
             if detection.get("status")=="error":
                 raise ValueError(detection.get("error","Text detector failed"))
             boxes=[box for group in detection.get("regions",[]) for box in group.get("textlike_boxes",[])]
+            report["enhanced_only_boxes"]=[]
+            if self.enhance_low_contrast:
+                diagnostic=self.detector.inspect(enhance_text_contrast(after),[[0,0,1,1]])
+                report["contrast_detection"]=diagnostic
+                if diagnostic.get("status")=="error":
+                    raise ValueError(diagnostic.get("error","Contrast text detector failed"))
+                for group in diagnostic.get("regions",[]):
+                    for box in group.get("textlike_boxes",[]):
+                        if all(box_iou(box,previous)<.5 for previous in boxes):
+                            boxes.append(box);report["enhanced_only_boxes"].append(box)
+                if len(report["enhanced_only_boxes"])>8:
+                    raise ValueError("More than eight new low-contrast targets; no bounded proof")
             if not boxes:
                 report["status"]="no_text_witness"
                 return report

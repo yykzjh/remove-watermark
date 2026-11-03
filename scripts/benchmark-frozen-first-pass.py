@@ -21,6 +21,8 @@ p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--expected-uniform-steps",type=int,choices=[0,12,16,20,24,40],required=True)
 p.add_argument("--expected-roi-steps",type=int,choices=[0,12,16,20,24,40],required=True)
 p.add_argument("--expected-roi-min-area",type=float,default=.14)
+p.add_argument("--expect-physical-text-review",action="store_true")
+p.add_argument("--futility-stop",action="store_true",help="Cancel when even every remaining pass cannot reach 900/1000; never qualify a partial run")
 a=p.parse_args()
 assert .1<=a.context<=2
 frozen=a.frozen.resolve(strict=True);selection=frozen/"source-selection.json"
@@ -35,6 +37,7 @@ opts=dict(base["options"],context=a.context,quality_auto_retry=False,quality_cro
           quality_retry_localized=False,overwrite=False)
 h=request(a.url,"/health")
 assert h["stage"]=="ready" and h["backend"]=="qwen" and h["gpus"]==[0,1,2,3]
+assert h["optimization"].get("quality_physical_text_review",False)==a.expect_physical_text_review
 assert h["optimization"]["uniform_steps"]==a.expected_uniform_steps
 assert h["optimization"]["roi_steps"]==a.expected_roi_steps
 assert not a.expected_roi_steps or abs(h["optimization"]["roi_step_min_area"]-a.expected_roi_min_area)<1e-12
@@ -54,18 +57,40 @@ job=request(a.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(out),"option
 (a.work/"request.json").write_text(json.dumps({"job":job,"options":opts,"health":h,
     "selection_sha256":hashlib.sha256(raw).hexdigest()},ensure_ascii=False,indent=2))
 print(json.dumps({"phase":"submitted","job":job,"total":1000,"context":a.context,"loaded_revision":h["code_revision"]}),flush=True)
-start=time.monotonic();last=0
+start=time.monotonic();last=0;futility_requested=False
 while True:
     current=request(a.url,"/health");j=current["job"];assert j["id"]==job
     if time.monotonic()-last>=30:
         print(json.dumps({"phase":"progress","done":j["completed"],"total":j["total"],
             "state":j["state"],"first_counts":j.get("first_pass_counts",{}),"errors":j.get("failed",0)}),flush=True)
         last=time.monotonic()
+    first=j.get("first_pass_counts",{})
+    counted=sum(first.values())
+    ceiling=first.get("passed",0)+1000-counted
+    if a.futility_stop and not futility_requested and ceiling<900 and j["state"] not in {"completed","failed","cancelled","interrupted"}:
+        request(a.url,"/jobs/cancel",{})
+        futility_requested=True
+        (a.work/"futility-stop.json").write_text(json.dumps({"job":job,"counted":counted,
+            "first_counts":first,"maximum_possible_passed":ceiling,"target":900},indent=2))
+        print(json.dumps({"phase":"futility_cancel_requested","maximum_possible_passed":ceiling,"target":900}),flush=True)
     if j["state"] in {"completed","failed","cancelled","interrupted"}:break
     if time.monotonic()-start>4*3600:raise TimeoutError(job)
     time.sleep(2)
 s=json.loads((state/job/"summary.json").read_text())
 rows=list(map(json.loads,(state/job/"results.jsonl").read_text().splitlines()))
+if s["state"]!="completed" or len(rows)!=1000:
+    assert len({r["file"] for r in rows})==len(rows) and {r["file"] for r in rows}<=set(hashes)
+    for name,expected in hashes.items():
+        with (inputs/name).open("rb") as f:assert hashlib.file_digest(f,"sha256").hexdigest()==expected
+    partial_counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
+    stopped={"job":job,"state":s["state"],"images":1000,"evaluated":len(rows),
+        "unprocessed":1000-len(rows),"first_counts":partial_counts,"qualified90":False,
+        "maximum_possible_passed":partial_counts.get("passed",0)+1000-len(rows),
+        "futility_requested":futility_requested,"source_bytes_unchanged":True,
+        "scope":"Incomplete evaluation; no thousand-image pass rate or qualified performance claim"}
+    (a.work/"stopped-report.json").write_text(json.dumps(stopped,ensure_ascii=False,indent=2))
+    print(json.dumps(stopped,ensure_ascii=False),flush=True)
+    raise SystemExit(2)
 assert len(rows)==1000 and {r["file"] for r in rows}==set(hashes)
 assert all(r.get("quality_attempts",1)==1 for r in rows),"A retry cannot count as first pass"
 bad_sizes=missing=0
@@ -108,6 +133,9 @@ report={"job":job,"images":1000,"first_counts":counts,"final_counts":counts,
     "failed":s["failed"],"invalid":s["invalid"],"bad_sizes":bad_sizes,"missing_outputs":missing,
     "filename_mismatches":len(set(hashes)^output_names),"directory_mismatches":len(input_dirs^output_dirs),
     "directories":len(input_dirs),"source_bytes_unchanged":True,"no_generation_retries":True,
+    "physical_text_inquiries":sum(r.get("quality",{}).get("physical_text_review",{}).get("attempted",False) for r in rows),
+    "physical_text_corrections":sum(r.get("quality",{}).get("physical_text_review",{}).get("status")=="corrected" for r in rows),
+    "physical_text_inquiry_seconds_sum":sum(r.get("quality",{}).get("physical_text_review",{}).get("seconds",0) for r in rows),
     "generation_region_inputs":model_inputs,"actual_denoising_steps":dict(collections.Counter(log.get("actual_steps") for log in sampling)),
     "sampling_audit_complete":sampling_complete,"sampling_routes_match":routes_match,
     "source_tree":source_tree,"uv_lock_sha256":lock_sha256,

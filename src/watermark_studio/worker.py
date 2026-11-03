@@ -42,7 +42,7 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
     text_preserver=None
     if config.quality_physical_text_review:
         from .text_preservation import OutputTextPreservation
-        text_preserver=OutputTextPreservation()
+        text_preserver=OutputTextPreservation(enhance_low_contrast=True)
         text_preserver.detector._engine()
     rim_detector = None
     if config.protect_source_rims:

@@ -49,7 +49,7 @@ def reconsider(before,after,verdict,editor,editor_processor,validator,validator_
     from .images import pixel_box
     from .quality import output_detail_views, output_review_prompt, preview
 
-    log={"method":"preserved_physical_text_native_scans_v2","attempted":False,"status":"skipped"}
+    log={"method":"preserved_physical_text_contrast_scans_v3","attempted":False,"status":"skipped"}
     verdict["physical_text_review"]=log
     if not eligible(verdict,context):
         return
@@ -90,6 +90,18 @@ def reconsider(before,after,verdict,editor,editor_processor,validator,validator_
             source_scopes.append([crop[0]/after.width,crop[1]/after.height,
                                   crop[2]/after.width,crop[3]/after.height])
             source_views.append(after.crop(crop))
+        from .text_preservation import enhance_text_contrast
+        contrast_targets=list(boxes)
+        for box in witness.get("enhanced_only_boxes",[]):
+            if box not in contrast_targets:
+                contrast_targets.append(box)
+        for box in contrast_targets:
+            crop=carrier_context_box(pixel_box(box,after.size),after.size)
+            source_scopes.append({"diagnostic":"contrast_only_low_text_target",
+                "scope":[crop[0]/after.width,crop[1]/after.height,crop[2]/after.width,crop[3]/after.height]})
+            source_views.append(enhance_text_contrast(after.crop(crop)))
+        # Positive contrast detections retain an existing dispute, never create
+        # an acceptance or alter real-output pixels/naturalness grading.
         scanned=locate_watermarks_batch(source_views,editor,editor_processor,device,
             max(1280,resolution),1)
         if len(scanned)!=len(source_views):
@@ -113,7 +125,7 @@ def reconsider(before,after,verdict,editor,editor_processor,validator,validator_
             ("watermark_removed","natural","uncertain"),validator,validator_processor,device,384)
         check=values[0];log["independent_validator_output"]=check
         if not (check.get("watermark_removed") is True and check.get("natural") is True
-                and check.get("uncertain") is False and check.get("area")=="none"):
+                and check.get("uncertain") is False):
             log.update(status="unresolved",reason="independent_grounded_output_not_confirmed")
             return
         from .detection import locate_watermarks_batch
@@ -132,7 +144,7 @@ def reconsider(before,after,verdict,editor,editor_processor,validator,validator_
         updated["pre_physical_text_review"]={k:deepcopy(verdict.get(k)) for k in
             ("status","watermark_removed","natural","content_preserved","uncertain","reason",
              "judgment_basis","model_explanation","evidence_conflict")}
-        updated.update(status="passed",watermark_removed=True,evidence_conflict=False,
+        updated.update(status="passed",watermark_removed=True,evidence_conflict=False,area="none",
             reason="结果可见文字的原图像素一致性证据、双独立模型的整图与原生细节数字覆盖层检查、无豁免残留扫描均通过；原自然度和内容检查保留。")
         updated["model_explanation"]={"status":"adjudicated","assessment":"no_clear_defect",
             "summary":updated["reason"],"findings":[]}

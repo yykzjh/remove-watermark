@@ -63,7 +63,7 @@ editor=load_quality_encoder(editor_path/"text_encoder",cfg,"cuda:0")
 ep=Qwen3VLProcessor.from_pretrained(editor_path/"processor",local_files_only=True)
 validator=load_quality_encoder(qa_path,cfg,"cuda:0")
 vp=load_quality_processor(qa_path)
-preserver=OutputTextPreservation();preserver.detector._engine()
+preserver=OutputTextPreservation(enhance_low_contrast=True);preserver.detector._engine()
 print(json.dumps({"phase":"loaded","revision":revision,"gpu":a.gpu,"seconds":time.monotonic()-load_start}),flush=True)
 start=last=time.monotonic();rows=[]
 with (a.output/"results.jsonl").open("w") as stream:

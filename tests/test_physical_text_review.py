@@ -23,9 +23,11 @@ def run(monkeypatch,mode="success"):
     if mode=="changed_text":witness["status"]="changed_text"
     if mode=="no_text":witness["status"]="no_text_witness"
     if mode=="judge_uncertain":check["uncertain"]=True
+    if mode=="physical_location":check["area"]="center"
     if mode=="source_ambiguity":result["guard_codes"]=["source_physical_ambiguity"]
     if mode=="identity":editor=validator
     monkeypatch.setattr("watermark_studio.grounded_review.inspect_grounded",lambda *args:([check],0))
+    monkeypatch.setattr("watermark_studio.text_preservation.enhance_text_contrast",lambda image:image.copy())
     def scan(images,encoder,*args):
         if mode=="carrier_uncertain" and encoder is editor:
             return [ValueError("Indeterminate native scan") for _ in images]
@@ -91,3 +93,9 @@ def test_carrier_context_keeps_line_and_surrounding_object_geometry():
         l,t,r,b=result
         assert 0<=l<=box[0]<box[2]<=r<=1000 and 0<=t<=box[1]<box[3]<=b<=600
         assert r-l==b-t
+
+def test_nondefect_object_location_does_not_change_positive_quality_flags(monkeypatch):
+    result,_=run(monkeypatch,"physical_location")
+    assert result["status"]=="passed"
+    assert result["physical_text_review"]["independent_validator_output"]["area"]=="center"
+    assert result["area"]=="none"

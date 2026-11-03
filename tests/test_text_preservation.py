@@ -64,3 +64,16 @@ def test_physical_text_inquiry_cannot_waive_any_existing_nonwatermark_veto():
     assert not eligible(verdict,dict(context,background_preserved=False))
 
     assert not eligible(verdict,dict(context,source_carrier_ambiguous=True))
+
+def test_diagnostic_targets_use_original_pixels_and_do_not_mutate_output(monkeypatch):
+    before=photo();original=before.tobytes()
+    normal={"status":"text_present","regions":[{"textlike_boxes":[[.1,.2,.5,.5]]}]}
+    contrast={"status":"text_present","regions":[{"textlike_boxes":[[.1,.2,.5,.5],[.6,.2,.9,.5]]}]}
+    responses=iter([normal,contrast])
+    detector=SimpleNamespace(inspect=lambda *args:next(responses))
+    monkeypatch.setattr("watermark_studio.text_preservation.enhance_text_contrast",
+        lambda image:Image.new("RGB",image.size,"black"))
+    proof=OutputTextPreservation(detector,enhance_low_contrast=True).inspect(before,before)
+    assert proof["status"]=="unchanged" and len(proof["text_boxes"])==2
+    assert proof["enhanced_only_boxes"]==[[.6,.2,.9,.5]]
+    assert before.tobytes()==original
