@@ -16,6 +16,7 @@ p=argparse.ArgumentParser(__doc__)
 p.add_argument("--frozen",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--baseline-job",required=True)
+p.add_argument("--attach-job",default="",help="Read-only continuation of the same recorded benchmark; never submits another job")
 p.add_argument("--context",type=float,default=.45)
 p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
 p.add_argument("--url",default="http://127.0.0.1:8765")
@@ -36,13 +37,19 @@ base=json.loads((state/a.baseline_job/"summary.json").read_text())
 opts=dict(base["options"],context=a.context,resolution=a.model_resolution,quality_auto_retry=False,quality_cross_review=False,
           quality_retry_localized=False,overwrite=False)
 h=request(a.url,"/health")
+attached=None
+if a.attach_job:
+    from benchmark_monitor import attachment_health
+    attached=json.loads((a.work/"request.json").read_text())
+    h=attachment_health(attached,h,a.attach_job,opts,hashlib.sha256(raw).hexdigest())
 assert h["stage"]=="ready" and h["backend"]=="qwen" and h["gpus"]==[0,1,2,3]
 assert h["optimization"]["uniform_steps"]==a.expected_uniform_steps
 assert h["optimization"]["roi_steps"]==a.expected_roi_steps
 assert not a.expected_roi_steps or abs(h["optimization"]["roi_step_min_area"]-a.expected_roi_min_area)<1e-12
 assert h["quality_weight_identity"]["relation"]=="different_weights" and h["quality_rectangle_guard"]
 assert not h.get("job") or h["job"]["state"] in {"completed","failed","cancelled"}
-assert not a.work.exists(),"Fresh outputs only; inspect existing request instead of resubmitting"
+if not a.attach_job:
+    assert not a.work.exists(),"Fresh outputs only; use --attach-job to monitor the recorded request"
 source_tree=subprocess.check_output(["git","rev-parse","HEAD:src"],text=True).strip()
 loaded_tree=subprocess.check_output(["git","rev-parse",h["code_revision"]+":src"],text=True).strip()
 assert source_tree==loaded_tree,"Restart before measuring changed inference sources"
@@ -50,12 +57,21 @@ assert subprocess.run(["git","diff","--quiet","HEAD","--","src","uv.lock"],check
 lock_sha256=hashlib.sha256(Path("uv.lock").read_bytes()).hexdigest()
 for name,expected in hashes.items():
     with (inputs/name).open("rb") as f:assert hashlib.file_digest(f,"sha256").hexdigest()==expected
-a.work.mkdir(parents=True)
 out=a.work/"output"
-job=request(a.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(out),"options":opts})["id"]
-(a.work/"request.json").write_text(json.dumps({"job":job,"options":opts,"health":h,
-    "selection_sha256":hashlib.sha256(raw).hexdigest()},ensure_ascii=False,indent=2))
-print(json.dumps({"phase":"submitted","job":job,"total":1000,"context":a.context,"loaded_revision":h["code_revision"]}),flush=True)
+if a.attach_job:
+    assert a.work.is_dir() and out.is_dir()
+    job=a.attach_job
+    with (a.work/"monitor-attachments.jsonl").open("a") as log:
+        log.write(json.dumps({"job":job,"attached_at":time.time(),
+            "futility_stop":a.futility_stop,"new_job_submitted":False})+chr(10))
+    print(json.dumps({"phase":"attached","job":job,"new_job_submitted":False}),flush=True)
+else:
+    a.work.mkdir(parents=True)
+    out=a.work/"output"
+    job=request(a.url,"/jobs",{"input_dir":str(inputs),"output_dir":str(out),"options":opts})["id"]
+    (a.work/"request.json").write_text(json.dumps({"job":job,"options":opts,"health":h,
+        "selection_sha256":hashlib.sha256(raw).hexdigest()},ensure_ascii=False,indent=2))
+    print(json.dumps({"phase":"submitted","job":job,"total":1000,"context":a.context,"loaded_revision":h["code_revision"]}),flush=True)
 start=time.monotonic();last=0;futility_requested=False
 while True:
     current=request(a.url,"/health");j=current["job"];assert j["id"]==job
