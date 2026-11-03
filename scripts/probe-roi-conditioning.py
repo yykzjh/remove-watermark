@@ -17,6 +17,7 @@ p.add_argument("--work",type=Path,required=True)
 p.add_argument("--prompt-profile",choices=["detailed","compact-zh"],default="detailed")
 p.add_argument("--source-material-guide",action="store_true")
 p.add_argument("--context",type=float,default=.45)
+p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 a=p.parse_args()
 assert .1<=a.context<=2
 loaded_revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
@@ -59,7 +60,7 @@ original={r["file"]:r for r in map(json.loads,(b/"results.jsonl").read_text().sp
 assert set(names)<=set(original)
 cfg_values=json.loads(Path(".run/deployment.json").read_text())
 cfg=DeploymentConfig.model_validate(cfg_values).model_copy(
-    update={"gpus":[a.gpu],"prefill_overlays":a.variant not in {"raw","raw-opaque"},
+    update={"gpus":[a.gpu],"uniform_steps":a.uniform_steps,"prefill_overlays":a.variant not in {"raw","raw-opaque"},
             "protection_core_feather":False if a.variant=="raw-opaque" else cfg_values["protection_core_feather"],
             "prefill_original_semantics":a.variant=="split"})
 opts=ProcessingConfig.model_validate(summary["options"]).model_copy(
@@ -107,6 +108,6 @@ report={"variant":a.variant,"source_material_guide":a.source_material_guide,"gui
     "revision":loaded_revision,
     "baseline_review_to_pass":sum(original[r["file"]]["quality"]["status"]!="passed" and r.get("quality",{}).get("status")=="passed" for r in rows),
     "baseline_pass_to_review":sum(original[r["file"]]["quality"]["status"]=="passed" and r.get("quality",{}).get("status")!="passed" for r in rows),
-    "single_gpu":True,"first_generation_only":True,"development_reuse":True}
+    "sampling":pipe._watermark_sampling_info,"single_gpu":True,"first_generation_only":True,"development_reuse":True}
 (a.work/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
 print(json.dumps({k:v for k,v in report.items() if k not in {"config","options","source_sha256","guidance_audits"}}),flush=True)
