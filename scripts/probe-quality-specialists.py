@@ -11,11 +11,16 @@ import time
 from pathlib import Path
 
 
-def detection_role(original, inspector, locator, locator_processor, counters):
+def detection_role(original, inspector, locator, locator_processor, counters, resolution=0):
     def routed(images, encoder, processor, device, *args, **kwargs):
         if encoder is inspector:
             counters["calls"] += 1
             counters["images"] += len(images)
+            if resolution:
+                if args:
+                    args = (max(resolution, args[0]), *args[1:])
+                else:
+                    kwargs = dict(kwargs, resolution=max(resolution, kwargs.get("resolution", 0)))
             return original(images, locator, locator_processor, device, *args, **kwargs)
         return original(images, encoder, processor, device, *args, **kwargs)
     return routed
@@ -35,6 +40,7 @@ def main():
     parser.add_argument("--manifests", type=Path, nargs="+", required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--gpu", type=int, choices=[0, 1, 2, 3], required=True)
+    parser.add_argument("--residual-resolution", type=int, choices=[0, 768, 1024, 1536, 2048], default=0)
     parser.add_argument("--inspection-profile", choices=["legacy", "defects"], default="legacy")
     args = parser.parse_args()
     from watermark_studio.training_reservation import offline_reservation
@@ -80,7 +86,7 @@ def main():
     counters = collections.Counter()
     original_detect = detection.locate_watermarks_batch
     detection.locate_watermarks_batch = detection_role(
-        original_detect, inspector, locator, locator_processor, counters)
+        original_detect, inspector, locator, locator_processor, counters, args.residual_resolution)
     rows = []
     began = time.monotonic()
     try:
@@ -119,6 +125,7 @@ def main():
     report = {"state": "completed" if not errors else "completed_with_errors", "revision": revision,
               "images": len(rows), "errors": errors, "seconds": round(time.monotonic()-began, 3),
               "load_seconds": round(load_seconds, 3), "inspection_profile": args.inspection_profile,
+              "residual_resolution": args.residual_resolution,
               "identities": identities, "locator_calls": dict(counters),
               "counts": dict(collections.Counter(r["quality"]["status"] for r in rows)),
               "false_accept_files": [r["file"] for r in rows if r.get("expected") == "review" and r["quality"]["status"] == "passed"],

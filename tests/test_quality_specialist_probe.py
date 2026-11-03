@@ -30,3 +30,19 @@ def test_frozen_source_veto_cannot_be_cleared_by_either_model():
     assert actual["guard_codes"] == ["existing", "source_physical_ambiguity"]
     error = {"status": "error", "reason": "failed"}
     assert apply({"frozen_vetoes": ["source_guard"]}, error)["status"] == "error"
+
+
+def test_higher_native_scan_resolution_preserves_the_inspector_and_other_detectors():
+    calls=[]
+    inspector,locator,processor,other=object(),object(),object(),object()
+    def original(*args,**kwargs):
+        calls.append((args,kwargs))
+    route=helper()["detection_role"](original,inspector,locator,processor,
+                                    {"calls":0,"images":0},2048)
+    images=[object()]
+    route(images,inspector,None,"cuda:0",768,2)
+    assert calls[-1][0][4:]==(2048,2)
+    route(images,inspector,None,"cuda:0",resolution=1024)
+    assert calls[-1][1]["resolution"]==2048
+    route(images,other,processor,"cuda:0",resolution=768)
+    assert calls[-1][0][1] is other and calls[-1][1]["resolution"]==768
