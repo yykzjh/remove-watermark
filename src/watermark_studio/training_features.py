@@ -98,3 +98,15 @@ def clone_pair_assets(rows,destination):
             value[key]=str(target)
         cloned.append(value)
     return cloned
+
+def training_prompt(row,manifest):
+    profile=manifest.get("prompt_profile","whole_neutral_v1")
+    if profile=="whole_neutral_v1":
+        from .prompts import build_full_prompt
+        return build_full_prompt("","neutral")
+    if profile!="roi_focused_v1":
+        raise ValueError("Unknown frozen training prompt profile")
+    prompt=row.get("edit_prompt")
+    if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>6000:
+        raise ValueError("ROI training requires an explicit bounded crop-relative edit prompt")
+    return prompt

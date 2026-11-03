@@ -18,6 +18,7 @@ def main():
     p.add_argument("--cache",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--gpu",type=int,required=True)
+    p.add_argument("--offline",action="store_true")
     p.add_argument("--steps",type=int,default=200)
     p.add_argument("--rank",type=int,choices=[4,8,16],default=8)
     p.add_argument("--alpha",type=float,default=8.)
@@ -119,6 +120,9 @@ def main():
             p.error("Exact one-to-one immutable trajectory features required")
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     def isolation():
+        if a.offline:
+            from watermark_studio.training_reservation import offline_reservation
+            return offline_reservation(a.gpu)
         with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
             return helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
     reserved=isolation()

@@ -19,16 +19,27 @@ def main():
     p.add_argument("--model",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--gpu",type=int,required=True)
+    p.add_argument("--offline",action="store_true")
     a=p.parse_args()
     if a.gpu<0:p.error("Explicit disjoint physical GPU required")
-    from watermark_studio.training_features import digest, model_signature, validate_pairs
+    from watermark_studio.training_features import (
+        digest,
+        model_signature,
+        training_prompt,
+        validate_pairs,
+    )
     data,input_files=validate_pairs(a.manifest)
     if a.target.resolve().parent!=a.manifest.resolve().parent:
         p.error("Feature folder must stay under its original pilot root")
     a.target.mkdir(exist_ok=False);work=a.target.resolve()
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
-    with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
-        isolation=helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
+    def reservation():
+        if a.offline:
+            from watermark_studio.training_reservation import offline_reservation
+            return offline_reservation(a.gpu)
+        with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
+            return helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
+    isolation=reservation()
     revision=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip()
     manifest_sha=digest(a.manifest);signature=model_signature(a.model)
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu);os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
@@ -40,20 +51,20 @@ def main():
 
     from watermark_studio.images import load_photo
     from watermark_studio.optimizations import lean_encode
-    from watermark_studio.prompts import build_full_prompt
     torch.set_num_threads(1);began=time.monotonic()
     pipe=QwenImage21Pipeline.from_pretrained(a.model,transformer=None,dtype=torch.bfloat16,local_files_only=True)
     pipe.set_progress_bar_config(disable=True)
     pipe.text_encoder.eval().requires_grad_(False).to("cuda:0")
     pipe.vae.eval().requires_grad_(False).to("cuda:0")
     load_seconds=time.monotonic()-began;began=time.monotonic()
-    rows=[];clean_cache={};sigma_tables={};prompt=build_full_prompt("","neutral")
+    rows=[];clean_cache={};sigma_tables={}
     def encode(photo,width,height):
         value=pipe.image_processor.preprocess(photo.convert("RGBA"),width=width,height=height).unsqueeze(2)
         value=value.to("cuda:0",dtype=torch.bfloat16)
         encoded=pipe._encode_vae_image(value,torch.Generator("cpu").manual_seed(42))
         return pipe._pack_latents(encoded,1,pipe.latent_channels,encoded.shape[3],encoded.shape[4])
     for row in data["pairs"]:
+        prompt=training_prompt(row,data)
         original=load_photo(row["input"])[0];target=load_photo(row["target"])[0]
         width,height=original.size
         if target.size!=original.size or width%32 or height%32:
@@ -95,9 +106,8 @@ def main():
         raise ValueError("Dataset changed during feature caching")
     if revision!=subprocess.check_output(["git","rev-parse","--short","HEAD"],text=True).strip():
         raise ValueError("Code changed during feature caching")
-    with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
-        if isolation!=helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True):
-            raise ValueError("Server reservation changed")
+    if isolation!=reservation():
+        raise ValueError("Server/GPU reservation changed")
     report={"state":"completed","version":1,"dataset_manifest":str(a.manifest.resolve()),
         "dataset_manifest_sha256":manifest_sha,"model":str(a.model.resolve()),"model_signature":signature,
         "code_revision":revision,"sigma_tables":sigma_tables,"rows":rows,
