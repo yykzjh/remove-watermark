@@ -23,6 +23,8 @@ def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--manifest",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
+    p.add_argument("--backend",choices=["rapid","ppocrv6"],default="rapid")
+    p.add_argument("--gpu",type=int,choices=[0,1,2,3])
     p.add_argument("--resolution",type=int,choices=[2048,3072,4096],default=4096)
     p.add_argument("--box-threshold",type=float,default=.3)
     p.add_argument("--pixel-threshold",type=float,default=.1)
@@ -30,6 +32,14 @@ def main():
     a=p.parse_args()
     assert not a.target.exists() and .1<=a.box_threshold<=.7 and .05<=a.pixel_threshold<=.5
     assert 0<=a.clahe_clip<=8
+    if a.backend=="ppocrv6":
+        if a.gpu is None:p.error("Native GPU locator requires an authorized GPU")
+        from watermark_studio.training_reservation import offline_reservation
+        reservation=offline_reservation(a.gpu)
+        import os
+        os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
+    elif a.gpu is not None:
+        p.error("CPU RapidOCR does not allocate a GPU")
     from PIL import Image
     from rapidocr_onnxruntime import RapidOCR
 
@@ -39,42 +49,61 @@ def main():
     cases=helper["manifest_cases"](a.manifest)
     assert all(c.get("injected_remaining_overlay") for c in cases)
     hashes=helper["file_hashes"](cases)
-    engine=RapidOCR(det_use_cuda=False,rec_use_cuda=False,cls_use_cuda=False,
-        intra_op_num_threads=1,inter_op_num_threads=1,det_limit_type="max",
-        det_limit_side_len=a.resolution,max_side_len=a.resolution,
-        det_box_thresh=a.box_threshold,det_thresh=a.pixel_threshold,use_cls=False,use_rec=False)
-    assert engine.max_side_len==a.resolution and engine.text_det.limit_side_len==a.resolution
-    effective={"resolution":a.resolution,"box_threshold":engine.text_det.postprocess_op.box_thresh,
-               "pixel_threshold":engine.text_det.postprocess_op.thresh,"clahe_clip":a.clahe_clip}
-    assert effective["box_threshold"]==a.box_threshold and effective["pixel_threshold"]==a.pixel_threshold
+    locator=None
+    if a.backend=="ppocrv6":
+        import torch
+
+        from watermark_studio.native_text import NativeTextLocator
+        torch.set_num_threads(1)
+        path=Path.home()/".cache/watermark-models/models/PaddlePaddle--PP-OCRv6_small_det_safetensors/snapshots/master"
+        locator=NativeTextLocator(path,resolution=a.resolution,box_threshold=a.box_threshold,
+                                  pixel_threshold=a.pixel_threshold,clahe_clip=a.clahe_clip)
+        effective={"backend":a.backend,"resolution":a.resolution,"box_threshold":a.box_threshold,
+                   "pixel_threshold":a.pixel_threshold,"clahe_clip":a.clahe_clip,
+                   "weight_sha256":locator.weights_sha256}
+    else:
+        engine=RapidOCR(det_use_cuda=False,rec_use_cuda=False,cls_use_cuda=False,
+            intra_op_num_threads=1,inter_op_num_threads=1,det_limit_type="max",
+            det_limit_side_len=a.resolution,max_side_len=a.resolution,
+            det_box_thresh=a.box_threshold,det_thresh=a.pixel_threshold,use_cls=False,use_rec=False)
+        assert engine.max_side_len==a.resolution and engine.text_det.limit_side_len==a.resolution
+        effective={"resolution":a.resolution,"box_threshold":engine.text_det.postprocess_op.box_thresh,
+                   "pixel_threshold":engine.text_det.postprocess_op.thresh,"clahe_clip":a.clahe_clip}
+        assert effective["box_threshold"]==a.box_threshold and effective["pixel_threshold"]==a.pixel_threshold
     a.target.mkdir(parents=True);rows=[]
     began=time.monotonic()
     with (a.target/"results.jsonl").open("x") as log:
         for case in cases:
             photo=load_photo(case["output"])[0];started=time.monotonic()
-            diagnostic=photo
-            if a.clahe_clip:
-                import cv2
-                gray=cv2.createCLAHE(clipLimit=a.clahe_clip,tileGridSize=(16,16)).apply(np.asarray(photo.convert("L")))
-                diagnostic=Image.fromarray(gray).convert("RGB")
-            detected,_=engine(np.asarray(diagnostic)[...,::-1].copy(),use_det=True,use_cls=False,use_rec=False)
-            boxes=[]
-            for quad in ([] if detected is None else detected):
-                points=np.asarray(quad,dtype=float)
-                if points.shape!=(4,2) or not np.isfinite(points).all():
-                    raise ValueError("Invalid native OCR quad")
-                lo,hi=points.min(axis=0),points.max(axis=0)
-                boxes.append([float(lo[0]/photo.width),float(lo[1]/photo.height),
-                              float(hi[0]/photo.width),float(hi[1]/photo.height)])
+            details={}
+            if locator is not None:
+                details=locator.inspect(photo)
+                boxes=[record["box"] for record in details["candidates"]]
+            else:
+                diagnostic=photo
+                if a.clahe_clip:
+                    import cv2
+                    gray=cv2.createCLAHE(clipLimit=a.clahe_clip,tileGridSize=(16,16)).apply(np.asarray(photo.convert("L")))
+                    diagnostic=Image.fromarray(gray).convert("RGB")
+                detected,_=engine(np.asarray(diagnostic)[...,::-1].copy(),use_det=True,use_cls=False,use_rec=False)
+                boxes=[]
+                for quad in ([] if detected is None else detected):
+                    points=np.asarray(quad,dtype=float)
+                    if points.shape!=(4,2) or not np.isfinite(points).all():
+                        raise ValueError("Invalid native OCR quad")
+                    lo,hi=points.min(axis=0),points.max(axis=0)
+                    boxes.append([float(lo[0]/photo.width),float(lo[1]/photo.height),
+                                  float(hi[0]/photo.width),float(hi[1]/photo.height)])
             target=case["injected_remaining_overlay"]["box"]
             row={"file":case["file"],"alpha":case["injected_remaining_overlay"]["alpha"],
                  "style":case["injected_remaining_overlay"]["style"],"target":target,
-                 "covered":any(location_covered(target,b) for b in boxes),"boxes":boxes,
+                 "covered":any(location_covered(target,b) for b in boxes),"boxes":boxes,"detector":details,
                  "seconds":time.monotonic()-started,"source":case["source"],"output":case["output"]}
             rows.append(row);log.write(json.dumps(row)+"\n");log.flush()
             print(json.dumps({"done":len(rows),"coverage":sum(r["covered"] for r in rows),
                               "last_boxes":len(boxes),"last_seconds":round(row["seconds"],3)}),flush=True)
     assert helper["file_hashes"](cases)==hashes
+    if locator is not None:assert reservation==offline_reservation(a.gpu)
     alpha=collections.defaultdict(lambda:{"cases":0,"covered":0})
     for row in rows:
         alpha[row["alpha"]]["cases"]+=1;alpha[row["alpha"]]["covered"]+=int(row["covered"])
