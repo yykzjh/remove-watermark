@@ -33,7 +33,7 @@ def normalized_candidates(boxes,scores,size):
 
 class NativeTextLocator:
     def __init__(self,model_path,device="cuda:0",*,resolution=4096,box_threshold=.3,
-                 pixel_threshold=.1,clahe_clip=0,weights_sha256=OFFICIAL_SMALL_SHA256):
+                 pixel_threshold=.1,clahe_clip=0,contrast_space="gray",weights_sha256=OFFICIAL_SMALL_SHA256):
         import torch
         from transformers import AutoImageProcessor, PPOCRV6SmallDetForObjectDetection
 
@@ -43,10 +43,11 @@ class NativeTextLocator:
             raise ValueError("Pinned native OCR architecture/weight mismatch")
         if resolution not in {2048,3072,4096} or not .05<=pixel_threshold<=.5 or not .1<=box_threshold<=.7:
             raise ValueError("Invalid bounded OCR candidate configuration")
-        if not 0<=clahe_clip<=8:
+        if not 0<=clahe_clip<=8 or contrast_space not in {"gray","lab"}:
             raise ValueError("Invalid diagnostic contrast")
         self.device=device;self.resolution=resolution
         self.box_threshold=box_threshold;self.pixel_threshold=pixel_threshold;self.clahe_clip=clahe_clip
+        self.contrast_space=contrast_space
         self.weights_sha256=weights_sha256
         self.model,info=PPOCRV6SmallDetForObjectDetection.from_pretrained(
             path,local_files_only=True,use_safetensors=True,dtype=torch.float32,output_loading_info=True)
@@ -71,9 +72,13 @@ class NativeTextLocator:
         began=time.monotonic();diagnostic=photo.convert("RGB")
         if self.clahe_clip:
             import cv2
-            luminance=cv2.createCLAHE(clipLimit=self.clahe_clip,tileGridSize=(16,16)).apply(
-                np.asarray(photo.convert("L")))
-            diagnostic=Image.fromarray(luminance).convert("RGB")
+            clahe=cv2.createCLAHE(clipLimit=self.clahe_clip,tileGridSize=(16,16))
+            if self.contrast_space=="lab":
+                lab=cv2.cvtColor(np.asarray(diagnostic),cv2.COLOR_RGB2LAB)
+                lab[...,0]=clahe.apply(lab[...,0])
+                diagnostic=Image.fromarray(cv2.cvtColor(lab,cv2.COLOR_LAB2RGB))
+            else:
+                diagnostic=Image.fromarray(clahe.apply(np.asarray(photo.convert("L")))).convert("RGB")
         inputs=self.processor(images=diagnostic,return_tensors="pt",device=self.device,
             limit_side_len=self.resolution,limit_type="max",max_side_limit=self.resolution).to(self.device)
         actual=tuple(inputs["pixel_values"].shape[-2:])

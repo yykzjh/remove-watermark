@@ -24,20 +24,27 @@ def main():
     p.add_argument("--manifest",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--backend",choices=["rapid","ppocrv6"],default="rapid")
+    p.add_argument("--model-path",type=Path)
+    p.add_argument("--model-sha256",default="")
     p.add_argument("--gpu",type=int,choices=[0,1,2,3])
     p.add_argument("--resolution",type=int,choices=[2048,3072,4096],default=4096)
     p.add_argument("--box-threshold",type=float,default=.3)
     p.add_argument("--pixel-threshold",type=float,default=.1)
     p.add_argument("--clahe-clip",type=float,default=0)
+    p.add_argument("--contrast-space",choices=["gray","lab"],default="gray")
     a=p.parse_args()
     assert not a.target.exists() and .1<=a.box_threshold<=.7 and .05<=a.pixel_threshold<=.5
     assert 0<=a.clahe_clip<=8
+    if bool(a.model_path)!=bool(a.model_sha256) or (a.model_path and a.backend!="ppocrv6"):
+        p.error("Pin both candidate model path and SHA256 for PP-OCRv6")
     if a.backend=="ppocrv6":
         if a.gpu is None:p.error("Native GPU locator requires an authorized GPU")
         from watermark_studio.training_reservation import offline_reservation
         reservation=offline_reservation(a.gpu)
         import os
         os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
+    elif a.contrast_space!="gray":
+        p.error("Lab contrast pilot requires the pinned PP-OCRv6 backend")
     elif a.gpu is not None:
         p.error("CPU RapidOCR does not allocate a GPU")
     from PIL import Image
@@ -55,12 +62,13 @@ def main():
 
         from watermark_studio.native_text import NativeTextLocator
         torch.set_num_threads(1)
-        path=Path.home()/".cache/watermark-models/models/PaddlePaddle--PP-OCRv6_small_det_safetensors/snapshots/master"
+        path=a.model_path or Path.home()/".cache/watermark-models/models/PaddlePaddle--PP-OCRv6_small_det_safetensors/snapshots/master"
         locator=NativeTextLocator(path,resolution=a.resolution,box_threshold=a.box_threshold,
-                                  pixel_threshold=a.pixel_threshold,clahe_clip=a.clahe_clip)
+                                  pixel_threshold=a.pixel_threshold,clahe_clip=a.clahe_clip,contrast_space=a.contrast_space,
+                                  **({"weights_sha256":a.model_sha256} if a.model_path else {}))
         effective={"backend":a.backend,"resolution":a.resolution,"box_threshold":a.box_threshold,
                    "pixel_threshold":a.pixel_threshold,"clahe_clip":a.clahe_clip,
-                   "weight_sha256":locator.weights_sha256}
+                   "contrast_space":a.contrast_space,"weight_sha256":locator.weights_sha256}
     else:
         engine=RapidOCR(det_use_cuda=False,rec_use_cuda=False,cls_use_cuda=False,
             intra_op_num_threads=1,inter_op_num_threads=1,det_limit_type="max",
