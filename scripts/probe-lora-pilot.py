@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import random
 import re
 import runpy
 import subprocess
@@ -15,6 +17,35 @@ import numpy as np
 from PIL import Image
 
 
+def validation_reference(row, data, font_path):
+    """Replay the pinned renderer to avoid a second aspect-ratio/grid rounding."""
+    from watermark_studio.batching import dimensions
+    from watermark_studio.images import load_photo
+    from watermark_studio.training_features import digest
+    from watermark_studio.training_pairs import render_profile_pair
+
+    frozen = load_photo(row["input"])[0]
+    if data.get("prompt_profile") != "roi_focused_v1":
+        return frozen, frozen
+    if digest(font_path) != data["font_sha256"]:
+        raise ValueError("Validation font changed")
+    if digest(row["source_original"]) != row["source_original_sha256"]:
+        raise ValueError("Validation original changed")
+    native = load_photo(row["source_original"])[0].crop(tuple(row["crop"])).convert("RGB")
+    variant = int(row["id"].rsplit("-", 1)[-1])//2
+    replay, _, render = render_profile_pair(
+        native, variant, random.Random(row["seed"]), font_path, profile="camera-v2")
+    if render | {"kind": row["render"]["kind"]} != row["render"]:
+        raise ValueError("Frozen renderer metadata no longer matches")
+    reference = replay.crop(tuple(row["roi_context_crop_native_parent"]))
+    if dimensions(reference, row["model_input_resolution"]) != frozen.size:
+        raise ValueError("Native ROI does not reproduce frozen model shape")
+    actual = reference.resize(frozen.size, Image.Resampling.LANCZOS)
+    if not np.array_equal(np.asarray(actual.convert("RGB")), np.asarray(frozen.convert("RGB"))):
+        raise ValueError("Replayed validation pixels changed")
+    return reference, frozen
+
+
 def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--manifest",type=Path,required=True)
@@ -22,6 +53,7 @@ def main():
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--gpu",type=int,required=True)
     p.add_argument("--offline",action="store_true")
+    p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"))
     p.add_argument("--limit",type=int,default=12)
     p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
     p.add_argument("--lora-path",type=Path)
@@ -76,12 +108,13 @@ def main():
     uniform=configure_turbo_uniform_probe(pipe,a.uniform_steps) if a.uniform_steps else None
     load_seconds=time.monotonic()-began;began=time.monotonic();results=[]
     for row in rows:
-        source=load_photo(row["input"])[0];clean=load_photo(row["target"])[0]
+        reference,source=validation_reference(row,data,a.font)
+        clean=load_photo(row["target"])[0]
         seed=(row["seed"]+1000003)%(2**32)
         budget=row.get("model_input_resolution",data.get("resolution",512))
-        if dimensions(source,budget)!=source.size:
+        if dimensions(reference,budget)!=source.size:
             raise ValueError("Frozen model resolution does not reproduce the validation shape")
-        item={"image":source,"prompt":training_prompt(row,data),"seed":seed}
+        item={"image":reference,"prompt":training_prompt(row,data),"seed":seed}
         if a.uniform_steps:item["_probe_num_inference_steps"]=a.uniform_steps
         started=time.monotonic()
         output=independent_batch(pipe,[item],budget,True)[0]
@@ -93,7 +126,7 @@ def main():
         actual=np.asarray(output.convert("RGB"));expected=np.asarray(clean.convert("RGB"))
         before=np.asarray(source.convert("RGB"))
         record={"id":row["id"],"source_original_sha256":row["source_original_sha256"],
-            "kind":row["render"]["kind"],"model_input_resolution":budget,"prompt_sha256":__import__("hashlib").sha256(item["prompt"].encode()).hexdigest(),"generation_count":1,"seed":seed,"steps":len(pipe.scheduler.timesteps),
+            "kind":row["render"]["kind"],"model_input_resolution":budget,"native_reference_size":list(reference.size),"prompt_sha256":hashlib.sha256(item["prompt"].encode()).hexdigest(),"generation_count":1,"seed":seed,"steps":len(pipe.scheduler.timesteps),
             "seconds":round(seconds,3),"image_size":list(output.size),
             "before_overlay":reconstruction_metrics(before,expected,mask),"after_overlay":reconstruction_metrics(actual,expected,mask),
             "unchanged_content":reconstruction_metrics(actual,expected,~mask),"whole_frame":reconstruction_metrics(actual,expected,np.ones_like(mask)),
