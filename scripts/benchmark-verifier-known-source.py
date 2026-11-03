@@ -320,7 +320,7 @@ def main():
     parser.add_argument("--text-free-proof-profile",choices=["primary","35-4b-bf16"],default="primary")
     parser.add_argument("--text-free-ocr-guard",action="store_true")
     parser.add_argument("--text-free-uniform-guard",action="store_true")
-    parser.add_argument("--inspection-profile",choices=["legacy","defects","untrusted","grounded"],default="legacy")
+    parser.add_argument("--inspection-profile",choices=["legacy","defects","untrusted","grounded","grounded_untrusted"],default="legacy")
     parser.add_argument("--first-snapshot",action="store_true",help="Validate an immutable first snapshot, then freshly grade the same pixels")
     parser.add_argument("--text-free-scope",choices=["global","targets"],default="global")
     parser.add_argument("--frozen-disputes",action="store_true",help="Only adjudicate SHA-validated immutable first verdicts; do not rerun first VQA")

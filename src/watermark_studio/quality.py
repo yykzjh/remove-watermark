@@ -615,7 +615,7 @@ def output_review_prompt(profile="legacy"):
         "连接关系及表面/透视证据时属于现场实物，不能仅因黑底白字或数字就当作相机水印。"
         "数字相机覆盖也可能靠近器具；必须逐项看载体证据，看不清就uncertain，"
         "不能因类别名称而豁免真实数字覆盖层。")
-    return OUTPUT_PROMPT+(extra if profile=="untrusted" else "")
+    return OUTPUT_PROMPT+(extra if profile in {"untrusted","grounded_untrusted"} else "")
 
 
 CONTENT_PROMPT = """图1是原照片，图2是去水印后的照片。只比较原来可见的场景内容：
@@ -794,7 +794,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                  weights_relation="unknown", rectangle_guard=False, cross_context=False,
                  inspection_profile="legacy"):
     from .detection import locate_watermarks_batch, source_scene
-    if inspection_profile not in {"legacy","defects","untrusted","grounded"}:
+    if inspection_profile not in {"legacy","defects","untrusted","grounded","grounded_untrusted"}:
         raise ValueError("Unknown inspection protocol")
     contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
     if len(contexts)!=len(pairs):
@@ -834,7 +834,13 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
         output_chats.append([{"role": "user", "content": content}])
         content_chats.append(reference_inspection(before,aligned,regions,resolution,
             detail_patches,contexts[pair_index].get("source_scene"),
-            **({"untrusted_regions":True} if inspection_profile=="untrusted" else {})))
+            **({"untrusted_regions":True} if inspection_profile in {"untrusted","grounded_untrusted"} else {})))
+        if inspection_profile=="grounded_untrusted":
+            content_chats[-1][-1]["content"][-1]["text"]+=(
+                "\nobservations须先记录原图可见的实物文字与结果是否为相同字符，"
+                "尤其标牌英文、警示说明、器具数字，不能只因两边都有文字就称保持一致。"
+                "任何原来可读的实物字词变成乱码、变字或被涂抹，都必须content_preserved=false；"
+                "看不清是否相同则uncertain=true。上游候选框不授权删除或重写这些原本可见文字。")
         boxes_list.append(boxes)
     if inspection_profile == "defects":
         from .defect_protocol import inspect_defects
@@ -842,7 +848,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             output_chats, "output", encoder, processor, device, max_tokens)
         compared, content_seconds = inspect_defects(
             content_chats, "reference", encoder, processor, device, max_tokens)
-    elif inspection_profile == "grounded":
+    elif inspection_profile in {"grounded","grounded_untrusted"}:
         from .grounded_review import inspect_grounded
         inspected, output_seconds = inspect_grounded(
             output_chats, ("watermark_removed", "natural", "uncertain"),

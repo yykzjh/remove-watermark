@@ -240,7 +240,7 @@ def test_low_amplitude_inset_rectangles_are_only_soft_candidates_and_real_existi
     assert repair_boundary_warnings(after,regions,before=after,inset_search=True,minimum_step=4)["count"]==0
 
 
-@pytest.mark.parametrize("profile",["legacy","untrusted"])
+@pytest.mark.parametrize("profile",["legacy","untrusted","grounded","grounded_untrusted"])
 @pytest.mark.parametrize("output_natural,reference_natural",[(True,False),(False,True)])
 def test_neither_naturalness_view_can_override_a_rejection_from_the_other(monkeypatch,output_natural,reference_natural,profile):
     from watermark_studio.quality import verify_batch
@@ -249,6 +249,7 @@ def test_neither_naturalness_view_can_override_a_rejection_from_the_other(monkey
         return [{f:(natural if f=="natural" else f!="uncertain") for f in fields}|{"area":"none"}
                 for _ in chats],.01
     monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    monkeypatch.setattr("watermark_studio.grounded_review.inspect_grounded",structured)
     monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
     monkeypatch.setattr("watermark_studio.evidence._generate_explanations",lambda chats,*a:[
         {"status":"ok","assessment":"no_clear_defect","summary":"No clear defect","findings":[]} for _ in chats])
@@ -519,3 +520,22 @@ def test_untrusted_reference_locations_never_assert_that_the_entire_box_is_water
     assert "水印存在是输入事实" not in untrusted
     assert "禁止把上游定位当作删改许可" in untrusted
     assert "真实内容位于候选框内" in untrusted
+
+def test_strict_grounding_compares_visible_text_inside_untrusted_roi(monkeypatch):
+    from watermark_studio.config import Region
+    from watermark_studio.quality import verify_batch
+
+    def inspect(chats,fields,*args):
+        if "content_preserved" in fields:
+            text=chats[0][-1]["content"][-1]["text"]
+            assert "候选范围不具有裁决效力" in text and "相同字符" in text
+        return [{**{k:k!="uncertain" for k in fields},
+            **({"content_preserved":False} if "content_preserved" in fields else {}),
+            "area":"bottom"} for _ in chats],0
+    monkeypatch.setattr("watermark_studio.grounded_review.inspect_grounded",inspect)
+    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
+    monkeypatch.setattr("watermark_studio.evidence.attach_evidence",lambda *a,**k:None)
+    image=Image.new("RGB",(400,300),"gray")
+    result=verify_batch([(image,image.copy())],None,None,"cpu",detail_patches=0,
+        source_regions=[[Region(box=(0,.3,.9,1))]],inspection_profile="grounded_untrusted")[0]
+    assert result["status"]=="review" and result["content_preserved"] is False
