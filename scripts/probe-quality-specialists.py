@@ -26,6 +26,34 @@ def detection_role(original, inspector, locator, locator_processor, counters, re
     return routed
 
 
+def source_aware_output_chat(chat, source, regions):
+    """Extra original evidence is never a conclusion or an output image."""
+    from watermark_studio.images import context_box, pixel_box
+    from watermark_studio.quality import preview
+    messages = [dict(message, content=[dict(item) for item in message["content"]]) for message in chat]
+    content = messages[-1]["content"]
+    tail = content.pop()
+    content.append({"type": "text", "text":
+        "SOURCE REFERENCE ONLY: The following images are the untouched ORIGINAL, not results. "
+        "The ORIGINAL still has its overlays. Their presence in these references is not a result defect. "
+        "Use the original only to establish real object boundaries, perspective and visible physical printing. "
+        "A character being present in both pictures does NOT prove it is physical."})
+    content.append({"type": "image", "image": preview(source, 768)})
+    for region in sorted(regions, key=lambda r: (r.box[2]-r.box[0])*(r.box[3]-r.box[1]), reverse=True)[:2]:
+        box = context_box(pixel_box(region.box, source.size), source.size, .45)
+        content.extend([{"type": "text", "text": "ORIGINAL reference crop; this is NOT a result detail."},
+                        {"type": "image", "image": preview(source.crop(box), 512)}])
+    tail["text"] += (
+        "\n最后标有SOURCE REFERENCE/ORIGINAL的图像仅为未经修改的原图参照，仍带输入水印，"
+        "不能将它们当作结果照片。watermark_removed只按前面的完整结果和结果细节判断；"
+        "原图只帮助辨认物体载体。文字两边都有并不证明实物：水印完全没动的结果必须判false。"
+        "真实物体上的印字必须有材质、实体边缘或透视等可见证据；"
+        "相机叠加卡片、日期、标识、细码和淡字即使与原图一致仍须判残留。"
+        "检查整张结果，不限于原图候选范围，无法辨别则uncertain=true。")
+    content.append(tail)
+    return messages
+
+
 def enforce_frozen_constraints(case, verdict):
     if case.get("frozen_vetoes"):
         if verdict["status"] != "error":
@@ -41,6 +69,7 @@ def main():
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--gpu", type=int, choices=[0, 1, 2, 3], required=True)
     parser.add_argument("--residual-resolution", type=int, choices=[0, 768, 1024, 1536, 2048], default=0)
+    parser.add_argument("--output-source-reference", action="store_true")
     parser.add_argument("--inspector-profile", choices=["internvl8b", "qwen4b"], default="internvl8b")
     parser.add_argument("--inspection-profile", choices=["legacy", "defects"], default="legacy")
     args = parser.parse_args()
@@ -59,7 +88,7 @@ def main():
     import torch
     from transformers.utils import logging
 
-    from watermark_studio import detection
+    from watermark_studio import detection, quality
     from watermark_studio.config import DeploymentConfig, Region
     from watermark_studio.images import load_photo
     from watermark_studio.model_identity import compare_model_weights
@@ -91,6 +120,16 @@ def main():
     original_detect = detection.locate_watermarks_batch
     detection.locate_watermarks_batch = detection_role(
         original_detect, inspector, locator, locator_processor, counters, args.residual_resolution)
+    original_inspection = quality._structured_vqa
+    source_context = {}
+    if args.output_source_reference:
+        def source_inspection(chats, fields, *args, **kwargs):
+            if fields[0] == "watermark_removed":
+                if len(chats) != 1:
+                    raise ValueError("Source-reference pilot requires fixed single-case correspondence")
+                chats = [source_aware_output_chat(chats[0], source_context["image"], source_context["regions"])]
+            return original_inspection(chats, fields, *args, **kwargs)
+        quality._structured_vqa = source_inspection
     rows = []
     began = time.monotonic()
     try:
@@ -98,6 +137,7 @@ def main():
             for case in cases:
                 started = time.monotonic()
                 pair = (load_photo(case["source"])[0], load_photo(case["output"])[0])
+                source_context.update(image=pair[0], regions=[Region.model_validate(r) for r in case["regions"]])
                 try:
                     verdict = verify_batch(
                         [pair], inspector, inspector_processor, "cuda:0", resolution=768,
@@ -119,6 +159,7 @@ def main():
                                       "counts": dict(collections.Counter(r["quality"]["status"] for r in rows))}), flush=True)
     finally:
         detection.locate_watermarks_batch = original_detect
+        quality._structured_vqa = original_inspection
     if helper["file_hashes"](cases) != original_hashes:
         raise ValueError("Frozen source/candidate bytes changed")
     if revision != subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip():
@@ -130,6 +171,7 @@ def main():
               "images": len(rows), "errors": errors, "seconds": round(time.monotonic()-began, 3),
               "load_seconds": round(load_seconds, 3), "inspection_profile": args.inspection_profile,
               "residual_resolution": args.residual_resolution, "inspector_profile": args.inspector_profile,
+              "output_source_reference": args.output_source_reference,
               "identities": identities, "locator_calls": dict(counters),
               "counts": dict(collections.Counter(r["quality"]["status"] for r in rows)),
               "false_accept_files": [r["file"] for r in rows if r.get("expected") == "review" and r["quality"]["status"] == "passed"],

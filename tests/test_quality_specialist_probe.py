@@ -46,3 +46,21 @@ def test_higher_native_scan_resolution_preserves_the_inspector_and_other_detecto
     assert calls[-1][1]["resolution"]==2048
     route(images,other,processor,"cuda:0",resolution=768)
     assert calls[-1][0][1] is other and calls[-1][1]["resolution"]==768
+
+
+def test_output_source_reference_keeps_output_pixels_and_original_in_separate_labeled_roles():
+    from PIL import Image
+
+    from watermark_studio.config import Region
+    source, output = Image.new("RGB", (640, 480), "red"), Image.new("RGB", (640, 480), "blue")
+    chat = [{"role": "user", "content": [{"type": "image", "image": output},
+                                       {"type": "text", "text": "original inspection"}]}]
+    actual = helper()["source_aware_output_chat"](chat, source, [Region(box=(.1, .6, .4, .9))])
+    content = actual[-1]["content"]
+    assert content[0]["image"] is output
+    assert len(chat[-1]["content"]) == 2
+    assert chat[-1]["content"][-1]["text"] == "original inspection"
+    assert content[1]["text"].startswith("SOURCE REFERENCE ONLY")
+    assert content[2]["image"].getpixel((0, 0)) == (255, 0, 0)
+    assert "没动的结果必须判false" in content[-1]["text"]
+    assert "候选范围" in content[-1]["text"]
