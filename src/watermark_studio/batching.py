@@ -172,7 +172,9 @@ def independent_batch(pipe, items, resolution, kv_cache):
                     output_type="latent" if separate else "pil",
                     **callback_options, **step_options,
                 ).images
-                verify_sampling_steps(pipe,step_options)
+                sampling_log=verify_sampling_steps(pipe,step_options)
+                for item in items:
+                    item["_sampling_log"]=dict(sampling_log)
             if context is not None:
                 context.finish()
             # Returning from the pipeline releases its local prefix K/V and denoising

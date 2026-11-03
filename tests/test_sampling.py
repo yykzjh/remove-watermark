@@ -53,3 +53,24 @@ def test_explicit_deployment_schedule_rejects_conflicting_per_item_probe():
     assert runtime_step_options(pipe,{"num_inference_steps":24})=={"num_inference_steps":24}
     with pytest.raises(ValueError,match="cannot override"):
         runtime_step_options(pipe,{"num_inference_steps":12})
+
+
+def test_actual_sampling_audit_does_not_confuse_requested_and_executed_steps():
+    pipe=Pipe()
+    native=verify_sampling_steps(pipe,{})
+    assert native["actual_steps"]==8 and native["uniform_steps"]==0
+    pipe._watermark_uniform_steps=12
+    pipe._watermark_sampling_info=configure_uniform_sampling(pipe,12)
+    pipe.scheduler.timesteps=list(range(12))
+    audit=verify_sampling_steps(pipe,{"num_inference_steps":12})
+    assert audit["actual_steps"]==12 and audit["requested_steps"]==12
+    assert audit["checkpoint_modified"] is False
+    with pytest.raises(RuntimeError):
+        verify_sampling_steps(pipe,{"num_inference_steps":24})
+
+
+def test_health_exposes_deployed_sampler_without_loading_a_model(tmp_path):
+    from watermark_studio.runtime import Runtime
+
+    runtime=Runtime(DeploymentConfig(backend="mock",uniform_steps=12,state_dir=str(tmp_path)))
+    assert runtime.status()["optimization"]["uniform_steps"]==12

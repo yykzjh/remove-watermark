@@ -478,6 +478,7 @@ class Runtime:
                     "compile_dynamic": self.config.compile_dynamic,
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
+                    "uniform_steps": self.config.uniform_steps,
                     "prefill_overlays": self.config.prefill_overlays,
                     "prefill_style": self.config.prefill_style,
                     "prefill_original_semantics": self.config.prefill_original_semantics,

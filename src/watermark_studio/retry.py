@@ -247,6 +247,7 @@ def process_attempts(tasks, options, config, pipe, batch_limits, job, process):
                   "window_prefill_stats":result.get("window_prefill_stats",{}),
                   "model_inferences":result.get("model_inferences",0),
                   "model_seeds":result.get("model_seeds",[]),
+                  "model_sampling":result.get("model_sampling",[]),
                   "model_input_budgets":result.get("model_input_budgets",[]),
                   "batch_sizes":result.get("batch_sizes",[]),
                   "model_prefill_batch_sizes":result.get("model_prefill_batch_sizes",[]),

@@ -37,5 +37,9 @@ def runtime_step_options(pipe,explicit_options=None):
 
 def verify_sampling_steps(pipe,options):
     requested=options.get("num_inference_steps")
-    if requested is not None and len(pipe.scheduler.timesteps)!=requested:
+    timesteps=getattr(getattr(pipe,"scheduler",None),"timesteps",None)
+    actual=len(timesteps) if timesteps is not None else None
+    if requested is not None and actual!=requested:
         raise RuntimeError("Actual denoising step count differs from the explicit sampling request")
+    return {**getattr(pipe,"_watermark_sampling_info",{}),
+            "actual_steps":actual,"uniform_steps":getattr(pipe,"_watermark_uniform_steps",0)}
