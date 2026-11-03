@@ -51,6 +51,10 @@ def main():
     train=[pair for pair in rows if pair[0]["split"]=="train"]
     validation=[pair for pair in rows if pair[0]["split"]=="validation"]
     assert train and validation
+    def logits_for(pixels):
+        features=model.model(pixel_values=pixels).last_hidden_state
+        return model.head.conv_final(model.head.conv_up(model.head.conv_down(features)))
+
     cache={}
     def prepare(pair):
         row,clean=pair
@@ -107,10 +111,17 @@ def main():
     for step in range(1,a.steps+1):
         if not order:order=list(range(len(train)));rng.shuffle(order)
         pixels,target,mask=[x.to("cuda:0") for x in prepare(train[order.pop()])]
-        output=model(pixel_values=pixels).last_hidden_state.clamp(1e-5,1-1e-5)
-        positive=-(output[:1].log()*mask).sum()/mask.sum().clamp_min(1)
-        outside=F.binary_cross_entropy(output[:1],target[:1],reduction="none")*(1-mask)
-        preservation=outside.sum()/(1-mask).sum().clamp_min(1)+F.binary_cross_entropy(output[1:],target[1:])
+        logits=logits_for(pixels)
+        if step==1:
+            with torch.no_grad():
+                actual=model(pixel_values=pixels).last_hidden_state
+                if not torch.equal(logits.detach().sigmoid(),actual):
+                    raise ValueError("Pre-sigmoid training path differs from native detector")
+        # A probability clamp would zero the learning signal for the exact faint
+        # positives whose initial sigmoid is below the clamp. Use stable logits.
+        positive=(F.softplus(-logits[:1])*mask).sum()/mask.sum().clamp_min(1)
+        outside=F.binary_cross_entropy_with_logits(logits[:1],target[:1],reduction="none")*(1-mask)
+        preservation=outside.sum()/(1-mask).sum().clamp_min(1)+F.binary_cross_entropy_with_logits(logits[1:],target[1:])
         loss=positive+2*preservation
         if not torch.isfinite(loss):raise ValueError("Nonfinite detector training loss")
         optimizer.zero_grad(set_to_none=True);loss.backward()
