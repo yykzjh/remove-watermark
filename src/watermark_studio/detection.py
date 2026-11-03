@@ -242,7 +242,7 @@ COMPLETENESS_PROMPT = (
 
 
 def refine_source_details(images, detections, encoder, processor, device, resolution=1280,
-                          batch_size=1, *, complete=False, edge_audit=None, context_audit=None):
+                          batch_size=1, *, complete=False, edge_audit=None, context_audit=None, include_small_panels=False):
     """Bounded source-only scans; complete small clusters without fixed corners."""
     jobs,crops=[],[]
     extra_views={}
@@ -330,13 +330,13 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
                 output[index]=(merge_regions(detections[index][0]+extra),detections[index][1])
             except ValueError as error:
                 output[index]=error
-    if complete:
+    if complete or include_small_panels:
         for index,(image,result) in enumerate(zip(images,output)):
             if isinstance(result,Exception):
                 continue
             regions,raw=result
             try:
-                regions,evidence=complete_edge_strokes(image,regions)
+                regions,evidence=complete_edge_strokes(image,regions,**({"include_small_panels":True} if include_small_panels else {}))
                 output[index]=(regions,raw)
                 if edge_audit is not None:
                     edge_audit[index]=evidence
@@ -345,7 +345,7 @@ def refine_source_details(images, detections, encoder, processor, device, resolu
     return output,{i:sum(index==i for index,_,_ in jobs)+extra_views.get(i,0) for i in range(len(images))}
 
 
-def complete_edge_strokes(image, regions):
+def complete_edge_strokes(image, regions, *, include_small_panels=False):
     """Cover a light camera glyph crossing a known mask into a tiny image-edge gap.
 
     This is source-only evidence, not a text detector or a fixed-corner template.
@@ -361,7 +361,7 @@ def complete_edge_strokes(image, regions):
     evidence=[]
     for index,region in enumerate(regions):
         x0,y0,x1,y1=region.box
-        if region.kind!="logo" or (x1-x0)*(y1-y0)>.035:
+        if (region.kind!="logo" and not (include_small_panels and region.kind=="panel")) or (x1-x0)*(y1-y0)>.035:
             expanded.append(region)
             continue
         original=pixel_box(region.box,image.size)

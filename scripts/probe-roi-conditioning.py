@@ -14,8 +14,9 @@ p.add_argument("--variant",choices=["raw","raw-opaque","prefill","split"],requir
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--selection",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
-p.add_argument("--prompt-profile",choices=["detailed","compact-zh"],default="detailed")
+p.add_argument("--prompt-profile",choices=["detailed","compact-zh","detailed-zh"],default="detailed")
 p.add_argument("--source-material-guide",action="store_true")
+p.add_argument("--source-edge-small-panels",action="store_true")
 p.add_argument("--context",type=float,default=.45)
 p.add_argument("--repair-blending",choices=["feather","harmonic","harmonic-fine"])
 p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
@@ -58,6 +59,15 @@ if a.prompt_profile=="compact-zh":
     worker.build_focused_prompt=build_compact_focused_prompt
     worker.build_small_overlay_prompt=lambda box,crop,extra="":build_compact_focused_prompt("panel",box,crop,extra)
 
+if a.prompt_profile=="detailed-zh":
+    from watermark_studio import worker
+    from watermark_studio.prompts import (
+        build_detailed_chinese_focused_prompt,
+        build_detailed_chinese_small_prompt,
+    )
+    worker.build_focused_prompt=build_detailed_chinese_focused_prompt
+    worker.build_small_overlay_prompt=build_detailed_chinese_small_prompt
+
 guidance_audits=[]
 context_mappings=[]
 if a.source_material_guide or a.roi_context_margin>=0:
@@ -84,6 +94,7 @@ cfg_values=json.loads(Path(".run/deployment.json").read_text())
 cfg=DeploymentConfig.model_validate({**cfg_values,
             "gpus":[a.gpu],"uniform_steps":a.uniform_steps,"quantization":a.quantization,
             "batch_size":a.batch_size,"small_batch_size":a.batch_size,
+            **({"source_edge_small_panels":True} if a.source_edge_small_panels else {}),
             **({"lora_path":str(a.lora_path),"lora_sha256":a.lora_sha256,
                 "lora_alpha":a.lora_alpha,"lora_scale":a.lora_scale} if a.lora_path else {}),
             **({"quality_phase_offload":True} if a.quality_phase_offload else {}),"float8_granularity":a.float8_granularity,"float8_accurate_accum":a.float8_accurate_accum,"float8_amax_floor":a.float8_amax_floor,

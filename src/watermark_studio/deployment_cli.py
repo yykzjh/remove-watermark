@@ -46,6 +46,7 @@ HELP = {
     "source_carrier_recheck": "Recheck only ambiguous source carriers with wider original context and two independent explicit digital proofs; failure keeps protected original and review",
     "source_vet_batch_size": "Independent source carrier classifications per editor forward, 1..4; does not batch independent verifier proofs",
     "protection_physical_vet": "Before protected whole editing, vet small physical text and reconcile broad outdoor masks with distinct source detectors and digital/carrier proofs",
+    "source_edge_small_panels": "Opt-in source-only frame-edge stroke completion for tiny digital panels as well as logos; requires independent QA and physical/detail vetting; no fixed corners or new model calls",
     "protection_detail_scan": "Complete source-only fine codes for whole-image protected editing; never crop diffusion inputs",
     "protection_core_feather": "Fade only the source detector safety margin; keep the complete watermark core opaque",
     "separate_vae_decode": "Decode pipeline latents after per-call prefix KV caches are released; exact pinned decode path, offload none",

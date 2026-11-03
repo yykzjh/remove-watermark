@@ -243,7 +243,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 context_audit={}
                 found, counts = refine_source_details([decoded[t["relative"]][0] for t in detect_tasks],found,
                     pipe.text_encoder,pipe.processor,execution_device,options.detection_resolution,config.detection_batch_size,
-                    complete=options.first_pass_mode=="complete" or protected_details,edge_audit=edge_audit,context_audit=context_audit)
+                    complete=options.first_pass_mode=="complete" or protected_details,edge_audit=edge_audit,context_audit=context_audit,
+                    **({"include_small_panels":True} if config.source_edge_small_panels else {}))
                 detail_counts={t["relative"]:counts[i] for i,t in enumerate(detect_tasks)}
                 edge_evidence={t["relative"]:edge_audit.get(i,[]) for i,t in enumerate(detect_tasks)}
                 context_evidence={t["relative"]:context_audit.get(i,[]) for i,t in enumerate(detect_tasks)}

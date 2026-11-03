@@ -8,7 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from watermark_studio.cli import request
 
@@ -17,6 +17,7 @@ p.add_argument("--frozen",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--context",type=float,default=.45)
+p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
 p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--expected-uniform-steps",type=int,choices=[0,12,16,20,24,40],required=True)
 p.add_argument("--expected-roi-steps",type=int,choices=[0,12,16,20,24,40],required=True)
@@ -32,7 +33,7 @@ actual={p.relative_to(inputs).as_posix() for p in inputs.rglob("*") if p.is_file
 assert actual==set(hashes)
 state=Path.home()/".local/state/watermark-studio"
 base=json.loads((state/a.baseline_job/"summary.json").read_text())
-opts=dict(base["options"],context=a.context,quality_auto_retry=False,quality_cross_review=False,
+opts=dict(base["options"],context=a.context,resolution=a.model_resolution,quality_auto_retry=False,quality_cross_review=False,
           quality_retry_localized=False,overwrite=False)
 h=request(a.url,"/health")
 assert h["stage"]=="ready" and h["backend"]=="qwen" and h["gpus"]==[0,1,2,3]
@@ -96,7 +97,7 @@ for name,expected in hashes.items():
     with (inputs/name).open("rb") as f:assert hashlib.file_digest(f,"sha256").hexdigest()==expected
     if not (out/name).is_file():missing+=1;continue
     with Image.open(inputs/name) as before,Image.open(out/name) as after:
-        bad_sizes+=before.size!=after.size
+        bad_sizes+=ImageOps.exif_transpose(before).size!=ImageOps.exif_transpose(after).size
 output_names={p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file()}
 input_dirs={p.relative_to(inputs).as_posix() for p in inputs.rglob("*") if p.is_dir()}
 output_dirs={p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_dir()}
