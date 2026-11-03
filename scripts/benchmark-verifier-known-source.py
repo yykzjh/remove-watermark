@@ -16,6 +16,7 @@ from copy import deepcopy
 from pathlib import Path
 
 PROFILES={
+    "internvl8b-bf16":("OpenGVLab--InternVL3_5-8B-HF","none"),
     "4b-bf16":("Qwen--Qwen3-VL-4B-Instruct","none"),
     "8b-nf4":("Qwen--Qwen3-VL-8B-Instruct","nf4"),
     "32b-nf4":("Qwen--Qwen3-VL-32B-Instruct","nf4"),

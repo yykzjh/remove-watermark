@@ -5,7 +5,7 @@ from pathlib import Path
 
 def quality_architecture(path):
     architecture=json.loads((Path(path)/"config.json").read_text())["model_type"]
-    if architecture not in {"qwen3_vl","qwen3_5"}:
+    if architecture not in {"qwen3_vl","qwen3_5","internvl"}:
         raise ValueError(f"Unsupported verifier architecture: {architecture}")
     return architecture
 
@@ -35,6 +35,11 @@ def load_quality_encoder(path, config, device):
 
     architecture=quality_architecture(path)
     factory=Qwen3VLForConditionalGeneration
+    if architecture=="internvl":
+        from transformers import InternVLForConditionalGeneration
+        factory=InternVLForConditionalGeneration
+        if config.quality_quantization!="none":
+            raise ValueError("InternVL verifier candidate currently requires unquantized inference")
     if architecture=="qwen3_5":
         from transformers import Qwen3_5ForConditionalGeneration
         factory=Qwen3_5ForConditionalGeneration

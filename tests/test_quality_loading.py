@@ -103,16 +103,17 @@ def test_new_checkpoint_uses_its_native_architecture_without_changing_old_loads(
     monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(bfloat16="bf16"))
     monkeypatch.setitem(sys.modules,"transformers",SimpleNamespace(BitsAndBytesConfig=lambda **k:k,
         Qwen3VLForConditionalGeneration=factory("qwen3_vl"),
-        Qwen3_5ForConditionalGeneration=factory("qwen3_5")))
+        Qwen3_5ForConditionalGeneration=factory("qwen3_5"),
+        InternVLForConditionalGeneration=factory("internvl")))
     cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent")
-    for name in ("qwen3_5","qwen3_vl"):
+    for name in ("qwen3_5","qwen3_vl","internvl"):
         (tmp_path/"config.json").write_text(json.dumps({"model_type":name}))
         load_quality_encoder(tmp_path,cfg,"cpu")
-    assert called==["qwen3_5","qwen3_vl"]
+    assert called==["qwen3_5","qwen3_vl","internvl"]
     (tmp_path/"config.json").write_text(json.dumps({"model_type":"unrecognized"}))
     with pytest.raises(ValueError,match="Unsupported"):
         load_quality_encoder(tmp_path,cfg,"cpu")
-    assert len(called)==2
+    assert len(called)==3
 
 
 def test_reasoning_candidate_closes_thinking_before_structured_json_and_keeps_image_arguments(tmp_path,monkeypatch):
@@ -132,12 +133,13 @@ def test_reasoning_candidate_closes_thinking_before_structured_json_and_keeps_im
     assert load_quality_processor(tmp_path) is inner
 
 
-def test_new_candidate_quantization_is_not_silently_enabled(tmp_path,monkeypatch):
-    (tmp_path/"config.json").write_text(json.dumps({"model_type":"qwen3_5"}))
+@pytest.mark.parametrize("architecture",["qwen3_5","internvl"])
+def test_new_candidate_quantization_is_not_silently_enabled(tmp_path,monkeypatch,architecture):
+    (tmp_path/"config.json").write_text(json.dumps({"model_type":architecture}))
     monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(bfloat16="bf16"))
     monkeypatch.setitem(sys.modules,"transformers",SimpleNamespace(
         BitsAndBytesConfig=lambda **k:k,Qwen3VLForConditionalGeneration=object,
-        Qwen3_5ForConditionalGeneration=object))
+        Qwen3_5ForConditionalGeneration=object,InternVLForConditionalGeneration=object))
     cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent",quality_quantization="nf4")
     with pytest.raises(ValueError,match="unquantized"):
         load_quality_encoder(tmp_path,cfg,"cpu")
