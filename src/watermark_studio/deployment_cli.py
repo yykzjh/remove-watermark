@@ -19,7 +19,7 @@ HELP = {
     "batch_size": "Maximum independent edits per GPU forward, 1..16",
     "prefill_overlays": "Experimental source-only harmonic conditioning for focused or protected whole editing; requires trusted cores for whole mode; no additional generations",
     "prefill_style": "harmonic or experimental gray full-frame conditioning; gray requires prefill-overlays, protect-source-rims and masked full-frame semantics; no extra generation",
-    "prefill_original_semantics": "Experimental protected whole prefill: encode the original full photograph with the baseline prompt; initialize only the VAE reference; active with prefill-overlays",
+    "prefill_original_semantics": "Experimental split conditioning: encode the original full photograph or matching ROI crop with the baseline edit prompt; initialize only the VAE reference; active with prefill-overlays",
     "protect_denoising_context": "Experimental protected whole editing: preserve original context on the flow trajectory, reuse existing full-frame VAE latents; no extra model forwards; incompatible with prefill-overlays",
     "lora_path": "Optional local plain Qwen21 safetensors LoRA, fused once on CPU before quantization/compilation; empty disables",
     "lora_scale": "One-time LoRA strength 0..2, no runtime adapter branch",
