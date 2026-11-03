@@ -5,12 +5,14 @@ import argparse
 import hashlib
 import json
 import random
+import subprocess
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from watermark_studio.images import load_photo
+from watermark_studio.detection import parse_detection
+from watermark_studio.images import load_photo, pixel_box
 from watermark_studio.roi_supervision import make_roi_supervision
 from watermark_studio.training_features import digest, validate_pairs
 from watermark_studio.training_pairs import render_profile_pair
@@ -26,6 +28,7 @@ p.add_argument("--font",type=Path,default=Path("/usr/share/fonts/opentype/noto/N
 p.add_argument("--seed",type=int,default=2026110319)
 a=p.parse_args()
 assert not a.target.exists() and 8<=a.train_originals<=96 and 4<=a.validation_originals<=24
+revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
 parent,_=validate_pairs(a.parent_manifest)
 assert digest(a.font)==parent["font_sha256"]
 sealed=json.loads(a.sealed.read_text())
@@ -66,9 +69,13 @@ for parent_row in selected:
                 regions=[("panel",(min(l,logo[0]),min(t,logo[1]),max(r,logo[2]),max(b,logo[3])))]
             else:
                 regions.append(("logo",logo))
-        for group,(kind,box) in enumerate(regions):
+        detected=parse_detection(json.dumps({"watermarks":[{"kind":kind,"box":[
+            b[0]/native.width*1000,b[1]/native.height*1000,b[2]/native.width*1000,b[3]/native.height*1000]}
+            for kind,b in regions]}))
+        for group,region in enumerate(detected):
+            kind=region.kind;box=pixel_box(region.box,native.size)
             budget=512 if kind=="logo" else a.main_resolution
-            image,truth,support,geometry=make_roi_supervision(edited,native,box,budget,kind)
+            image,truth,support,geometry=make_roi_supervision(edited,native,box,budget,kind,box_is_padded=True)
             crop=geometry["crop"];expanded=geometry["expanded"];prompt=geometry["prompt"]
             name=sha[:24]+"-roi-"+str(variant*2+group)
             ip=work/"pairs"/(name+".png");tp=work/"targets"/(name+".png");mp=work/"masks"/(name+".png")
@@ -81,7 +88,7 @@ for parent_row in selected:
                 "model_input_resolution":budget,"edit_prompt":prompt,"edit_prompt_sha256":hashlib.sha256(prompt.encode()).hexdigest()})
     print(json.dumps({"parents":len(source_hashes),"needed":len(selected),"pairs":len(pairs)}),flush=True)
 assert len(pairs)<=640 and all(digest(path)==sha for path,sha in source_hashes.items())
-manifest={"version":1,"state":"completed","pairs":pairs,"prompt_profile":"roi_focused_v1",
+manifest={"version":1,"state":"completed","revision":revision,"sampling_seed":a.seed,"main_resolution":a.main_resolution,"pairs":pairs,"prompt_profile":"roi_focused_v1",
     "parent_manifest":str(a.parent_manifest),"parent_manifest_sha256":digest(a.parent_manifest),
     "font_sha256":digest(a.font),"train_originals":a.train_originals,"validation_originals":a.validation_originals,
     "source_screening":parent.get("source_screening","inherited frozen dual-source/OCR-screened clean parents"),

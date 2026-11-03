@@ -30,3 +30,14 @@ def test_roi_feature_prompt_cannot_silently_fall_back_to_whole_frame():
         training_prompt({},{"prompt_profile":"roi_focused_v1"})
     with pytest.raises(ValueError,match="Unknown"):
         training_prompt({},{"prompt_profile":"unsupported"})
+
+def test_interpolation_support_scales_for_small_native_logos(monkeypatch):
+    monkeypatch.setattr("watermark_studio.roi_supervision.dimensions",lambda *args:(512,704))
+    clean=Image.new("RGB",(100,100),(100,100,100));edited=clean.copy()
+    draw=ImageDraw.Draw(edited);draw.rectangle((0,0,49,99),fill="red")
+    draw.rectangle((51,0,99,99),fill="white")
+    source,target,mask,geometry=make_roi_supervision(edited,clean,(0,0,50,100),512,"logo",box_is_padded=True)
+    outside=np.asarray(mask)==0
+    assert geometry["resampling_radius"]>3
+    assert np.array_equal(np.asarray(source)[outside],np.asarray(target)[outside])
+    assert "verification code" in geometry["prompt"]
