@@ -10,7 +10,7 @@ from pathlib import Path
 
 p=argparse.ArgumentParser(__doc__)
 p.add_argument("--gpu",type=int,required=True)
-p.add_argument("--variant",choices=["raw","prefill","split"],required=True)
+p.add_argument("--variant",choices=["raw","raw-opaque","prefill","split"],required=True)
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--selection",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
@@ -43,8 +43,10 @@ b=state/a.baseline_job
 summary=json.loads((b/"summary.json").read_text())
 original={r["file"]:r for r in map(json.loads,(b/"results.jsonl").read_text().splitlines())}
 assert set(names)<=set(original)
-cfg=DeploymentConfig.model_validate(json.loads(Path(".run/deployment.json").read_text())).model_copy(
-    update={"gpus":[a.gpu],"prefill_overlays":a.variant!="raw",
+cfg_values=json.loads(Path(".run/deployment.json").read_text())
+cfg=DeploymentConfig.model_validate(cfg_values).model_copy(
+    update={"gpus":[a.gpu],"prefill_overlays":a.variant not in {"raw","raw-opaque"},
+            "protection_core_feather":False if a.variant=="raw-opaque" else cfg_values["protection_core_feather"],
             "prefill_original_semantics":a.variant=="split"})
 opts=ProcessingConfig.model_validate(summary["options"]).model_copy(
     update={"quality_auto_retry":False,"quality_cross_review":False,"overwrite":False})

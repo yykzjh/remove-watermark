@@ -221,3 +221,37 @@ def test_compact_candidate_keeps_scope_physical_text_and_document_semantics():
     assert "今日水印" in prompt and "防伪码" in prompt and "方形阴影" in prompt
     assert "真实标牌" in prompt and "测量刻度全部保持原样" in prompt
     assert "document/receipt" in prompt
+
+
+@pytest.mark.parametrize("core_feather",[False,True])
+def test_roi_core_feather_flag_controls_actual_composition_margin(tmp_path,monkeypatch,core_feather):
+    import json
+    import sys
+    from types import SimpleNamespace
+
+    from watermark_studio.config import DeploymentConfig, ProcessingConfig
+    from watermark_studio.worker import process_batch
+
+    src,dst=tmp_path/"source.png",tmp_path/"result.png"
+    image=Image.new("RGB",(800,600),(60,60,60))
+    ImageDraw.Draw(image).rectangle((0,360,319,599),fill="blue")
+    image.save(src);encoded=src.read_bytes()
+    region=Region(kind="panel",box=(0,.58,.432,1))
+    raw=json.dumps({"scene":"outdoor","watermarks":[{"kind":"panel","box":[0,600,400,1000]}]})
+    monkeypatch.setattr("watermark_studio.worker.locate_watermarks_batch",lambda *a:[([region],raw)])
+    monkeypatch.setattr("watermark_studio.batching.dimensions",lambda *a:(64,64))
+    monkeypatch.setattr("watermark_studio.batching.independent_batch",lambda *a:[Image.new("RGB",(64,64),(100,100,100))])
+    monkeypatch.setitem(sys.modules,"torch",SimpleNamespace(cuda=SimpleNamespace(
+        reset_peak_memory_stats=lambda:None,synchronize=lambda:None,
+        max_memory_allocated=lambda:0,max_memory_reserved=lambda:0)))
+    pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu")
+    row=process_batch([{"source":str(src),"destination":str(dst),"relative":"source.png"}],
+        ProcessingConfig(scope="full_image",preserve_background=True,first_pass_mode="focused",
+                         repair_blending="feather"),
+        DeploymentConfig(protection_core_feather=core_feather),pipe)[0]
+    assert row["ok"] and (row["opaque_core_boxes"][0] is not None) is core_feather
+    result=Image.open(dst)
+    assert result.getpixel((100,500))==(100,100,100)
+    assert (result.getpixel((342,500))==(100,100,100)) is not core_feather
+    assert result.getpixel((700,50))==(60,60,60)
+    assert src.read_bytes()==encoded and result.size==image.size

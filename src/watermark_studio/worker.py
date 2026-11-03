@@ -485,7 +485,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         and source.width*source.height>options.resolution**2):
                     budget=max(budget,config.protected_document_resolution)
                 cores=[pixel_box(r.box,source.size) for r in core_regions
-                       if not small and r.box[0]>=region.box[0] and r.box[1]>=region.box[1]
+                       if config.protection_core_feather and not small and r.box[0]>=region.box[0] and r.box[1]>=region.box[1]
                        and r.box[2]<=region.box[2] and r.box[3]<=region.box[3]]
                 core_box=(min(b[0] for b in cores),min(b[1] for b in cores),
                           max(b[2] for b in cores),max(b[3] for b in cores)) if cores else None
