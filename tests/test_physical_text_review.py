@@ -59,14 +59,9 @@ def test_incomplete_or_conflicting_witnesses_cannot_approve(monkeypatch,mode):
     assert result["status"]=="review" and result["watermark_removed"] is False
     assert result["physical_text_review"]["status"]!="corrected"
 
-def test_deployment_inquiry_is_opt_in_and_requires_source_and_independent_checks():
+def test_failed_inquiry_experiment_is_not_a_service_deployment_option():
     from watermark_studio.config import DeploymentConfig
-    assert DeploymentConfig().quality_physical_text_review is False
-    with pytest.raises(ValueError,match="Physical text review"):
-        DeploymentConfig(quality_physical_text_review=True)
-    cfg=DeploymentConfig(quality_physical_text_review=True,quality_verifier=True,
-        quality_backend="independent",protection_physical_vet=True)
-    assert cfg.quality_physical_text_review is True
+    assert "quality_physical_text_review" not in DeploymentConfig.model_fields
 
 
 def test_quality_inquiry_hook_is_disabled_by_default(monkeypatch):

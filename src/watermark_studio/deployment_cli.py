@@ -40,7 +40,6 @@ HELP = {
     "oom_split_batch": "Recursively split a batch on CUDA OOM; singleton failure is reported",
     "replicas_per_gpu": "Full model copies per GPU, 1..4; multiplies VRAM use",
     "quality_backend": "resident: reuse image encoder; independent: separate instruction VLM",
-    "quality_physical_text_review": "Opt-in rare watermark-only inquiries: unchanged native text pixels, independent physical-carrier proof and fresh unwhitelisted scan; requires independent QA, physical vetting and quality-ocr",
     "quality_verifier": "Enable post-removal review using the selected quality backend",
     "protected_document_resolution": "Optional full-frame document budget, 0 disables; protected whole requests >=1024 only, never downsizes chosen budget",
     "retain_rejected_first": "Keep an immutable first rejected candidate for audit; adds disk use only for rejected first attempts",

@@ -477,7 +477,6 @@ class Runtime:
                     "compile": self.config.compile, "compile_scope": self.config.compile_scope,
                     "compile_dynamic": self.config.compile_dynamic,
                     "attention_backend": self.config.attention_backend,
-                    "quality_physical_text_review": self.config.quality_physical_text_review,
                     "float8_granularity": self.config.float8_granularity,
                     "float8_accurate_accum": self.config.float8_accurate_accum,
                     "float8_amax_floor": self.config.float8_amax_floor,

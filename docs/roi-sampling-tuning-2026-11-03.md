@@ -110,3 +110,29 @@ stopped-report.json 均留在开发机。验收工具因未满 1,000 条而拒�
 The row and row+ROI-context fast-accumulation probes emitted a non-finite cast warning and were stopped. Their incomplete results are unsafe research output, not qualified candidates. Commit f98e686 adds pre-conversion finite validation and opt-in accurate FP8 accumulation. The deployed/default quality grading remains unchanged.
 
 A new offline-only `grounded` inspection profile records visual observations before the same semantic booleans. It must pass known-defect controls and native-image audits before any online adoption; it cannot waive deterministic vetoes. Merely improving the numerical pass rate is insufficient. The default profile remains `legacy`.
+
+## Completed precision controls and rejected QA experiments
+
+With the same 64 development sources, source-area 8/12 sampler, original ROI inputs and
+strict legacy verifier, tensor FP8 scored 57/64 in 1048.026 seconds. BF16 scored 56/64
+in 1273.037 seconds. Row FP8 plus a 1e-6 activation-amax floor scored 56/64 in 1185.154
+seconds, with no non-finite errors or changed output sizes. These are single-GPU
+development diagnostics, not four-GPU serving throughput. Tensor FP8 stays preferred.
+Increasing large-ROI steps to 16 or 20 was stopped at inferior partial comparisons;
+these partial runs have no qualified 64-image score.
+
+Grounded narrative QA had 2 clean vetoes and 13 defect misses on the 108 labeled controls,
+but incorrectly accepted a real rewritten physical English sign. Explicit untrusted-mask
+instructions still missed that real defect. Both full protocols are rejected.
+A narrower physical-print inquiry correctly blocked that rewritten sign by OCR/native
+pixel mismatch. Its native-scan prototype, however, missed faint retained synthetic text.
+The physical-print inquiry is therefore NOT a service deployment option; no known
+unsafe change may be used to attain the target. Current production grading remains
+legacy with all existing deterministic vetoes. Native and synthetic inquiry reports
+are research artifacts, never a new thousand-image qualification.
+
+Existing dataset-trained adapters are now being tested on the ROI route rather than
+assuming their earlier whole-frame results transfer. Three pinned fused adapters at
+scale 0.5 and a harmonic-fine blending control use the same 64 source files, masks,
+sampling and legacy QA. No automatic generation retries, threshold changes or production
+38319-image submission are enabled.

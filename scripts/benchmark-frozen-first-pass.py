@@ -21,7 +21,6 @@ p.add_argument("--url",default="http://127.0.0.1:8765")
 p.add_argument("--expected-uniform-steps",type=int,choices=[0,12,16,20,24,40],required=True)
 p.add_argument("--expected-roi-steps",type=int,choices=[0,12,16,20,24,40],required=True)
 p.add_argument("--expected-roi-min-area",type=float,default=.14)
-p.add_argument("--expect-physical-text-review",action="store_true")
 p.add_argument("--futility-stop",action="store_true",help="Cancel when even every remaining pass cannot reach 900/1000; never qualify a partial run")
 a=p.parse_args()
 assert .1<=a.context<=2
@@ -37,7 +36,6 @@ opts=dict(base["options"],context=a.context,quality_auto_retry=False,quality_cro
           quality_retry_localized=False,overwrite=False)
 h=request(a.url,"/health")
 assert h["stage"]=="ready" and h["backend"]=="qwen" and h["gpus"]==[0,1,2,3]
-assert h["optimization"].get("quality_physical_text_review",False)==a.expect_physical_text_review
 assert h["optimization"]["uniform_steps"]==a.expected_uniform_steps
 assert h["optimization"]["roi_steps"]==a.expected_roi_steps
 assert not a.expected_roi_steps or abs(h["optimization"]["roi_step_min_area"]-a.expected_roi_min_area)<1e-12
