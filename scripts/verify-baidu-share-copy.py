@@ -109,9 +109,13 @@ def main():
                         raise RuntimeError("Original-share inventory errno="+str(data.get("errno")))
                     rows = data["list"]
                     break
-                except Exception:
+                except Exception as error:
+                    diagnostic = {"directory": directory, "attempt": attempt+1,
+                                  "kind": type(error).__name__, "message": str(error)[:400]}
                     if attempt == 5:
+                        (cache/(cached.stem+"-error.json")).write_text(json.dumps(diagnostic, ensure_ascii=False))
                         raise
+                    (cache/(cached.stem+"-retry.json")).write_text(json.dumps(diagnostic, ensure_ascii=False))
                     time.sleep(2**attempt)
             found.extend(rows)
             if not rows or data.get("has_more") in (0, False) or len(rows) < 100:
