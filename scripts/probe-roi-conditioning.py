@@ -30,8 +30,13 @@ p.add_argument("--roi-context-margin",type=int,choices=range(-1,17),default=-1,
                help="Offline original-ROI source-flow context; -1 disables, otherwise latent-cell buffer")
 p.add_argument("--float8-accurate-accum",action="store_true")
 p.add_argument("--float8-amax-floor",type=float,default=0)
+p.add_argument("--lora-path",type=Path)
+p.add_argument("--lora-sha256",default="")
+p.add_argument("--lora-alpha",type=float,default=0)
+p.add_argument("--lora-scale",type=float,default=1)
 a=p.parse_args()
 assert .1<=a.context<=2
+assert bool(a.lora_path)==bool(a.lora_sha256), "Pin an explicit adapter SHA"
 loaded_revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
 assert a.gpu in (0,1,2,3)
 assert not a.work.exists(), "Use a fresh output directory"
@@ -79,6 +84,8 @@ cfg_values=json.loads(Path(".run/deployment.json").read_text())
 cfg=DeploymentConfig.model_validate({**cfg_values,
             "gpus":[a.gpu],"uniform_steps":a.uniform_steps,"quantization":a.quantization,
             "batch_size":a.batch_size,"small_batch_size":a.batch_size,
+            **({"lora_path":str(a.lora_path),"lora_sha256":a.lora_sha256,
+                "lora_alpha":a.lora_alpha,"lora_scale":a.lora_scale} if a.lora_path else {}),
             **({"quality_phase_offload":True} if a.quality_phase_offload else {}),"float8_granularity":a.float8_granularity,"float8_accurate_accum":a.float8_accurate_accum,"float8_amax_floor":a.float8_amax_floor,
             "roi_steps":a.roi_steps,"roi_step_min_area":a.roi_step_min_area,
             "prefill_overlays":a.variant not in {"raw","raw-opaque"},
