@@ -196,8 +196,9 @@ def main():
         del saved
     if a.freeze_language_lora:
         for name,param in model.named_parameters():
-            if "lora_" in name and "visual" not in name:
-                param.requires_grad_(False)
+            # PEFT may expose task-specific trainable embeddings on adapter
+            # initialization. The vision-only pilot must freeze those as well.
+            param.requires_grad_("lora_" in name and "visual" in name)
     with model.disable_adapter(),torch.inference_mode():
         replay=model(**sample,use_cache=False,logits_to_keep=1).logits.detach()
     if not torch.equal(baseline,replay):
