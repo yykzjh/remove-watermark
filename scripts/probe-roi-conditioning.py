@@ -23,6 +23,9 @@ p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-step-min-area",type=float,default=.14)
 p.add_argument("--float8-granularity",choices=["tensor","row"],default="tensor")
+p.add_argument("--quantization",choices=["none","float8","int8"],default="float8")
+p.add_argument("--batch-size",type=int,choices=[1,2],default=2)
+p.add_argument("--quality-phase-offload",action="store_true")
 p.add_argument("--roi-context-margin",type=int,choices=range(-1,17),default=-1,
                help="Offline original-ROI source-flow context; -1 disables, otherwise latent-cell buffer")
 p.add_argument("--float8-accurate-accum",action="store_true")
@@ -73,7 +76,9 @@ original={r["file"]:r for r in map(json.loads,(b/"results.jsonl").read_text().sp
 assert set(names)<=set(original)
 cfg_values=json.loads(Path(".run/deployment.json").read_text())
 cfg=DeploymentConfig.model_validate({**cfg_values,
-            "gpus":[a.gpu],"uniform_steps":a.uniform_steps,"float8_granularity":a.float8_granularity,"float8_accurate_accum":a.float8_accurate_accum,
+            "gpus":[a.gpu],"uniform_steps":a.uniform_steps,"quantization":a.quantization,
+            "batch_size":a.batch_size,"small_batch_size":a.batch_size,
+            **({"quality_phase_offload":True} if a.quality_phase_offload else {}),"float8_granularity":a.float8_granularity,"float8_accurate_accum":a.float8_accurate_accum,
             "roi_steps":a.roi_steps,"roi_step_min_area":a.roi_step_min_area,
             "prefill_overlays":a.variant not in {"raw","raw-opaque"},
             "protection_core_feather":False if a.variant=="raw-opaque" else cfg_values["protection_core_feather"],
