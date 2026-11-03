@@ -44,6 +44,7 @@ assert not a.work.exists(),"Fresh outputs only; inspect existing request instead
 source_tree=subprocess.check_output(["git","rev-parse","HEAD:src"],text=True).strip()
 loaded_tree=subprocess.check_output(["git","rev-parse",h["code_revision"]+":src"],text=True).strip()
 assert source_tree==loaded_tree,"Restart before measuring changed inference sources"
+assert subprocess.run(["git","diff","--quiet","HEAD","--","src","uv.lock"],check=False).returncode==0
 lock_sha256=hashlib.sha256(Path("uv.lock").read_bytes()).hexdigest()
 for name,expected in hashes.items():
     with (inputs/name).open("rb") as f:assert hashlib.file_digest(f,"sha256").hexdigest()==expected
@@ -98,6 +99,8 @@ if a.expected_roi_steps:
         routes_match=routes_match and route.get("policy")=="source_area_v1" and (
             route.get("selected_uniform_steps")==selected and log.get("actual_steps")==(selected or 8))
 assert source_tree==subprocess.check_output(["git","rev-parse","HEAD:src"],text=True).strip()
+assert subprocess.run(["git","diff","--quiet","HEAD","--","src","uv.lock"],check=False).returncode==0
+assert current["optimization"]==h["optimization"] and current["quality_weight_identity"]==h["quality_weight_identity"]
 assert lock_sha256==hashlib.sha256(Path("uv.lock").read_bytes()).hexdigest()
 existing=s.get("first_pass_existing",0)+s.get("existing_outputs",0)
 report={"job":job,"images":1000,"first_counts":counts,"final_counts":counts,
