@@ -50,6 +50,31 @@ def storage_reference(headers, expected_size):
     return raw.hex()
 
 
+
+def fetch_storage_reference(urls, config, expected_size):
+    # Different download nodes accept different configured client identities.
+    agents = list(dict.fromkeys(v for v in (config.get("user_agent"), config.get("pan_ua"))
+                                if isinstance(v, str) and v.strip())) or ["netdisk"]
+    last_error = "No storage candidates"
+    for url in urls[:3]:
+        try:
+            url = secure_storage_url(url)
+        except ValueError:
+            last_error = "ValueError"
+            continue
+        for agent in agents:
+            try:
+                opener = urllib.request.build_opener(StorageRedirect())
+                req = urllib.request.Request(url, method="HEAD",
+                    headers={"User-Agent": agent, "Accept-Encoding": "identity"})
+                with opener.open(req, timeout=10) as response:
+                    secure_storage_url(response.geturl())
+                    return storage_reference(dict(response.headers), expected_size)
+            except Exception as error:  # noqa: BLE001 - no signed URLs in diagnostics
+                last_error = type(error).__name__
+    raise RuntimeError("Storage checksum unavailable: "+last_error)
+
+
 def signature(path):
     s = path.stat()
     return [s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns]
@@ -87,8 +112,6 @@ def main():
     home = Path.home()
     tool = home/".local/bin/BaiduPCS-Go"
     config = json.loads((home/".config/BaiduPCS-Go/pcs_config.json").read_text())
-    # Locatedownload links use the configured Netdisk client UA, not the browser UA.
-    user_agent = config.get("pan_ua") or config.get("user_agent") or "netdisk"
     def inspect(item):
         relative, baseline = item
         path = root/relative
@@ -103,22 +126,7 @@ def main():
                 raise RuntimeError("Storage locator failed")
             plain = re.sub(r"\x1b\[[0-9;]*m", "", output.stdout)
             urls = re.findall(r"https?://[^\s\x1b]+", plain)
-            digest = None
-            last_error = "No storage candidates"
-            for url in urls[:3]:
-                try:
-                    url = secure_storage_url(url)
-                    opener = urllib.request.build_opener(StorageRedirect())
-                    req = urllib.request.Request(url, method="HEAD",
-                        headers={"User-Agent": user_agent, "Accept-Encoding": "identity"})
-                    with opener.open(req, timeout=10) as response:
-                        secure_storage_url(response.geturl())
-                        digest = storage_reference(dict(response.headers), manifest[relative]["size"])
-                    break
-                except Exception as error:  # noqa: BLE001 - no URL or cookie in diagnostics
-                    last_error = type(error).__name__
-            if digest is None:
-                raise RuntimeError("Storage checksum unavailable: "+last_error)
+            digest = fetch_storage_reference(urls, config, manifest[relative]["size"])
             actual = baseline.get("actual")
             if actual is None:
                 with path.open("rb") as f:
