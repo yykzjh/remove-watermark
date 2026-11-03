@@ -39,6 +39,11 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
     torch.backends.cudnn.benchmark = config.cudnn_benchmark
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA 不可用，请检查 NVIDIA 驱动及 PyTorch CUDA 环境")
+    text_preserver=None
+    if config.quality_physical_text_review:
+        from .text_preservation import OutputTextPreservation
+        text_preserver=OutputTextPreservation()
+        text_preserver.detector._engine()
     rim_detector = None
     if config.protect_source_rims:
         from .text_presence import TargetTextPresence
@@ -107,6 +112,7 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
         quantize_transformer(pipe.transformer,config.quantization,config.float8_granularity,**fp8_options)
     pipe._watermark_phase_offload=config.transformer_phase_offload
     pipe._source_rim_text_detector=rim_detector
+    pipe._physical_text_preserver=text_preserver
     pipe._watermark_separate_vae_decode=config.separate_vae_decode
     pipe._watermark_prompt_encoder = config.prompt_encoder
     pipe._watermark_encoder_batch_size = config.encoder_batch_size
@@ -774,6 +780,7 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                         editor_encoder=getattr(pipe,"text_encoder",None), editor_processor=getattr(pipe,"processor",None),
                         weights_relation=getattr(pipe,"_quality_weights_relation","unknown"),
                         editor_context=[{"background_preserved":results[t["relative"]].get("background_preserved"),
+                                         "source_carrier_ambiguous":any(v.get("requires_review") for v in physical_audits.get(t["relative"],[])),
                                          "repair_regions":results[t["relative"]].get("repair_regions",[]),
                                          "action":results[t["relative"]].get("action"),
                                          "source_scene":results[t["relative"]].get("source_scene","unknown"),
@@ -781,6 +788,8 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                                          "protected_core_boxes":results[t["relative"]].get("protected_core_boxes",[]),
                                          "source_rim_protection":results[t["relative"]].get("source_rim_protection",[]),
                                          "denoising_context":results[t["relative"]].get("denoising_context",[])} for t in group],
+                        **({"physical_text_review":True,"text_preserver":getattr(pipe,"_physical_text_preserver",None)}
+                           if config.quality_physical_text_review else {}),
                         reviewer=config.quality_backend, detail_patches=options.quality_detail_patches,
                         rectangle_guard=config.quality_rectangle_guard,
                         cross_context=config.quality_cross_full_context,

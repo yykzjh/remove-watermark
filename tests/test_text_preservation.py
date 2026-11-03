@@ -62,3 +62,5 @@ def test_physical_text_inquiry_cannot_waive_any_existing_nonwatermark_veto():
         assert not eligible(modified,context)
     assert not eligible(verdict,dict(context,source_scene="document"))
     assert not eligible(verdict,dict(context,background_preserved=False))
+
+    assert not eligible(verdict,dict(context,source_carrier_ambiguous=True))

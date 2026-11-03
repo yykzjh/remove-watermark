@@ -7,6 +7,7 @@ def eligible(verdict,context):
     outside=verdict.get("outside_repair_change") or {}
     return (
         context.get("background_preserved") is True
+        and context.get("source_carrier_ambiguous") is not True
         and context.get("source_scene")=="outdoor"
         and verdict.get("status")=="review"
         and verdict.get("watermark_removed") is False

@@ -792,7 +792,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                  reviewer="resident", detail_patches=4, detection_batch_size=1, source_regions=None, feather=12,
                  cross_review_allowed=None, editor_encoder=None, editor_processor=None, editor_context=None,
                  weights_relation="unknown", rectangle_guard=False, cross_context=False,
-                 inspection_profile="legacy"):
+                 inspection_profile="legacy",physical_text_review=False,text_preserver=None):
     from .detection import locate_watermarks_batch, source_scene
     if inspection_profile not in {"legacy","defects","untrusted","grounded","grounded_untrusted"}:
         raise ValueError("Unknown inspection protocol")
@@ -1015,6 +1015,11 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             verdict["seconds"] = round(verdict["seconds"]+seconds, 3)
     from .evidence import attach_evidence
     attach_evidence(pairs, verdicts, encoder, processor, device, resolution, max_tokens)
+    if physical_text_review:
+        from .physical_text_review import reconsider as inquire_printing
+        for context,(before,after),verdict in zip(contexts,pairs,verdicts):
+            inquire_printing(before,after,verdict,editor_encoder,editor_processor,
+                encoder,processor,device,context,weights_relation,text_preserver,resolution,max_tokens)
     if cross_review_allowed is not None:
         if len(cross_review_allowed)!=len(pairs):
             raise ValueError("Cross-review request count mismatch")

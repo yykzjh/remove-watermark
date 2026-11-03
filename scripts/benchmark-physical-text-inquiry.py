@@ -22,6 +22,7 @@ assert (a.manifest is None)!=(a.controls is None)
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
 os.environ["TOKENIZERS_PARALLELISM"]="false"
 import torch
+from transformers import Qwen3VLProcessor
 
 from watermark_studio.config import DeploymentConfig, Region
 from watermark_studio.grounded_review import inspect_grounded  # noqa: F401 - eagerly pin the implementation
@@ -56,7 +57,7 @@ assert identity["relation"]=="different_weights"
 a.output.mkdir(parents=True)
 load_start=time.monotonic()
 editor=load_quality_encoder(editor_path/"text_encoder",cfg,"cuda:0")
-ep=load_quality_processor(editor_path/"processor")
+ep=Qwen3VLProcessor.from_pretrained(editor_path/"processor",local_files_only=True)
 validator=load_quality_encoder(qa_path,cfg,"cuda:0")
 vp=load_quality_processor(qa_path)
 preserver=OutputTextPreservation();preserver.detector._engine()

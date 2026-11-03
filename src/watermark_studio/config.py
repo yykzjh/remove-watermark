@@ -145,6 +145,7 @@ class DeploymentConfig(BaseModel):
     oom_split_batch: bool = False
     replicas_per_gpu: int = Field(default=1, ge=1, le=4)
     quality_verifier: bool = False
+    quality_physical_text_review: bool = False
     protected_document_resolution: Literal[0,1024,1280,1536,2048] = 0
     retain_rejected_first: bool = False
     source_vet_batch_size: int = Field(default=1,ge=1,le=4)
@@ -196,6 +197,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.quality_physical_text_review and not (self.quality_verifier and self.quality_backend=="independent" and self.protection_physical_vet):
+            raise ValueError("Physical text review requires an independent verifier and source physical vetting")
         if self.float8_accurate_accum and self.quantization!="float8":
             raise ValueError("Accurate FP8 accumulation requires float8 quantization")
         if self.float8_amax_floor and self.quantization!="float8":

@@ -56,3 +56,30 @@ def test_incomplete_or_conflicting_witnesses_cannot_approve(monkeypatch,mode):
     result,_=run(monkeypatch,mode)
     assert result["status"]=="review" and result["watermark_removed"] is False
     assert result["physical_text_review"]["status"]!="corrected"
+
+def test_deployment_inquiry_is_opt_in_and_requires_source_and_independent_checks():
+    from watermark_studio.config import DeploymentConfig
+    assert DeploymentConfig().quality_physical_text_review is False
+    with pytest.raises(ValueError,match="Physical text review"):
+        DeploymentConfig(quality_physical_text_review=True)
+    cfg=DeploymentConfig(quality_physical_text_review=True,quality_verifier=True,
+        quality_backend="independent",protection_physical_vet=True)
+    assert cfg.quality_physical_text_review is True
+
+
+def test_quality_inquiry_hook_is_disabled_by_default(monkeypatch):
+    from watermark_studio.quality import verify_batch
+    calls=[]
+    def structured(chats,fields,*args):
+        return [{**{k:k!="uncertain" for k in fields},"area":"none"} for _ in chats],0
+    monkeypatch.setattr("watermark_studio.quality._structured_vqa",structured)
+    monkeypatch.setattr("watermark_studio.quality.deterministic_warnings",lambda *a:[])
+    monkeypatch.setattr("watermark_studio.evidence.attach_evidence",lambda *a,**k:None)
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *a:[([],"{}")])
+    monkeypatch.setattr("watermark_studio.physical_text_review.reconsider",lambda *args:calls.append(args))
+    image=Image.new("RGB",(400,300),"gray");context={"background_preserved":True,"source_scene":"outdoor"}
+    for enabled in (False,True):
+        verify_batch([(image,image.copy())],None,None,"cpu",detail_patches=0,
+            source_regions=[[]],editor_context=[context],physical_text_review=enabled)
+        assert len(calls)==int(enabled)
+    assert calls[0][8]==context
