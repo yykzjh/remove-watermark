@@ -36,6 +36,7 @@ p.add_argument("--float8-amax-floor",type=float,default=0)
 p.add_argument("--tiny-inpaint-path",type=Path)
 p.add_argument("--tiny-inpaint-sha256",default="")
 p.add_argument("--tiny-inpaint-scope",choices=["tiny","all"],default="tiny")
+p.add_argument("--tiny-inpaint-mask",choices=["box","white-glyph"],default="box")
 p.add_argument("--lora-path",type=Path)
 p.add_argument("--lora-sha256",default="")
 p.add_argument("--lora-alpha",type=float,default=0)
@@ -151,7 +152,7 @@ pipe._quality_weights_relation="different_weights"
 if a.tiny_inpaint_path:
     from watermark_studio import batching
     from watermark_studio.tiny_inpaint import TinyInpainter, tiny_eligible
-    auxiliary = TinyInpainter(a.tiny_inpaint_path, a.tiny_inpaint_sha256, pipe._execution_device)
+    auxiliary = TinyInpainter(a.tiny_inpaint_path, a.tiny_inpaint_sha256, pipe._execution_device, a.tiny_inpaint_mask)
     original_batch = batching.independent_batch
     def routed_batch(pipeline, items, resolution, kv_cache):
         # No candidate contest or fallback: each ROI runs exactly one chosen backend.

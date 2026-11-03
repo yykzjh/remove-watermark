@@ -38,3 +38,24 @@ def test_geometry_mismatch_is_an_error():
     edit["crop"] = (0, 0, 79, 40)
     with pytest.raises(ValueError):
         masked_inputs(edit)
+
+
+def test_white_stencil_preserves_visible_gaps_and_excludes_outside_box():
+    from watermark_studio.tiny_inpaint import white_glyph_support
+
+    rgb=np.full((80,120,3),65,dtype=np.uint8)
+    rgb[25:55,35:38]=255
+    rgb[25:55,65:68]=255
+    mask,method=white_glyph_support(Image.fromarray(rgb),(20,10,100,70))
+    actual=np.asarray(mask)
+    assert method=="white_glyph_source_stencil"
+    assert actual[40,36] and actual[40,66]
+    assert not actual[40,50] and not actual[:10].any() and not actual[:,100:].any()
+
+
+def test_white_background_is_ambiguous_and_never_claimed_to_be_a_text_stencil():
+    from watermark_studio.tiny_inpaint import white_glyph_support
+
+    mask,method=white_glyph_support(Image.new("RGB",(80,60),"white"),(10,10,70,50))
+    assert method=="box_ambiguous_white_coverage"
+    assert np.count_nonzero(np.asarray(mask))==60*40
