@@ -5,10 +5,29 @@ import argparse
 import concurrent.futures as cf
 import hashlib
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
 from pathlib import Path, PurePosixPath
+
+
+def normalize_share_path(path, root):
+    # Share pages use the owner's UK; list responses can replace that UK by 0.
+    # The root folder ID and every real path component must still be identical.
+    candidate, base = PurePosixPath(path), PurePosixPath(root)
+    if ".." in candidate.parts or not candidate.is_absolute() or len(candidate.parts) < 3:
+        raise ValueError("Unsafe share path")
+    if len(base.parts) < 3:
+        raise ValueError("Invalid share root")
+    expected = re.fullmatch(r"sharelink(\d+)-(\d+)", base.parts[1])
+    actual = re.fullmatch(r"sharelink(\d+)-(\d+)", candidate.parts[1])
+    if (not expected or not actual or actual[2] != expected[2]
+            or actual[1] not in ("0", expected[1])):
+        raise ValueError("Share namespace or root folder ID changed")
+    normalized = PurePosixPath("/", base.parts[1], *candidate.parts[2:])
+    normalized.relative_to(base)
+    return str(normalized)
 
 
 def compare_entries(shared, cloud, shared_root, cloud_root):
@@ -88,7 +107,7 @@ def main():
             for items in pool.map(listing, pending):
                 done += 1
                 for row in items:
-                    PurePosixPath(row["path"]).relative_to(PurePosixPath(root))
+                    row = row | {"path": normalize_share_path(row["path"], root)}
                     if row["isdir"]:
                         following.append(row["path"])
                         directories.append(row["path"])

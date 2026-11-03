@@ -29,3 +29,20 @@ def test_duplicate_paths_are_rejected():
     rows = [{"path": "/s/a", "size": 1}]*2
     with pytest.raises(ValueError, match="Duplicate"):
         compare(rows, [], "/s", "/c")
+
+normalize = runpy.run_path(str(Path(__file__).parents[1]/"scripts/verify-baidu-share-copy.py"))["normalize_share_path"]
+
+
+def test_zero_owner_namespace_preserves_same_share_root_and_all_levels():
+    root = "/sharelink123-456/photos"
+    assert normalize("/sharelink0-456/photos/town/village/a.jpg", root) == root+"/town/village/a.jpg"
+    assert normalize(root+"/empty", root) == root+"/empty"
+
+
+@pytest.mark.parametrize("path", [
+    "/sharelink123-999/photos/a.jpg", "/sharelink999-456/photos/a.jpg",
+    "/sharelink0-456/different/a.jpg", "/sharelink0-456/photos/../outside.jpg",
+])
+def test_other_share_or_path_escape_is_rejected(path):
+    with pytest.raises(ValueError):
+        normalize(path, "/sharelink123-456/photos")
