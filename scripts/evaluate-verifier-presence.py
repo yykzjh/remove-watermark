@@ -19,6 +19,7 @@ def main():
     p.add_argument("--adapter",type=Path)
     p.add_argument("--adapter-sha256",default="")
     p.add_argument("--base-only",action="store_true")
+    p.add_argument("--contrast",type=float,default=0)
     p.add_argument("--limit",type=int,default=0)
     a=p.parse_args()
     if bool(a.adapter)!=bool(a.adapter_sha256) or (not a.base_only and not a.adapter) or (a.base_only and a.adapter):
@@ -42,7 +43,7 @@ def main():
     from watermark_studio.model_identity import compare_model_weights
     from watermark_studio.quality import _structured_vqa
     from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
-    from watermark_studio.quality_presence import FIELDS, PROMPT, output_chat
+    from watermark_studio.quality_presence import FIELDS, PROMPT, output_chat, presence_chats
     from watermark_studio.training_features import digest
 
     logging.disable_progress_bar();torch.set_num_threads(1)
@@ -69,7 +70,7 @@ def main():
         for index,row in enumerate(rows):
             chat=output_chat(load_photo(row["before"])[0],load_photo(row["after"])[0],
                 [Region.model_validate(r) for r in row["regions"]],detail_layout=row.get("detail_layout"))
-            values,seconds=_structured_vqa([chat],FIELDS,model,processor,"cuda:0",96)
+            values,seconds=_structured_vqa(presence_chats([chat],contrast=a.contrast),FIELDS,model,processor,"cuda:0",96)
             record={"id":row["id"],"parent_kind":row["parent_kind"],"overlay_present":row["overlay_present"],
                 "uncertain":row["uncertain"],"prediction":values[0],"seconds":seconds}
             results.append(record);output.write(json.dumps(record)+"\n");output.flush()
@@ -87,7 +88,7 @@ def main():
         "rows":len(rows),"validation_total":total,"unsafe_clear_files":unsafe,
         "overlay_false_negative_files":missed,"clean_refused_files":refused,
         "seconds":time.monotonic()-began,"manifest_sha256":manifest_sha,"revision":revision,
-        "adapter_sha256":a.adapter_sha256,"base_only":a.base_only,"weight_identity":identity,
+        "adapter_sha256":a.adapter_sha256,"base_only":a.base_only,"contrast":a.contrast,"weight_identity":identity,
         "source_pixels_changed":False,"additional_image_generations":0,"production_adopted":False,
         "scope":"Source-disjoint synthetic/weak-label raw predicate evaluation. Not native dewatermark quality or 1000-image qualification."}
     (a.target/"report.json").write_text(json.dumps(report,indent=2))

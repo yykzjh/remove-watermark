@@ -107,3 +107,20 @@ def test_rejection_by_source_or_numeric_checks_is_not_reported_as_real_watermark
     result=raw_presence_metrics(rows)
     assert result["overlay_false_negatives"]==["faint.png"]
     assert result["overlay_unsafe_clear"]==["faint.png"]
+
+
+def test_optional_contrast_only_adds_labeled_result_details_and_never_modifies_normal_photos():
+    pytest.importorskip("cv2")
+    image=Image.new("RGB",(400,300),(90,100,110))
+    detail=Image.new("RGB",(120,80),(140,150,160))
+    chat=[{"role":"user","content":[{"type":"image","image":image},{"type":"image","image":detail},
+                                  {"type":"text","text":"old task"}]}]
+    prepared=presence_chats([chat],contrast=4)[0]
+    pictures=[r["image"] for r in prepared[-1]["content"] if r["type"]=="image"]
+    assert len(pictures)==3
+    assert pictures[0] is image and pictures[1] is detail
+    assert pictures[2].size==detail.size
+    assert image.getpixel((0,0))==(90,100,110)
+    assert detail.getpixel((0,0))==(140,150,160)
+    assert len(chat[-1]["content"])==3
+    assert "不是原结果缺陷" in prepared[-1]["content"][-3]["text"]

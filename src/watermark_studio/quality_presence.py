@@ -21,7 +21,10 @@ uncertain：细节不足、看不清字形或载体、无法可靠区分实物�
 none/top_left/top/top_right/left/center/right/bottom_left/bottom/bottom_right。"""
 
 
-def presence_chats(chats):
+def presence_chats(chats,contrast=0):
+    import math
+    if not math.isfinite(contrast) or not 0<=contrast<=8:
+        raise ValueError("Bounded diagnostic contrast required")
     prepared=[]
     for chat in chats:
         messages=[dict(message,content=[dict(item) for item in message["content"]]) for message in chat]
@@ -29,6 +32,27 @@ def presence_chats(chats):
         if tail.get("type")!="text":
             raise ValueError("Presence inspection must end with its protocol")
         tail["text"]=PROMPT
+        if contrast:
+            import cv2
+            import numpy as np
+            from PIL import Image
+
+            content=[];image_index=0
+            for item in messages[-1]["content"][:-1]:
+                content.append(item)
+                if item.get("type")=="image":
+                    image_index+=1
+                    if image_index==1:
+                        continue
+                    lab=cv2.cvtColor(np.asarray(item["image"].convert("RGB")),cv2.COLOR_RGB2LAB)
+                    lab[...,0]=cv2.createCLAHE(clipLimit=contrast,tileGridSize=(8,8)).apply(lab[...,0])
+                    diagnostic=Image.fromarray(cv2.cvtColor(lab,cv2.COLOR_LAB2RGB))
+                    content.extend([{"type":"text","text":
+                        "同一结果局部的亮度对比辅助图，仅帮助寻找淡字笔画。增强产生的噪点、"
+                        "色彩或边缘不是原结果缺陷；必须回到前面的正常结果确认，不能把草木或"
+                        "实物印字猜成水印。若可疑但不能确认，应uncertain=true。"},
+                        {"type":"image","image":diagnostic}])
+            messages[-1]["content"]=content+[tail]
         prepared.append(messages)
     return prepared
 

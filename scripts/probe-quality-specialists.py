@@ -117,6 +117,7 @@ def main():
     parser.add_argument("--gpu", type=int, choices=[0, 1, 2, 3], required=True)
     parser.add_argument("--residual-resolution", type=int, choices=[0, 768, 1024, 1536, 2048], default=0)
     parser.add_argument("--presence-predicate", action="store_true")
+    parser.add_argument("--presence-contrast",type=float,default=0)
     parser.add_argument("--presence-adapter", type=Path)
     parser.add_argument("--presence-adapter-sha256", default="")
     parser.add_argument("--output-source-reference", action="store_true")
@@ -124,6 +125,8 @@ def main():
     parser.add_argument("--inspector-profile", choices=["internvl8b", "qwen4b"], default="internvl8b")
     parser.add_argument("--inspection-profile", choices=["legacy", "defects"], default="legacy")
     args = parser.parse_args()
+    if args.presence_contrast and not args.presence_predicate:
+        parser.error("Diagnostic contrast applies only to the dedicated predicate")
     if args.presence_predicate and (args.inspector_profile!="qwen4b" or args.output_source_reference or args.output_carrier_context):
         parser.error("Dedicated-predicate pilot requires isolated Qwen4B base roles")
     if bool(args.presence_adapter)!=bool(args.presence_adapter_sha256) or (args.presence_adapter and not args.presence_predicate):
@@ -225,7 +228,7 @@ def main():
                 if args.presence_adapter:
                     encoder.base_model.enable_adapter_layers()
                 try:
-                    predicted,extra=original_inspection(presence_chats(chats),FIELDS,encoder,processor,device,min(96,max_tokens))
+                    predicted,extra=original_inspection(presence_chats(chats,contrast=args.presence_contrast),FIELDS,encoder,processor,device,min(96,max_tokens))
                 finally:
                     if args.presence_adapter:
                         encoder.base_model.disable_adapter_layers()
@@ -283,7 +286,7 @@ def main():
               "load_seconds": round(load_seconds, 3), "inspection_profile": args.inspection_profile,
               "residual_resolution": args.residual_resolution, "inspector_profile": args.inspector_profile,
               "output_source_reference": args.output_source_reference,
-              "presence_predicate":args.presence_predicate,
+              "presence_predicate":args.presence_predicate,"presence_contrast":args.presence_contrast,
               "presence_adapter":str(args.presence_adapter) if args.presence_adapter else None,
               "presence_adapter_sha256":args.presence_adapter_sha256,
               "raw_presence":raw_presence_metrics(rows),
