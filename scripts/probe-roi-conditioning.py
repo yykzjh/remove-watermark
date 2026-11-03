@@ -18,6 +18,8 @@ p.add_argument("--prompt-profile",choices=["detailed","compact-zh","detailed-zh"
 p.add_argument("--source-material-guide",action="store_true")
 p.add_argument("--source-edge-small-panels",action="store_true")
 p.add_argument("--tone-step-repair",action="store_true")
+p.add_argument("--qwen-glyph-stencil",action="store_true")
+p.add_argument("--source-transmission-hint",action="store_true")
 p.add_argument("--context",type=float,default=.45)
 p.add_argument("--repair-blending",choices=["feather","harmonic","harmonic-fine"])
 p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
@@ -86,6 +88,62 @@ if a.prompt_profile=="precise-en":
 
 guidance_audits=[]
 context_mappings=[]
+transmission_audits=[]
+stencil_audits=[]
+if a.source_transmission_hint:
+    from watermark_studio import roi_grouping
+    from watermark_studio.translucent_recovery import recover_translucent_body
+    source_coalesce=roi_grouping.coalesce_edits
+    def hinted_coalesce(edits,mode):
+        for edit in edits:
+            state=edit["state"]
+            if state["whole_generation"] or state["source_scene"]!="outdoor":
+                continue
+            source=state["source"];l,t,r,b=edit["box"]
+            if (r-l)*(b-t)<.035*source.width*source.height:
+                continue
+            hint,audit=recover_translucent_body(source,source,
+                (l/source.width,t/source.height,r/source.width,b/source.height),
+                _native_padding_search=True)
+            transmission_audits.append({"file":state["task"]["relative"],**audit,
+                                         "quality_permission":False,"final_source_pixels":False})
+            if audit["applied"]:
+                edit["_semantic_reference"]=source.crop(edit["crop"])
+                edit["image"]=hint.crop(edit["crop"])
+        return source_coalesce(edits,mode)
+    roi_grouping.coalesce_edits=hinted_coalesce
+
+if a.qwen_glyph_stencil:
+    from PIL import Image
+
+    from watermark_studio import roi_grouping, worker
+    from watermark_studio.tiny_inpaint import tiny_eligible, white_glyph_support
+    stencil_scopes=set()
+    stencil_coalesce=roi_grouping.coalesce_edits
+    def register_stencils(edits,mode):
+        grouped=stencil_coalesce(edits,mode)
+        for edit in grouped:
+            if tiny_eligible(edit):
+                stencil_scopes.add((id(edit["state"]["source"]),tuple(edit["box"]),tuple(edit["crop"])))
+        return grouped
+    roi_grouping.coalesce_edits=register_stencils
+    original_blend=worker.blend_patch
+    def stencil_blend(original,patch,box,crop,*args,**kwargs):
+        result=original_blend(original,patch,box,crop,*args,**kwargs)
+        reference=kwargs.get("reference_original",original)
+        if (id(reference),tuple(box),tuple(crop)) not in stencil_scopes:
+            return result
+        # Select the repair mask from the untouched original, before reading
+        # the candidate; no image-level candidate choice or quality waiver.
+        mask,kind=white_glyph_support(reference,box)
+        stencil_audits.append({"box":list(box),"method":kind,"quality_permission":False})
+        if kind!="white_glyph_source_stencil":
+            return result
+        final=Image.composite(result,original,mask)
+        final.info.update(result.info)
+        return final
+    worker.blend_patch=stencil_blend
+
 if a.source_material_guide or a.roi_context_margin>=0 or a.roi_resolution:
     from watermark_studio import roi_grouping
     from watermark_studio.roi_guidance import describe_visible_context
@@ -184,7 +242,7 @@ for task in tasks:
     if Path(task["destination"]).exists():
         bad_sizes+=load_photo(task["source"])[0].size!=load_photo(task["destination"])[0].size
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
-report={"variant":a.variant,"roi_resolution":a.roi_resolution,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
+report={"qwen_glyph_stencil":a.qwen_glyph_stencil,"source_transmission_hint":a.source_transmission_hint,"stencil_audits":stencil_audits,"transmission_audits":transmission_audits,"variant":a.variant,"roi_resolution":a.roi_resolution,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
