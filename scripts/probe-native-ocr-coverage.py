@@ -1,0 +1,92 @@
+"""Measure OCR candidate coverage at known injected locations; never a watermark verdict."""
+from __future__ import annotations
+
+import argparse
+import collections
+import json
+import runpy
+import time
+from pathlib import Path
+
+import numpy as np
+
+
+def location_covered(target, candidate):
+    overlap=max(0,min(target[2],candidate[2])-max(target[0],candidate[0]))*max(
+        0,min(target[3],candidate[3])-max(target[1],candidate[1]))
+    target_area=(target[2]-target[0])*(target[3]-target[1])
+    candidate_area=(candidate[2]-candidate[0])*(candidate[3]-candidate[1])
+    return overlap/max(target_area,1e-12)>=.15 and overlap/max(candidate_area,1e-12)>=.3
+
+
+def main():
+    p=argparse.ArgumentParser(__doc__)
+    p.add_argument("--manifest",type=Path,required=True)
+    p.add_argument("--target",type=Path,required=True)
+    p.add_argument("--resolution",type=int,choices=[2048,3072,4096],default=4096)
+    p.add_argument("--box-threshold",type=float,default=.3)
+    p.add_argument("--pixel-threshold",type=float,default=.1)
+    p.add_argument("--clahe-clip",type=float,default=0)
+    a=p.parse_args()
+    assert not a.target.exists() and .1<=a.box_threshold<=.7 and .05<=a.pixel_threshold<=.5
+    assert 0<=a.clahe_clip<=8
+    from PIL import Image
+    from rapidocr_onnxruntime import RapidOCR
+
+    from watermark_studio.images import load_photo
+
+    helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
+    cases=helper["manifest_cases"](a.manifest)
+    assert all(c.get("injected_remaining_overlay") for c in cases)
+    hashes=helper["file_hashes"](cases)
+    engine=RapidOCR(det_use_cuda=False,rec_use_cuda=False,cls_use_cuda=False,
+        intra_op_num_threads=1,inter_op_num_threads=1,det_limit_type="max",
+        det_limit_side_len=a.resolution,max_side_len=a.resolution,
+        det_box_thresh=a.box_threshold,det_thresh=a.pixel_threshold,use_cls=False,use_rec=False)
+    assert engine.max_side_len==a.resolution and engine.text_det.limit_side_len==a.resolution
+    effective={"resolution":a.resolution,"box_threshold":engine.text_det.postprocess_op.box_thresh,
+               "pixel_threshold":engine.text_det.postprocess_op.thresh,"clahe_clip":a.clahe_clip}
+    assert effective["box_threshold"]==a.box_threshold and effective["pixel_threshold"]==a.pixel_threshold
+    a.target.mkdir(parents=True);rows=[]
+    began=time.monotonic()
+    with (a.target/"results.jsonl").open("x") as log:
+        for case in cases:
+            photo=load_photo(case["output"])[0];started=time.monotonic()
+            diagnostic=photo
+            if a.clahe_clip:
+                import cv2
+                gray=cv2.createCLAHE(clipLimit=a.clahe_clip,tileGridSize=(16,16)).apply(np.asarray(photo.convert("L")))
+                diagnostic=Image.fromarray(gray).convert("RGB")
+            detected,_=engine(np.asarray(diagnostic)[...,::-1].copy(),use_det=True,use_cls=False,use_rec=False)
+            boxes=[]
+            for quad in ([] if detected is None else detected):
+                points=np.asarray(quad,dtype=float)
+                if points.shape!=(4,2) or not np.isfinite(points).all():
+                    raise ValueError("Invalid native OCR quad")
+                lo,hi=points.min(axis=0),points.max(axis=0)
+                boxes.append([float(lo[0]/photo.width),float(lo[1]/photo.height),
+                              float(hi[0]/photo.width),float(hi[1]/photo.height)])
+            target=case["injected_remaining_overlay"]["box"]
+            row={"file":case["file"],"alpha":case["injected_remaining_overlay"]["alpha"],
+                 "style":case["injected_remaining_overlay"]["style"],"target":target,
+                 "covered":any(location_covered(target,b) for b in boxes),"boxes":boxes,
+                 "seconds":time.monotonic()-started,"source":case["source"],"output":case["output"]}
+            rows.append(row);log.write(json.dumps(row)+"\n");log.flush()
+            print(json.dumps({"done":len(rows),"coverage":sum(r["covered"] for r in rows),
+                              "last_boxes":len(boxes),"last_seconds":round(row["seconds"],3)}),flush=True)
+    assert helper["file_hashes"](cases)==hashes
+    alpha=collections.defaultdict(lambda:{"cases":0,"covered":0})
+    for row in rows:
+        alpha[row["alpha"]]["cases"]+=1;alpha[row["alpha"]]["covered"]+=int(row["covered"])
+    report={"state":"completed","images":len(rows),"effective_config":effective,
+            "seconds":time.monotonic()-began,"by_alpha":dict(alpha),
+            "missed":[r["file"] for r in rows if not r["covered"]],
+            "mean_boxes":sum(len(r["boxes"]) for r in rows)/len(rows),
+            "p95_seconds":float(np.quantile([r["seconds"] for r in rows],.95)),
+            "scope":"Location coverage only. OCR text-like boxes do not prove a digital watermark or a successful rejection."}
+    (a.target/"report.json").write_text(json.dumps(report,indent=2))
+    print(json.dumps(report),flush=True)
+
+
+if __name__=="__main__":
+    main()
