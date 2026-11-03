@@ -59,3 +59,18 @@ def test_white_background_is_ambiguous_and_never_claimed_to_be_a_text_stencil():
     mask,method=white_glyph_support(Image.new("RGB",(80,60),"white"),(10,10,70,50))
     assert method=="box_ambiguous_white_coverage"
     assert np.count_nonzero(np.asarray(mask))==60*40
+
+
+def test_native_stencil_composition_does_not_resample_uncovered_source_pixels():
+    from watermark_studio.tiny_inpaint import native_stencil_composite, white_glyph_support
+
+    edit=example()
+    rng=np.random.default_rng(12)
+    rgb=rng.integers(20,100,(40,80,3),dtype=np.uint8)
+    rgb[25:35,20:23]=255
+    edit["image"]=Image.fromarray(rgb)
+    fixed=native_stencil_composite(edit,Image.new("RGB",(32,16),"red"))
+    mask,_=white_glyph_support(edit["image"],edit["box"])
+    outside=np.asarray(mask)==0
+    assert np.array_equal(np.asarray(fixed)[outside],rgb[outside])
+    assert fixed.size==edit["image"].size

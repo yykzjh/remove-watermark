@@ -61,6 +61,17 @@ def masked_inputs(edit, mask_style="box"):
     return np.pad(source, ((0, ph), (0, pw), (0, 0)), mode="reflect"), np.pad(mask, ((0, ph), (0, pw)), mode="edge")
 
 
+def native_stencil_composite(edit, patch):
+    """Keep every source pixel outside the source-derived stencil at native size."""
+    original = edit["image"].convert("RGB")
+    left, top, _, _ = edit["crop"]
+    box = edit["box"]
+    local_box = (box[0]-left, box[1]-top, box[2]-left, box[3]-top)
+    mask, _ = white_glyph_support(original, local_box)
+    generated = patch.resize(original.size, Image.Resampling.LANCZOS)
+    return Image.composite(generated, original, mask)
+
+
 class TinyInpainter:
     def __init__(self, path, sha256, device, mask_style="box"):
         import torch
@@ -85,6 +96,8 @@ class TinyInpainter:
         width, height = edit["size"]
         rgb = output[0, :, :height, :width].permute(1, 2, 0).float().cpu().numpy()
         patch = Image.fromarray(np.clip(rgb*255, 0, 255).astype(np.uint8))
+        if self.mask_style == "white-glyph":
+            patch = native_stencil_composite(edit, patch)
         edit["_sampling_log"] = {"backend": "experimental_big_lama", "actual_steps": 0,
                                  "weights_sha256": self.sha256, "source_geometry_only": True,
                                  "mask_style": self.mask_style, "mask_fraction": float(mask.mean())}
