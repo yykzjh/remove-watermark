@@ -86,7 +86,9 @@ def main():
     manifest = {str(Path(row["path"]).relative_to(source["cloud_root"])): row for row in json.loads(raw)}
     home = Path.home()
     tool = home/".local/bin/BaiduPCS-Go"
-    user_agent = json.loads((home/".config/BaiduPCS-Go/pcs_config.json").read_text()).get("user_agent", "netdisk")
+    config = json.loads((home/".config/BaiduPCS-Go/pcs_config.json").read_text())
+    # Locatedownload links use the configured Netdisk client UA, not the browser UA.
+    user_agent = config.get("pan_ua") or config.get("user_agent") or "netdisk"
     def inspect(item):
         relative, baseline = item
         path = root/relative
