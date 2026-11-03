@@ -66,9 +66,10 @@ def test_synthetic_source_annotations_exclude_clean_identity_but_cover_injected_
     assert box[0]<.60 and box[1]<.03 and box[2]>=.97 and box[3]>.28
 
 
-def test_bf16_benchmark_profiles_never_select_nf4_implicitly():
+def test_benchmark_profile_precision_is_explicit_in_its_name():
+    expected={"bf16":"none","nf4":"nf4","int8":"int8"}
     for name,(_,quantization) in TOOLS["PROFILES"].items():
-        assert quantization==("none" if name.endswith("-bf16") else "nf4")
+        assert quantization==expected[name.rsplit("-",1)[1]]
 
 
 

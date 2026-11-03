@@ -20,6 +20,7 @@ PROFILES={
     "4b-bf16":("Qwen--Qwen3-VL-4B-Instruct","none"),
     "8b-nf4":("Qwen--Qwen3-VL-8B-Instruct","nf4"),
     "32b-nf4":("Qwen--Qwen3-VL-32B-Instruct","nf4"),
+    "32b-int8":("Qwen--Qwen3-VL-32B-Instruct","int8"),
     "35-4b-bf16":("Qwen--Qwen3.5-4B","none"),
     "35-9b-bf16":("Qwen--Qwen3.5-9B","none"),
 }
