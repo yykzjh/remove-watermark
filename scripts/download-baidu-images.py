@@ -27,11 +27,14 @@ def main():
     p.add_argument("--cloud-root", required=True)
     p.add_argument("--destination", type=Path, required=True)
     p.add_argument("--workers", type=int, default=32)
+    p.add_argument("--download-index", type=int, default=0, help="BaiduPCS-Go alternative download link index")
     p.add_argument("--cookie-file", type=Path, help="Private authorization file; never printed or copied into state")
     p.add_argument("--state-dir", type=Path, help="Keep task metadata outside the dataset directory")
     p.add_argument("--inventory-only", action="store_true")
     p.add_argument("--include-non-images", action="store_true")
     args = p.parse_args()
+    if args.download_index < 0:
+        p.error("--download-index must be nonnegative")
     root = args.destination.resolve()
     root.mkdir(parents=True, exist_ok=True)
     state = (args.state_dir.resolve() if args.state_dir else root / ".download-state")
@@ -143,6 +146,7 @@ def main():
         # Every batch shares one parent, so --saveto preserves hierarchy without collisions.
         log = state / ("batch-" + str(batch[0]["index"]) + ".log")
         command = [tool, "download", "-p", "16", "-l", "4", "--retry", "5",
+                   "--dindex", str(args.download_index),
                    "--saveto", str(parent), *[r["path"] for r in batch]]
         with log.open("a") as output:
             try:

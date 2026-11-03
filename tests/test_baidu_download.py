@@ -2,6 +2,7 @@
 import io
 import json
 import runpy
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -97,3 +98,26 @@ def test_matching_size_with_active_resume_marker_is_incomplete(tmp_path):
     assert complete(row)
     row["size"] = 5
     assert not complete(row)
+
+def test_alternate_node_download_preserves_tree_and_validates_image(monkeypatch, tmp_path):
+    root, state = arguments(monkeypatch, tmp_path, "--download-index", "1")
+    state.mkdir()
+    image = io.BytesIO()
+    Image.new("RGB", (7, 5)).save(image, format="PNG")
+    payload = image.getvalue()
+    (state/"manifest.json").write_text(json.dumps([
+        {"path": "/photos/town/village/image.png", "size": len(payload)}]))
+
+    def download(command, **_):
+        assert command[command.index("--dindex")+1] == "1"
+        directory = Path(command[command.index("--saveto")+1])
+        assert directory == root/"town/village"
+        assert command[-1] == "/photos/town/village/image.png"
+        (directory/"image.png").write_bytes(payload)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", download)
+    runpy.run_path(str(SCRIPT), run_name="__main__")
+    assert (root/"town/village/image.png").read_bytes() == payload
+    status = json.loads((state/"status.json").read_text())
+    assert status["phase"] == "completed" and status["valid"] == 1
