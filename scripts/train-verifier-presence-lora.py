@@ -194,16 +194,18 @@ def main():
                                          for key in loaded.missing_keys):
             raise ValueError("Initial language adapter did not fully initialize its parameters")
         del saved
-    if a.freeze_language_lora:
-        for name,param in model.named_parameters():
-            # PEFT may expose task-specific trainable embeddings on adapter
-            # initialization. The vision-only pilot must freeze those as well.
-            param.requires_grad_("lora_" in name and "visual" in name)
     with model.disable_adapter(),torch.inference_mode():
         replay=model(**sample,use_cache=False,logits_to_keep=1).logits.detach()
     if not torch.equal(baseline,replay):
         raise ValueError("Disabled LoRA changed the preserved base QA forward")
     del baseline,replay,sample
+    # PEFT disable_adapter restores adapter trainability when its context exits.
+    # Apply the requested freeze after the mandatory base parity check.
+    if a.freeze_language_lora:
+        for name,param in model.named_parameters():
+            # PEFT may expose task-specific trainable embeddings on adapter
+            # initialization. The vision-only pilot must freeze those as well.
+            param.requires_grad_("lora_" in name and "visual" in name)
     names=[n for n,p in model.named_parameters() if p.requires_grad]
     if not names or any("lora_" not in n or "lm_head" in n or
                         ("visual" in n and (not a.vision_rank or ".qkv." not in n)) for n in names):
