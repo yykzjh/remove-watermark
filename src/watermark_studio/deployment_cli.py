@@ -67,6 +67,7 @@ HELP = {
     "encoder_batch_size": "Independent lean VLM prefill batch across worker window, decoupled from diffusion batch; 1..16, OOM splits",
     "fuse_qkv": "Fuse transformer Q/K/V linear projections; exact arithmetic structure, rounding may differ",
     "quantization": "none, transformer FP8 dynamic activation/weight, or INT8 weight-only; requires quantization extra",
+    "float8_accurate_accum": "FP8 only: disable TorchAO use_fast_accum for a more conservative accumulation path; opt-in, validate actual stability and throughput",
     "float8_granularity": "FP8 scaling per tensor or per row; only active with --quantization float8",
     "cudnn_benchmark": "Search cuDNN convolution algorithms; first/new shapes cost more and may use more memory",
     "vae_channels_last": "Convert VAE Conv2d/Conv3d weights to channels-last layouts; benchmark on target GPU",

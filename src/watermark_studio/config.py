@@ -173,6 +173,7 @@ class DeploymentConfig(BaseModel):
     fuse_qkv: bool = False
     quantization: Literal["none", "float8", "int8"] = "none"
     float8_granularity: Literal["tensor", "row"] = "tensor"
+    float8_accurate_accum: bool = False
     cudnn_benchmark: bool = False
     vae_channels_last: bool = False
     vae_tile_size: int = Field(default=256, ge=128, le=1024, multiple_of=32)
@@ -194,6 +195,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.float8_accurate_accum and self.quantization!="float8":
+            raise ValueError("Accurate FP8 accumulation requires float8 quantization")
         if self.uniform_steps and self.roi_steps:
             raise ValueError("Select global uniform-steps or source-area ROI steps, not both")
         if self.prefill_style=="gray" and (not self.prefill_overlays or not self.protect_source_rims or self.prefill_original_semantics):

@@ -158,9 +158,10 @@ def independent_batch(pipe, items, resolution, kv_cache):
                           if context is not None else nullcontext())
 
         generators = [torch.Generator("cpu").manual_seed(item["seed"]) for item in items]
+        from .generation_validation import finite_generation_scope
         from .roi_sampling import roi_sampling_scope
         from .source_residency import encoder_generation_phase
-        with roi_sampling_scope(pipe,items), encoder_generation_phase(pipe, items):
+        with roi_sampling_scope(pipe,items), encoder_generation_phase(pipe, items), finite_generation_scope(pipe):
             with override_methods(pipe, encode_prompt=encode_prompt, prepare_latents=prepare_latents), schedule_scope:
                 separate=getattr(pipe,"_watermark_separate_vae_decode",False)
                 from .probe_schedules import probe_inference_step_options

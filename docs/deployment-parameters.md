@@ -104,3 +104,6 @@ resident复用去水印编码器，health如实报告::text_encoder；它不提�
 服务会进行规范化张量指纹审计；同一基础权重或身份未知时cross_review_supported=false，API与桌面禁止双模型改判。
 8B/NF4仍可作单独检验角色；不要向该配方的客户端传--quality-cross-review。4B等不同权重也必须先通过身份核验。
 \nROI sampling: --roi-steps 0 (disabled), --roi-step-min-area 0.14.\n
+### FP8 accumulation safety
+
+The opt-in flag `--float8-accurate-accum` requires `--quantization float8`. It disables TorchAO fast accumulation in FP8 matrix multiplication (`Float8MMConfig(use_fast_accum=False)`). Its default is false. This does not change weight or activation precision, and must be benchmarked for numerical stability, quality and throughput before adoption. Non-finite VAE inputs, decoded outputs and image-conversion inputs now fail explicitly before writing output; such failures remain in evaluation denominators. This guard is independent of quality grading.

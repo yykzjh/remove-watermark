@@ -99,7 +99,10 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
         fuse_projections(pipe.transformer)
     if config.quantization != "none":
         from .optimizations import quantize_transformer
-        quantize_transformer(pipe.transformer, config.quantization, config.float8_granularity)
+        if config.float8_accurate_accum:
+            quantize_transformer(pipe.transformer,config.quantization,config.float8_granularity,accurate_accum=True)
+        else:
+            quantize_transformer(pipe.transformer,config.quantization,config.float8_granularity)
     pipe._watermark_phase_offload=config.transformer_phase_offload
     pipe._source_rim_text_detector=rim_detector
     pipe._watermark_separate_vae_decode=config.separate_vae_decode
@@ -588,8 +591,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             return
         except Exception as error:  # noqa: BLE001 - isolate file and GPU failures
             failure = f"{type(error).__name__}: {error}"[:800]
+            from .generation_validation import NonFiniteGenerationError
             is_oom = isinstance(error, torch.cuda.OutOfMemoryError)
-            split = len(group) > 1 and (not is_oom or config.oom_split_batch)
+            split = (len(group)>1 and not isinstance(error,NonFiniteGenerationError)
+                     and (not is_oom or config.oom_split_batch))
             if is_oom:
                 oom_retries += 1
                 if split:
