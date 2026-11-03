@@ -478,6 +478,7 @@ class Runtime:
                     "compile_dynamic": self.config.compile_dynamic,
                     "attention_backend": self.config.attention_backend,
                     "source_edge_small_panels": self.config.source_edge_small_panels,
+                    "tone_step_repair": self.config.tone_step_repair,
                     "float8_granularity": self.config.float8_granularity,
                     "float8_accurate_accum": self.config.float8_accurate_accum,
                     "float8_amax_floor": self.config.float8_amax_floor,

@@ -152,6 +152,7 @@ class DeploymentConfig(BaseModel):
     source_carrier_recheck: bool = False
     protection_detail_scan: bool = False
     source_edge_small_panels: bool = False
+    tone_step_repair: bool = False
     protection_core_feather: bool = False
     separate_vae_decode: bool = False
     quality_phase_offload: bool = False
@@ -197,6 +198,8 @@ class DeploymentConfig(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.tone_step_repair and not (self.quality_verifier and self.quality_backend=="independent" and self.quality_rectangle_guard):
+            raise ValueError("Tone-step repair requires independent QA and the unchanged rectangle guard")
         if self.source_edge_small_panels and not (self.quality_verifier and self.quality_backend=="independent" and self.protection_physical_vet and self.protection_detail_scan):
             raise ValueError("Small-panel edge completion requires independent QA and physical/detail source vetting")
         if self.quantization=="float8" and self.float8_granularity=="row" and not self.float8_amax_floor:

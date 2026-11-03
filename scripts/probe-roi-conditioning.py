@@ -17,6 +17,7 @@ p.add_argument("--work",type=Path,required=True)
 p.add_argument("--prompt-profile",choices=["detailed","compact-zh","detailed-zh"],default="detailed")
 p.add_argument("--source-material-guide",action="store_true")
 p.add_argument("--source-edge-small-panels",action="store_true")
+p.add_argument("--tone-step-repair",action="store_true")
 p.add_argument("--context",type=float,default=.45)
 p.add_argument("--repair-blending",choices=["feather","harmonic","harmonic-fine"])
 p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
@@ -107,6 +108,7 @@ cfg_values=json.loads(Path(".run/deployment.json").read_text())
 cfg=DeploymentConfig.model_validate({**cfg_values,
             "gpus":[a.gpu],"uniform_steps":a.uniform_steps,"quantization":a.quantization,
             "batch_size":a.batch_size,"small_batch_size":a.batch_size,
+            **({"tone_step_repair":True} if a.tone_step_repair else {}),
             **({"source_edge_small_panels":True} if a.source_edge_small_panels else {}),
             **({"lora_path":str(a.lora_path),"lora_sha256":a.lora_sha256,
                 "lora_alpha":a.lora_alpha,"lora_scale":a.lora_scale} if a.lora_path else {}),

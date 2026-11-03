@@ -1,4 +1,4 @@
-"""Offline bounded color-step removal; no new texture, geometry or QA permissions."""
+"""Bounded color-step removal; no new texture, geometry or QA permissions."""
 from __future__ import annotations
 
 import math
@@ -136,3 +136,31 @@ def repair_tone_steps(source,candidate,regions,cores=(),*,resolution=1024,max_de
         return candidate.copy(),audit|{"reason":"no_phase_reduction","repairs":audit["repairs"]}
     audit.update(applied=True,reason="one_shared_color_step_repair")
     return result,audit
+
+def protected_tone_repair(source, candidate, regions, cores=(), *, scene="outdoor",
+                          source_rims=(), source_edges=()):
+    """One bounded photometric correction before QA, with immutable source exclusions."""
+    from .images import protect_edge_completion_context
+    from .source_panel_rims import effective_rim_scope
+
+    if scene != "outdoor" or not regions:
+        return candidate, {"applied": False, "reason": "no_outdoor_edit_scope",
+                           "quality_permission": False, "extra_diffusion_inferences": 0}
+    regions, cores, invalid = effective_rim_scope(
+        source, regions, cores, source_rims, header_core=True)
+    if invalid:
+        return candidate, {"applied": False, "reason": "invalid_source_rim_binding",
+                           "quality_permission": False, "extra_diffusion_inferences": 0}
+    fixed, audit = repair_tone_steps(source, candidate, regions, cores)
+    if audit["applied"]:
+        fixed, _ = protect_edge_completion_context(candidate, fixed, source_edges)
+        for rim in source_rims:
+            if rim.get("approved") is True:
+                native = tuple(rim["restore_pixels"])
+                fixed.paste(candidate.crop(native), native)
+        # Immutable exclusions may invalidate a proposal. Recheck the same cue.
+        after = rectangle_phase_tight(source, fixed, regions, cores, 1024)
+        if after["count"] >= audit["initial_phase_count"]:
+            return candidate, audit | {"applied": False, "reason": "protected_phase_not_reduced"}
+        audit["final_phase_count"] = after["count"]
+    return fixed, audit

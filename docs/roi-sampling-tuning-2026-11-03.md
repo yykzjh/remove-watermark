@@ -136,3 +136,33 @@ assuming their earlier whole-frame results transfer. Three pinned fused adapters
 scale 0.5 and a harmonic-fine blending control use the same 64 source files, masks,
 sampling and legacy QA. No automatic generation retries, threshold changes or production
 38319-image submission are enabled.
+
+## 追加的首轮实验
+
+对相同开发64张保持独立检验不变。新的区域对齐 LoRA 使用48个训练原图、
+12个验证原图，派生232对水印区域；训练源与新封存千张集合无重叠。
+rank8、alpha8、200步、LR5e-5的训练已完成，但训练损失下降不能证明图像质量提高。
+
+| 方案 | 首轮通过 | 单卡处理秒 | 结论 |
+| --- | --- | --- | --- |
+| 无 LoRA，1024，按原图水印面积选择8/12步 | 57/64 | 1048.026 | 当前开发对照 |
+| 区域对齐 LoRA，768 | 52/64 | 832.644 | 不采用 |
+| 区域对齐 LoRA，1024 | 53/64 | 1054.741 | 不采用 |
+
+新版详细中文提示词在48张配对开发图上27张通过，同一子集英文对照42张通过，
+已提前停止；这是未完成实验，不能当作64张或千张成绩。
+
+新增 `--tone-step-repair` 为显式启用的部署参数，默认False。仅在原图已定位的
+户外修补范围内，拟合多条边共同支持的有界RGB明暗台阶，保持区域外像素、
+原图实物边框和补足检测所用上下文不变；不生成新纹理，不额外调用扩散模型。
+必须同时启用独立检验和原有矩形相位保护。修正后仍按原有标准完整检验，
+处理器不能授予通过权限。59份原生开发候选中只有2张实际改变、32张通过对照均未改变；
+这两张新像素经原有独立检验均通过，暂不能外推为千张增益。
+
+LaMa掩膜修补仅加入离线实验，未进入服务默认路径。
+模型文件从开发机直接下载，MD5严格匹配
+[IOPaint官方实现](https://github.com/Sanster/IOPaint/blob/main/iopaint/model/lama.py)
+所列e3aa4aaa15225a33ec84f9f4bc47e500，另固定SHA256
+344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9。
+逐ROI只依据原图几何选择一个后端，不做多候选择优或失败回退；
+小区域混合与全部户外区域修补分别测试，结果不替代最终独立千张验收。

@@ -55,8 +55,10 @@ def test_all_boolean_flags_are_opt_in(tmp_path):
         if field.annotation is bool:
             assert getattr(baseline, name) is False
             flags=["--config",str(path),"--"+name.replace("_","-")]
-            if name in {"protect_source_rims","translucent_body_hint","source_carrier_recheck","source_edge_small_panels"}:
+            if name in {"protect_source_rims","translucent_body_hint","source_carrier_recheck","source_edge_small_panels","tone_step_repair"}:
                 flags+=["--quality-verifier","--quality-backend","independent"]
+            if name=="tone_step_repair":
+                flags+=["--quality-rectangle-guard"]
             if name=="source_edge_small_panels":
                 flags+=["--protection-physical-vet","--protection-detail-scan"]
             if name=="float8_accurate_accum":

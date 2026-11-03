@@ -726,6 +726,15 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                 if count!=sum(r.get("approved") is True for r in rims):
                     raise RuntimeError("Approved source-rim provenance no longer matches the original")
                 result["protected_source_rim_count"]=count
+            if config.tone_step_repair:
+                from .tone_repair import protected_tone_repair
+                tone_started=time.monotonic()
+                tone_regions=[Region.model_validate(row) for row in result["repair_regions"]]
+                tone_cores=result["protected_core_boxes"]
+                output,tone_audit=protected_tone_repair(
+                    state["source"],output,tone_regions,tone_cores,scene=state["source_scene"],
+                    source_rims=rims,source_edges=edge_evidence.get(task["relative"],[]))
+                result["tone_step_repair"]=tone_audit|{"seconds":round(time.monotonic()-tone_started,4)}
             if state["alpha"] is not None:
                 output.putalpha(state["alpha"])
             output_size = save_output(output, task["source"], task["destination"],

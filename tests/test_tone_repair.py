@@ -41,3 +41,25 @@ def test_real_existing_shadow_crossing_digital_panel_is_preserved():
     fixed,audit=repair_tone_steps(Image.fromarray(source),Image.fromarray(clean),[region],
         [{"mask":region.box,"core":region.box}])
     assert not audit["applied"] and fixed.tobytes()==Image.fromarray(clean).tobytes()
+
+
+def test_protected_tone_repair_skips_documents_without_pixel_changes():
+    from watermark_studio.tone_repair import protected_tone_repair
+
+    image=Image.new("RGB",(128,128),"gray")
+    region=Region(box=(.2,.2,.8,.8))
+    fixed,audit=protected_tone_repair(image,image,[region],scene="document")
+    assert fixed is image and not audit["applied"] and not audit["quality_permission"]
+
+
+def test_tone_repair_requires_independent_quality_guard():
+    import pytest
+
+    from watermark_studio.config import DeploymentConfig
+
+    assert DeploymentConfig().tone_step_repair is False
+    with pytest.raises(ValueError):
+        DeploymentConfig(tone_step_repair=True)
+    config=DeploymentConfig(tone_step_repair=True,quality_verifier=True,
+                            quality_backend="independent",quality_rectangle_guard=True)
+    assert config.tone_step_repair
