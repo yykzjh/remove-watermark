@@ -1,4 +1,4 @@
-"""One whole-frame generation per synthetic validation pair, with exact clean targets."""
+"""One generation per held-out synthetic frame or ROI, with exact clean targets."""
 from __future__ import annotations
 
 import argparse
@@ -21,6 +21,7 @@ def main():
     p.add_argument("--model",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
     p.add_argument("--gpu",type=int,required=True)
+    p.add_argument("--offline",action="store_true")
     p.add_argument("--limit",type=int,default=12)
     p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
     p.add_argument("--lora-path",type=Path)
@@ -31,7 +32,7 @@ def main():
     if a.gpu<0 or not 4<=a.limit<=64:p.error("Disjoint explicit GPU and bounded validation subset required")
     if a.lora_path and not re.fullmatch(r"[a-f0-9]{64}",a.lora_sha256):
         p.error("Explicit exact adapter SHA required")
-    from watermark_studio.training_features import digest, validate_pairs
+    from watermark_studio.training_features import digest, training_prompt, validate_pairs
     data,_=validate_pairs(a.manifest)
     # Stable source-diverse ordering; no selection on model output or verifier score.
     rows=[row for row in data["pairs"] if row["split"]=="validation"]
@@ -49,6 +50,9 @@ def main():
     a.target.mkdir(exist_ok=False);work=a.target.resolve();(work/"output").mkdir()
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     def isolation():
+        if a.offline:
+            from watermark_studio.training_reservation import offline_reservation
+            return offline_reservation(a.gpu)
         with urllib.request.urlopen("http://127.0.0.1:8765/health",timeout=2) as response:
             return helper["require_disjoint_server_gpus"](json.load(response),[a.gpu],True)
     reserved=isolation()
@@ -57,12 +61,11 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu);os.environ["HF_HUB_DISABLE_PROGRESS_BARS"]="1"
     import torch
 
-    from watermark_studio.batching import independent_batch
+    from watermark_studio.batching import dimensions, independent_batch
     from watermark_studio.config import DeploymentConfig
     from watermark_studio.exact_metrics import reconstruction_metrics
     from watermark_studio.images import load_photo
     from watermark_studio.probe_schedules import configure_turbo_uniform_probe
-    from watermark_studio.prompts import build_full_prompt
     from watermark_studio.worker import load_pipeline
     torch.set_num_threads(1)
     cfg=DeploymentConfig(model=str(a.model),gpus=[a.gpu],quantization="float8",float8_granularity="tensor",
@@ -75,10 +78,13 @@ def main():
     for row in rows:
         source=load_photo(row["input"])[0];clean=load_photo(row["target"])[0]
         seed=(row["seed"]+1000003)%(2**32)
-        item={"image":source,"prompt":build_full_prompt("","neutral"),"seed":seed}
+        budget=row.get("model_input_resolution",data.get("resolution",512))
+        if dimensions(source,budget)!=source.size:
+            raise ValueError("Frozen model resolution does not reproduce the validation shape")
+        item={"image":source,"prompt":training_prompt(row,data),"seed":seed}
         if a.uniform_steps:item["_probe_num_inference_steps"]=a.uniform_steps
         started=time.monotonic()
-        output=independent_batch(pipe,[item],512,True)[0]
+        output=independent_batch(pipe,[item],budget,True)[0]
         seconds=time.monotonic()-started
         if output.size!=source.size:raise ValueError("Pilot generation changed complete-frame shape")
         if a.uniform_steps and len(pipe.scheduler.timesteps)!=a.uniform_steps:
@@ -87,7 +93,7 @@ def main():
         actual=np.asarray(output.convert("RGB"));expected=np.asarray(clean.convert("RGB"))
         before=np.asarray(source.convert("RGB"))
         record={"id":row["id"],"source_original_sha256":row["source_original_sha256"],
-            "kind":row["render"]["kind"],"generation_count":1,"seed":seed,"steps":len(pipe.scheduler.timesteps),
+            "kind":row["render"]["kind"],"model_input_resolution":budget,"prompt_sha256":__import__("hashlib").sha256(item["prompt"].encode()).hexdigest(),"generation_count":1,"seed":seed,"steps":len(pipe.scheduler.timesteps),
             "seconds":round(seconds,3),"image_size":list(output.size),
             "before_overlay":reconstruction_metrics(before,expected,mask),"after_overlay":reconstruction_metrics(actual,expected,mask),
             "unchanged_content":reconstruction_metrics(actual,expected,~mask),"whole_frame":reconstruction_metrics(actual,expected,np.ones_like(mask)),
