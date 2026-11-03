@@ -20,6 +20,9 @@ p.add_argument("--context",type=float,default=.45)
 p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-step-min-area",type=float,default=.14)
+p.add_argument("--float8-granularity",choices=["tensor","row"],default="tensor")
+p.add_argument("--roi-context-margin",type=int,choices=range(-1,17),default=-1,
+               help="Offline original-ROI source-flow context; -1 disables, otherwise latent-cell buffer")
 a=p.parse_args()
 assert .1<=a.context<=2
 loaded_revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
@@ -44,13 +47,18 @@ if a.prompt_profile=="compact-zh":
     worker.build_small_overlay_prompt=lambda box,crop,extra="":build_compact_focused_prompt("panel",box,crop,extra)
 
 guidance_audits=[]
-if a.source_material_guide:
+context_mappings=[]
+if a.source_material_guide or a.roi_context_margin>=0:
     from watermark_studio import roi_grouping
     from watermark_studio.roi_guidance import describe_visible_context
     original_coalesce=roi_grouping.coalesce_edits
     def observed_coalesce(edits,mode):
         grouped=original_coalesce(edits,mode)
-        guidance_audits.extend(describe_visible_context(grouped,pipe.text_encoder,pipe.processor,pipe._execution_device))
+        if a.source_material_guide:
+            guidance_audits.extend(describe_visible_context(grouped,pipe.text_encoder,pipe.processor,pipe._execution_device))
+        if a.roi_context_margin>=0:
+            from roi_context_probe import prepare_roi_context
+            context_mappings.extend(prepare_roi_context(grouped,a.roi_context_margin))
         return grouped
     roi_grouping.coalesce_edits=observed_coalesce
 
@@ -62,7 +70,7 @@ original={r["file"]:r for r in map(json.loads,(b/"results.jsonl").read_text().sp
 assert set(names)<=set(original)
 cfg_values=json.loads(Path(".run/deployment.json").read_text())
 cfg=DeploymentConfig.model_validate({**cfg_values,
-            "gpus":[a.gpu],"uniform_steps":a.uniform_steps,
+            "gpus":[a.gpu],"uniform_steps":a.uniform_steps,"float8_granularity":a.float8_granularity,
             "roi_steps":a.roi_steps,"roi_step_min_area":a.roi_step_min_area,
             "prefill_overlays":a.variant not in {"raw","raw-opaque"},
             "protection_core_feather":False if a.variant=="raw-opaque" else cfg_values["protection_core_feather"],
@@ -105,13 +113,14 @@ for task in tasks:
     if Path(task["destination"]).exists():
         bad_sizes+=load_photo(task["source"])[0].size!=load_photo(task["destination"])[0].size
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
-report={"variant":a.variant,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
+report={"variant":a.variant,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
     "revision":loaded_revision,
     "baseline_review_to_pass":sum(original[r["file"]]["quality"]["status"]!="passed" and r.get("quality",{}).get("status")=="passed" for r in rows),
     "baseline_pass_to_review":sum(original[r["file"]]["quality"]["status"]=="passed" and r.get("quality",{}).get("status")!="passed" for r in rows),
+    "actual_steps":dict(collections.Counter(log.get("actual_steps") for row in rows for log in row.get("model_sampling",[]))),
     "sampling":pipe._watermark_sampling_info,"single_gpu":True,"first_generation_only":True,"development_reuse":True}
 (a.work/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
-print(json.dumps({k:v for k,v in report.items() if k not in {"config","options","source_sha256","guidance_audits"}}),flush=True)
+print(json.dumps({k:v for k,v in report.items() if k not in {"config","options","source_sha256","guidance_audits","context_mappings"}}),flush=True)
