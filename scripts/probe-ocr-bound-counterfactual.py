@@ -92,24 +92,29 @@ def main():
     model.base_model.disable_adapter_layers()
     engine=RapidOCR(det_use_cuda=False,rec_use_cuda=False,cls_use_cuda=False,
         intra_op_num_threads=1,inter_op_num_threads=1,det_limit_type="max",
-        det_limit_side_len=2048,max_side_len=2048,det_box_thresh=.5,use_cls=False,use_rec=True)
+        det_limit_side_len=4096,max_side_len=4096,det_box_thresh=.5,use_cls=False,use_rec=True)
     current={};original_reinspect=cross_review._reinspect;original_detect=detection.locate_watermarks_batch
+    def native_words(before,after,native,box):
+        local=[ocr_helper["scan"](engine,photo.crop(native)) for photo in (before,after)]
+        words=[]
+        for word in local[0]:
+            if word["confidence"]<.9 or word["characters"]<2 or word["app_marker"]:continue
+            matches=[w for w in local[1] if w["confidence"]>=.9 and
+                w["transcript_sha256"]==word["transcript_sha256"] and box_iou(w["box"],word["box"])>=.7]
+            if not matches:continue
+            mapped=global_word(word,native,after.size)
+            pixel=cross_review.preserved_patch(before,after,mapped["box"])
+            if pixel["unchanged"] and inside_fraction(mapped,box)>=.9:
+                words.append(mapped|{"pixels":pixel})
+        return words
+
     def reinspect(before,after,boxes,encoder,proc,device,resolution,max_tokens,**_options):
         selected=[]
         audit=current["audit"]
         for box in boxes:
-            native=pixel_box(box,after.size)
-            local=[ocr_helper["scan"](engine,photo.crop(native)) for photo in (before,after)]
-            words=[]
-            for word in local[0]:
-                if word["confidence"]<.9 or word["characters"]<2 or word["app_marker"]:continue
-                matches=[w for w in local[1] if w["confidence"]>=.9 and
-                    w["transcript_sha256"]==word["transcript_sha256"] and box_iou(w["box"],word["box"])>=.7]
-                if not matches:continue
-                mapped=global_word(word,native,after.size)
-                pixel=cross_review.preserved_patch(before,after,mapped["box"])
-                if pixel["unchanged"] and inside_fraction(mapped,box)>=.9:
-                    words.append(mapped|{"pixels":pixel})
+            from watermark_studio.images import context_box
+            native=context_box(pixel_box(box,after.size),after.size,.15)
+            words=native_words(before,after,native,box)
             if not words:
                 audit["gate"]="missing_readable_unchanged_native_word"
                 return {"watermark_removed":False,"natural":True,"uncertain":True,"area":"none"}
@@ -171,6 +176,27 @@ def main():
         if checked[0]["watermark_removed"] and not checked[0]["uncertain"]:
             current["diagnostic"]=diagnostic
         return checked[0]|{"natural":current["base"]["natural"]}
+    def seed_words(before,after,value):
+        area=(value.get("output_checks") or {}).get("area","none")
+        if (value.get("output_checks") or {}).get("watermark_removed") is not False:
+            area=value.get("area","none")
+        positions={"top_left":(0,0),"top":(1,0),"top_right":(2,0),
+            "left":(0,1),"center":(1,1),"right":(2,1),
+            "bottom_left":(0,2),"bottom":(1,2),"bottom_right":(2,2)}
+        if area not in positions:return []
+        x,y=positions[area]
+        box=[max(0,x/3-.03),max(0,y/3-.03),min(1,(x+1)/3+.03),min(1,(y+1)/3+.03)]
+        words=native_words(before,after,pixel_box(box,after.size),box)
+        eligible=[]
+        for word in words:
+            proposal={"kind":"panel","box":word["box"]}
+            found,reason=cross_review.candidate_boxes(value|{"residual_regions":[proposal]},after.size,12)
+            if found and not reason:eligible.append(word)
+        eligible.sort(key=lambda w:(w["box"][2]-w["box"][0])*(w["box"][3]-w["box"][1]),reverse=True)
+        current["audit"]["native_ocr_seed_words"]=eligible[:2]
+        current["audit"]["seed_semantics"]="Localization hypotheses only, never a digital/physical decision"
+        return [{"kind":"panel","box":w["box"]} for w in eligible[:2]]
+
     def locate(photos,encoder,proc,device,*args,**kwargs):
         if current.get("diagnostic") is not None and len(photos)==1 and photos[0] is current.get("after"):
             current["audit"]["residual_scan_view"]="Only proven physical OCR glyphs blurred; all other pixels retained"
@@ -192,10 +218,26 @@ def main():
                     reviewer="ocr_bound_counterfactual",weights_relation=identity["relation"],rectangle_guard=True)[0]
                 value=constraint(case,value);baseline=copy.deepcopy(value)
                 current["base"]=baseline
-                if (value.get("status")=="review" and not value.get("guard_codes") and
+                if (value.get("status")=="review" and value.get("watermark_removed") is False and
+                    value.get("natural") is True and value.get("content_preserved") is True and
+                    value.get("uncertain") is False and not value.get("guard_codes") and
                     not case.get("frozen_vetoes") and regions):
-                    cross_review.reconsider(before,after,value,editor,editor_processor,model,processor,
+                    inquiry=copy.deepcopy(value);started_inquiry=time.monotonic()
+                    if not inquiry.get("residual_regions"):
+                        seeded=seed_words(before,after,inquiry)
+                        if seeded:inquiry["residual_regions"]=seeded
+                    seeding_seconds=time.monotonic()-started_inquiry
+                    inquiry["seconds"]=round(inquiry.get("seconds",0)+seeding_seconds,3)
+                    cross_review.reconsider(before,after,inquiry,editor,editor_processor,model,processor,
                         "cuda:0",weights_relation=identity["relation"],full_context=True)
+                    if inquiry.get("status")=="passed":
+                        value=inquiry
+                    else:
+                        # Hypothesized real lettering must never become a digital
+                        # residual location supplied to destructive rework.
+                        value["cross_review"]=inquiry.get("cross_review",{})
+                        value["seconds"]=inquiry.get("seconds",value.get("seconds",0))
+                        if inquiry.get("retry_recheck_only"):value["retry_recheck_only"]=True
                 value=constraint(case,value);value["ocr_bound_counterfactual"]=current["audit"]
                 row=case|{"baseline_quality":baseline,"quality":value}
                 rows.append(row);log.write(json.dumps(row,ensure_ascii=False)+chr(10));log.flush()
