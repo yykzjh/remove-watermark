@@ -15,6 +15,7 @@ p.add_argument("--baseline-job",required=True)
 p.add_argument("--selection",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--prompt-profile",choices=["detailed","compact-zh"],default="detailed")
+p.add_argument("--source-material-guide",action="store_true")
 a=p.parse_args()
 loaded_revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
 assert a.gpu in (0,1,2,3)
@@ -36,6 +37,17 @@ if a.prompt_profile=="compact-zh":
     from watermark_studio.prompts import build_compact_focused_prompt
     worker.build_focused_prompt=build_compact_focused_prompt
     worker.build_small_overlay_prompt=lambda box,crop,extra="":build_compact_focused_prompt("panel",box,crop,extra)
+
+guidance_audits=[]
+if a.source_material_guide:
+    from watermark_studio import roi_grouping
+    from watermark_studio.roi_guidance import describe_visible_context
+    original_coalesce=roi_grouping.coalesce_edits
+    def observed_coalesce(edits,mode):
+        grouped=original_coalesce(edits,mode)
+        guidance_audits.extend(describe_visible_context(grouped,pipe.text_encoder,pipe.processor,pipe._execution_device))
+        return grouped
+    roi_grouping.coalesce_edits=observed_coalesce
 
 assert torch.cuda.mem_get_info()[0]>40*2**30, "GPU must be free before probe"
 state=Path.home()/".local/state/watermark-studio"
@@ -86,7 +98,7 @@ for task in tasks:
     if Path(task["destination"]).exists():
         bad_sizes+=load_photo(task["source"])[0].size!=load_photo(task["destination"])[0].size
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
-report={"variant":a.variant,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
+report={"variant":a.variant,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
@@ -95,4 +107,4 @@ report={"variant":a.variant,"prompt_profile":a.prompt_profile,"images":len(rows)
     "baseline_pass_to_review":sum(original[r["file"]]["quality"]["status"]=="passed" and r.get("quality",{}).get("status")!="passed" for r in rows),
     "single_gpu":True,"first_generation_only":True,"development_reuse":True}
 (a.work/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
-print(json.dumps({k:v for k,v in report.items() if k not in {"config","options","source_sha256"}}),flush=True)
+print(json.dumps({k:v for k,v in report.items() if k not in {"config","options","source_sha256","guidance_audits"}}),flush=True)
