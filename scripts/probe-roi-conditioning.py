@@ -33,6 +33,7 @@ p.add_argument("--float8-accurate-accum",action="store_true")
 p.add_argument("--float8-amax-floor",type=float,default=0)
 p.add_argument("--tiny-inpaint-path",type=Path)
 p.add_argument("--tiny-inpaint-sha256",default="")
+p.add_argument("--tiny-inpaint-scope",choices=["tiny","all"],default="tiny")
 p.add_argument("--lora-path",type=Path)
 p.add_argument("--lora-sha256",default="")
 p.add_argument("--lora-alpha",type=float,default=0)
@@ -134,7 +135,8 @@ if a.tiny_inpaint_path:
     original_batch = batching.independent_batch
     def routed_batch(pipeline, items, resolution, kv_cache):
         # No candidate contest or fallback: each ROI runs exactly one chosen backend.
-        chosen = [tiny_eligible(item) for item in items]
+        chosen = [tiny_eligible(item, 1 if a.tiny_inpaint_scope=="all" else .035,
+                                1536 if a.tiny_inpaint_scope=="all" else 512) for item in items]
         patches = [None]*len(items)
         ordinary = [item for item, route in zip(items, chosen) if not route]
         if ordinary:

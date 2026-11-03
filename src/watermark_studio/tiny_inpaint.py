@@ -8,12 +8,12 @@ import numpy as np
 from PIL import Image
 
 
-def tiny_eligible(edit, maximum_area=.035):
+def tiny_eligible(edit, maximum_area=.035, maximum_resolution=512):
     """Route only from original geometry, never from generated pixels or QA."""
     state = edit["state"]
     if state["whole_generation"] or state["source_scene"] != "outdoor":
         return False
-    if edit.get("_roi_members") or edit.get("prefilled") or edit["resolution"] > 512:
+    if edit.get("_roi_members") or edit.get("prefilled") or edit["resolution"] > maximum_resolution:
         return False
     left, top, right, bottom = edit["box"]
     return 0 < (right-left)*(bottom-top) <= maximum_area*state["source"].width*state["source"].height
