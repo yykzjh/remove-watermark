@@ -4,12 +4,13 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import math
 import runpy
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
 
 
 def edge_fit(photo,region,sigma):
@@ -32,7 +33,8 @@ def edge_fit(photo,region,sigma):
         if not 20<expected<w-20:continue
         first,last=max(20,expected-radius),min(w-20,expected+radius)
         # Smooth ONLY parallel to the edge: no card/background alpha leakage.
-        strip=gaussian_filter1d(rgb[lo:hi,first-9:last+10],sigma,axis=0,mode="nearest")
+        strip=cv2.GaussianBlur(rgb[lo:hi,first-9:last+10],(1,2*math.ceil(3*sigma)+1),
+            sigmaX=0,sigmaY=sigma,borderType=cv2.BORDER_REPLICATE)
         candidates=[]
         for at in range(first,last+1):
             x=strip[:,at-first+9-sign*6-1:at-first+9-sign*6+2].mean(axis=1)
@@ -55,6 +57,7 @@ def main():
     p.add_argument("--manifest",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
     a=p.parse_args()
+    cv2.setNumThreads(1)
     assert not a.target.exists()
     helper=runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
     cases=helper["manifest_cases"](a.manifest);hashes=helper["file_hashes"](cases)
