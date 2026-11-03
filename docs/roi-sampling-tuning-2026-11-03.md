@@ -104,3 +104,9 @@ stopped-report.json 均留在开发机。验收工具因未满 1,000 条而拒�
 后续试验保持全部检验标准，先比较逐行 FP8 与自动 ROI 坐标映射的源潜变量上下文约束。
 已有“无文字改判”研究曾在旧 1,024 张上 0 改判，不会为了凑通过率重新默认启用。
 当前尚未完成通过率至少 90% 的千张验收。
+
+## Continued experiments: numerical safety and grounded review
+
+The row and row+ROI-context fast-accumulation probes emitted a non-finite cast warning and were stopped. Their incomplete results are unsafe research output, not qualified candidates. Commit f98e686 adds pre-conversion finite validation and opt-in accurate FP8 accumulation. The deployed/default quality grading remains unchanged.
+
+A new offline-only `grounded` inspection profile records visual observations before the same semantic booleans. It must pass known-defect controls and native-image audits before any online adoption; it cannot waive deterministic vetoes. Merely improving the numerical pass rate is insufficient. The default profile remains `legacy`.

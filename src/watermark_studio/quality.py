@@ -794,7 +794,7 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
                  weights_relation="unknown", rectangle_guard=False, cross_context=False,
                  inspection_profile="legacy"):
     from .detection import locate_watermarks_batch, source_scene
-    if inspection_profile not in {"legacy","defects","untrusted"}:
+    if inspection_profile not in {"legacy","defects","untrusted","grounded"}:
         raise ValueError("Unknown inspection protocol")
     contexts=[dict(context) for context in (editor_context or [{} for _ in pairs])]
     if len(contexts)!=len(pairs):
@@ -842,6 +842,14 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             output_chats, "output", encoder, processor, device, max_tokens)
         compared, content_seconds = inspect_defects(
             content_chats, "reference", encoder, processor, device, max_tokens)
+    elif inspection_profile == "grounded":
+        from .grounded_review import inspect_grounded
+        inspected, output_seconds = inspect_grounded(
+            output_chats, ("watermark_removed", "natural", "uncertain"),
+            encoder, processor, device, max_tokens)
+        compared, content_seconds = inspect_grounded(
+            content_chats, ("content_preserved", "natural", "uncertain"),
+            encoder, processor, device, max_tokens)
     else:
         inspected, output_seconds = _structured_vqa(
             output_chats, ("watermark_removed", "natural", "uncertain"),
