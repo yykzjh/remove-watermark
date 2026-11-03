@@ -32,3 +32,28 @@ def test_changed_payload_with_same_size_is_rejected(tmp_path):
     f.write_bytes(b"HELLO")
     result = m["verify_payload"](f, reference)
     assert result["status"] == "mismatch" and result["stable"]
+
+
+def test_interrupted_cache_tail_is_removed_before_appending(tmp_path):
+    path = tmp_path/"cache.jsonl"
+    path.write_bytes(b'{"file":"first"}\n{"fil')
+    assert set(m["restore_records"](path, {"first", "second"})) == {"first"}
+    with path.open("ab") as f:
+        f.write(b'{"file":"second"}\n')
+    assert set(m["restore_records"](path, {"first", "second"})) == {"first", "second"}
+
+
+def test_complete_last_record_without_newline_can_be_resumed(tmp_path):
+    path = tmp_path/"cache.jsonl"
+    path.write_bytes(b'{"file":"first"}')
+    m["restore_records"](path, {"first", "second"})
+    with path.open("ab") as f:
+        f.write(b'{"file":"second"}\n')
+    assert set(m["restore_records"](path, {"first", "second"})) == {"first", "second"}
+
+
+def test_cache_outside_manifest_is_rejected(tmp_path):
+    path = tmp_path/"cache.jsonl"
+    path.write_bytes(b'{"file":"unrelated"}\n')
+    with pytest.raises(ValueError, match="unexpected file"):
+        m["restore_records"](path, {"first"})

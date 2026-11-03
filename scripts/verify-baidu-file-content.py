@@ -46,6 +46,31 @@ def verify_payload(path, metadata):
             "actual": actual, "signature": after, "stable": before == after}
 
 
+def restore_records(path, allowed):
+    records = {}
+    data = path.read_bytes()
+    lines = data.splitlines(keepends=True)
+    valid_bytes = 0
+    for index, line in enumerate(lines):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            if index != len(lines)-1:
+                raise
+            with path.open("r+b") as f:
+                f.truncate(valid_bytes)
+            break
+        if row["file"] not in allowed:
+            raise ValueError("Checksum cache contains an unexpected file")
+        records[row["file"]] = row
+        valid_bytes += len(line)
+    else:
+        if data and not data.endswith(b"\n"):
+            with path.open("ab") as f:
+                f.write(b"\n")
+    return records
+
+
 def main():
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("--task-state", type=Path, required=True)
@@ -74,15 +99,7 @@ def main():
     results_path = a.output/"results.jsonl"
     records = {}
     if a.resume and results_path.exists():
-        lines = results_path.read_text().splitlines()
-        for index, line in enumerate(lines):
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                if index == len(lines)-1:
-                    break
-                raise
-            records[row["file"]] = row
+        records = restore_records(results_path, set(targets))
     def save(name, value):
         temp = a.output/(name+".tmp")
         temp.write_text(json.dumps(value, ensure_ascii=False, indent=2))
