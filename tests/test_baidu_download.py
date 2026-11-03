@@ -82,3 +82,18 @@ def test_state_cannot_be_reused_for_another_source(monkeypatch, tmp_path):
     (state/"source.json").write_text(json.dumps({"cloud_root": "/another", "destination": "other"}))
     with pytest.raises(ValueError, match="another cloud root"):
         runpy.run_path(str(SCRIPT), run_name="__main__")
+
+
+def test_matching_size_with_active_resume_marker_is_incomplete(tmp_path):
+    complete = runpy.run_path(str(SCRIPT))["complete"]
+    photo = tmp_path/"photo.jpg"
+    photo.write_bytes(b"abcd")
+    row = {"local": str(photo), "size": 4}
+    assert complete(row)
+    marker = Path(str(photo)+".BaiduPCS-Go-downloading")
+    marker.write_bytes(b"unfinished ranges")
+    assert not complete(row)
+    marker.unlink()
+    assert complete(row)
+    row["size"] = 5
+    assert not complete(row)
