@@ -174,6 +174,7 @@ class DeploymentConfig(BaseModel):
     quantization: Literal["none", "float8", "int8"] = "none"
     float8_granularity: Literal["tensor", "row"] = "tensor"
     float8_accurate_accum: bool = False
+    float8_amax_floor: float = Field(default=0, ge=0, le=1)
     cudnn_benchmark: bool = False
     vae_channels_last: bool = False
     vae_tile_size: int = Field(default=256, ge=128, le=1024, multiple_of=32)
@@ -197,6 +198,8 @@ class DeploymentConfig(BaseModel):
     def compatible(self):
         if self.float8_accurate_accum and self.quantization!="float8":
             raise ValueError("Accurate FP8 accumulation requires float8 quantization")
+        if self.float8_amax_floor and self.quantization!="float8":
+            raise ValueError("An FP8 activation amax floor requires float8 quantization")
         if self.uniform_steps and self.roi_steps:
             raise ValueError("Select global uniform-steps or source-area ROI steps, not both")
         if self.prefill_style=="gray" and (not self.prefill_overlays or not self.protect_source_rims or self.prefill_original_semantics):

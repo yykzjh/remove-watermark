@@ -99,10 +99,12 @@ def load_pipeline(config, model_path, *, _allow_unconfigured_sampling=False):
         fuse_projections(pipe.transformer)
     if config.quantization != "none":
         from .optimizations import quantize_transformer
+        fp8_options={}
         if config.float8_accurate_accum:
-            quantize_transformer(pipe.transformer,config.quantization,config.float8_granularity,accurate_accum=True)
-        else:
-            quantize_transformer(pipe.transformer,config.quantization,config.float8_granularity)
+            fp8_options["accurate_accum"]=True
+        if config.float8_amax_floor:
+            fp8_options["amax_floor"]=config.float8_amax_floor
+        quantize_transformer(pipe.transformer,config.quantization,config.float8_granularity,**fp8_options)
     pipe._watermark_phase_offload=config.transformer_phase_offload
     pipe._source_rim_text_detector=rim_detector
     pipe._watermark_separate_vae_decode=config.separate_vae_decode

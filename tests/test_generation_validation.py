@@ -98,3 +98,28 @@ def test_float8_accumulation_flag_reaches_torchao_configuration(monkeypatch):
     quantize_transformer(model,"float8","tensor")
     assert captured[0].mm_config.use_fast_accum is False
     assert captured[1].mm_config.use_fast_accum is True
+
+def test_activation_amax_floor_is_opt_in_and_cannot_apply_to_other_quantizers():
+    assert DeploymentConfig().float8_amax_floor==0
+    assert DeploymentConfig(quantization="float8",float8_amax_floor=1e-6).float8_amax_floor==1e-6
+    with pytest.raises(ValueError,match="requires float8"):
+        DeploymentConfig(float8_amax_floor=1e-6)
+
+
+def test_torchao_zero_row_is_preserved_with_positive_amax_floor(monkeypatch):
+    torch=pytest.importorskip("torch")
+    ao=pytest.importorskip("torchao.quantization")
+    from torchao.quantization.quant_primitives import _choose_scale_float8, _quantize_affine_float8
+
+    from watermark_studio.optimizations import quantize_transformer
+
+    inputs=torch.tensor([[0.,0.,0.,0.],[.2,-.5,1.,.7]],dtype=torch.bfloat16)
+    scales=_choose_scale_float8(inputs,[1,4],hp_value_lb=1e-6)
+    quantized=_quantize_affine_float8(inputs,scales).float()
+    assert torch.isfinite(quantized).all() and torch.equal(quantized[0],torch.zeros(4))
+    original_scales=_choose_scale_float8(inputs,[1,4])
+    assert torch.equal(scales[1],original_scales[1])
+    captured=[]
+    monkeypatch.setattr(ao,"quantize_",lambda module,config,**kwargs:captured.append(config))
+    quantize_transformer(torch.nn.Linear(8,8),"float8","row",amax_floor=1e-6)
+    assert captured[0].activation_value_lb==1e-6

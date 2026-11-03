@@ -42,7 +42,7 @@ def prepare_qkv(attn, hidden_states, rotary_emb, layer_cache, kv_cache_mode, cac
     return query, key, value, query.shape[1]
 
 
-def quantize_transformer(transformer, mode, granularity="tensor", *, accurate_accum=False):
+def quantize_transformer(transformer, mode, granularity="tensor", *, accurate_accum=False, amax_floor=0):
     try:
         from torchao.quantization import (
             Float8DynamicActivationFloat8WeightConfig,
@@ -54,6 +54,10 @@ def quantize_transformer(transformer, mode, granularity="tensor", *, accurate_ac
     except ImportError as error:
         raise RuntimeError("Quantization requires uv sync --extra server --extra quantization") from error
     kwargs={"granularity":PerRow() if granularity=="row" else PerTensor()}
+    if amax_floor:
+        if mode!="float8" or not 0<amax_floor<=1:
+            raise ValueError("A positive activation amax floor requires float8 quantization")
+        kwargs["activation_value_lb"]=amax_floor
     if accurate_accum:
         if mode!="float8":
             raise ValueError("Accurate FP8 accumulation requires float8 quantization")

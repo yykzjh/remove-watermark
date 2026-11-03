@@ -479,6 +479,7 @@ class Runtime:
                     "attention_backend": self.config.attention_backend,
                     "float8_granularity": self.config.float8_granularity,
                     "float8_accurate_accum": self.config.float8_accurate_accum,
+                    "float8_amax_floor": self.config.float8_amax_floor,
                     "uniform_steps": self.config.uniform_steps,
                     "roi_steps": self.config.roi_steps,
                     "roi_step_min_area": self.config.roi_step_min_area,
