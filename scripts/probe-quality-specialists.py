@@ -51,6 +51,56 @@ def source_aware_output_chat(chat, source, regions):
     return messages
 
 
+def carrier_context_views(photo, boxes, limit=2):
+    from watermark_studio.evidence import valid_box
+    from watermark_studio.images import pixel_box
+    from watermark_studio.quality import preview
+    scopes=[]
+    views=[]
+    for value in sorted(boxes, key=lambda b: (b[2]-b[0])*(b[3]-b[1]), reverse=True):
+        box=valid_box(value)
+        if box is None:
+            raise ValueError("Invalid OCR carrier-view coordinates")
+        l,t,r,b=pixel_box(box,photo.size)
+        side=max(288,round(max(r-l,b-t)*2.6))
+        cw,ch=min(photo.width,side),min(photo.height,side)
+        x=max(0,min(photo.width-cw,round((l+r-cw)/2)))
+        y=max(0,min(photo.height-ch,round((t+b-ch)/2)))
+        scope=(x,y,x+cw,y+ch)
+        if any(max(0,min(scope[2],p[2])-max(scope[0],p[0]))*
+               max(0,min(scope[3],p[3])-max(scope[1],p[1]))>.7*cw*ch for p in scopes):
+            continue
+        scopes.append(scope)
+        views.append(preview(photo.crop(scope),512))
+        if len(views)>=limit:
+            break
+    return views,scopes
+
+
+def carrier_context_chat(chat, before, after, boxes, reference=False):
+    from watermark_studio.quality import preview
+    messages=[dict(message,content=[dict(item) for item in message["content"]]) for message in chat]
+    content=messages[-1]["content"]
+    tail=content.pop()
+    views,scopes=carrier_context_views(after,boxes)
+    for view,scope in zip(views,scopes):
+        content.append({"type":"text","text":
+            "以下是结果中OCR文字候选周围的完整载体上下文；OCR只定位字形，不证明它是实物或水印。"
+            "请看真实材质、实体边缘和透视，数字叠加仍须拒绝，不得因文字被OCR找到而豁免。"})
+        if reference:
+            content.extend([{"type":"text","text":"同位置ORIGINAL原图局部，仅作原可见内容对照："},
+                            {"type":"image","image":preview(before.crop(scope),512)},
+                            {"type":"text","text":"对应RESULT结果局部："}])
+        content.append({"type":"image","image":view})
+    if reference and views:
+        tail["text"]+=(
+            "\n对上述同位置原图与结果，逐项检查真实标牌、器具、衣物或纸张上原本可见的字符。"
+            "若可见实物英文、汉字、数字变成不同字词、乱码或被抹掉，content_preserved=false。"
+            "候选框不授权重写真实印字；只允许删除确认为后期数字叠加的字。看不清则uncertain=true。")
+    content.append(tail)
+    return messages
+
+
 def enforce_frozen_constraints(case, verdict):
     if case.get("frozen_vetoes"):
         if verdict["status"] != "error":
@@ -67,9 +117,14 @@ def main():
     parser.add_argument("--gpu", type=int, choices=[0, 1, 2, 3], required=True)
     parser.add_argument("--residual-resolution", type=int, choices=[0, 768, 1024, 1536, 2048], default=0)
     parser.add_argument("--output-source-reference", action="store_true")
+    parser.add_argument("--output-carrier-context", action="store_true")
     parser.add_argument("--inspector-profile", choices=["internvl8b", "qwen4b"], default="internvl8b")
     parser.add_argument("--inspection-profile", choices=["legacy", "defects"], default="legacy")
     args = parser.parse_args()
+    if args.output_source_reference and args.output_carrier_context:
+        parser.error("Independent evidence-layout ablations cannot be combined")
+    if (args.output_source_reference or args.output_carrier_context) and args.inspection_profile != "legacy":
+        parser.error("Evidence-layout probes require the unchanged legacy predicates")
     from watermark_studio.training_reservation import offline_reservation
     reserved = offline_reservation(args.gpu)
     helper = runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
@@ -106,6 +161,11 @@ def main():
         raise ValueError("Both QA roles must use weights independent of the image editor")
     if args.inspector_profile == "internvl8b" and identities["inspector_locator"]["relation"] != "different_weights":
         raise ValueError("Distinct specialist profiles require different weights")
+    text_presence=None
+    if args.output_carrier_context:
+        from watermark_studio.text_presence import TargetTextPresence
+        text_presence=TargetTextPresence()
+        text_presence._engine()
     cfg = DeploymentConfig(quality_verifier=True, quality_backend="independent")
     began = time.monotonic()
     inspector = load_quality_encoder(inspector_path, cfg, "cuda:0")
@@ -119,13 +179,18 @@ def main():
         original_detect, inspector, locator, locator_processor, counters, args.residual_resolution)
     original_inspection = quality._structured_vqa
     source_context = {}
-    if args.output_source_reference:
-        def source_inspection(chats, fields, *args, **kwargs):
-            if fields[0] == "watermark_removed":
+    if args.output_source_reference or args.output_carrier_context:
+        def source_inspection(chats, fields, *model_args, **model_kwargs):
+            if args.output_source_reference and fields[0] == "watermark_removed":
                 if len(chats) != 1:
                     raise ValueError("Source-reference pilot requires fixed single-case correspondence")
                 chats = [source_aware_output_chat(chats[0], source_context["image"], source_context["regions"])]
-            return original_inspection(chats, fields, *args, **kwargs)
+            if args.output_carrier_context and fields[0] in {"watermark_removed","content_preserved"}:
+                if len(chats)!=1:
+                    raise ValueError("Carrier pilot requires exact source/output correspondence")
+                chats=[carrier_context_chat(chats[0],source_context["image"],source_context["output"],
+                    source_context["carrier_boxes"],reference=fields[0]=="content_preserved")]
+            return original_inspection(chats, fields, *model_args, **model_kwargs)
         quality._structured_vqa = source_inspection
     rows = []
     began = time.monotonic()
@@ -135,7 +200,14 @@ def main():
                 started = time.monotonic()
                 pair = (load_photo(case["source"])[0], load_photo(case["output"])[0])
                 source_context.update(image=pair[0], regions=[Region.model_validate(r) for r in case["regions"]])
+                carrier_evidence={}
                 try:
+                    if text_presence is not None:
+                        carrier_evidence=text_presence.inspect(pair[1],[[0.,0.,1.,1.]])
+                        if carrier_evidence["status"]=="error":
+                            raise ValueError("Carrier OCR evidence unavailable: "+str(carrier_evidence))
+                        boxes=[b for r in carrier_evidence["regions"] for b in r["textlike_boxes"]]
+                        source_context.update(output=pair[1],carrier_boxes=boxes)
                     verdict = verify_batch(
                         [pair], inspector, inspector_processor, "cuda:0", resolution=768,
                         detail_patches=4, detection_batch_size=2,
@@ -148,7 +220,7 @@ def main():
                     torch.cuda.synchronize()
                 except Exception as error:  # noqa: BLE001 - errors remain in the fixed denominator
                     verdict = {"status": "error", "reason": f"{type(error).__name__}: {error}"[:400]}
-                rows.append(case | {"quality": verdict, "seconds": round(time.monotonic()-started, 4)})
+                rows.append(case | {"carrier_evidence":carrier_evidence,"quality": verdict, "seconds": round(time.monotonic()-started, 4)})
                 output.write(json.dumps(rows[-1], ensure_ascii=False)+"\n")
                 output.flush()
                 if len(rows)%4 == 0:
@@ -169,6 +241,7 @@ def main():
               "load_seconds": round(load_seconds, 3), "inspection_profile": args.inspection_profile,
               "residual_resolution": args.residual_resolution, "inspector_profile": args.inspector_profile,
               "output_source_reference": args.output_source_reference,
+              "output_carrier_context": args.output_carrier_context,
               "identities": identities, "locator_calls": dict(counters),
               "counts": dict(collections.Counter(r["quality"]["status"] for r in rows)),
               "false_accept_files": [r["file"] for r in rows if r.get("expected") == "review" and r["quality"]["status"] == "passed"],

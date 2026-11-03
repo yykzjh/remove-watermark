@@ -65,3 +65,39 @@ def test_output_source_reference_keeps_output_pixels_and_original_in_separate_la
     assert content[1]["image"].getpixel((0, 0)) == (255, 0, 0)
     assert "直接复制仍是不合格" in content[-1]["text"]
     assert "候选范围" in content[-1]["text"]
+
+
+def test_carrier_output_inspection_never_sees_the_watermarked_original_or_a_physical_exemption():
+    from PIL import Image
+    before, after = Image.new("RGB", (800, 600), "red"), Image.new("RGB", (800, 600), "blue")
+    chat = [{"role": "user", "content": [{"type": "image", "image": after},
+                                       {"type": "text", "text": "inspect all output pixels"}]}]
+    routed = helper()["carrier_context_chat"](chat, before, after, [[.6, .7, .7, .8]])
+    assert len(chat[-1]["content"]) == 2
+    pictures = [r["image"] for r in routed[-1]["content"] if r["type"] == "image"]
+    assert len(pictures) == 2 and all(p.getpixel((0, 0)) == (0, 0, 255) for p in pictures)
+    assert "不证明它是实物或水印" in routed[-1]["content"][1]["text"]
+    assert routed[-1]["content"][-1]["text"] == "inspect all output pixels"
+
+
+def test_carrier_reference_compares_exact_same_native_scope_in_both_photos():
+    from PIL import Image
+    before, after = Image.new("RGB", (800, 600), "red"), Image.new("RGB", (800, 600), "blue")
+    chat = [{"role": "user", "content": [{"type": "text", "text": "compare visible content"}]}]
+    routed = helper()["carrier_context_chat"](chat, before, after, [[.6, .7, .7, .8]], True)
+    pictures = [r["image"] for r in routed[-1]["content"] if r["type"] == "image"]
+    assert len(pictures) == 2 and pictures[0].size == pictures[1].size
+    assert pictures[0].getpixel((0, 0)) == (255, 0, 0)
+    assert pictures[1].getpixel((0, 0)) == (0, 0, 255)
+    assert "乱码" in routed[-1]["content"][-1]["text"]
+    assert chat[-1]["content"][-1]["text"] == "compare visible content"
+
+
+def test_carrier_context_keeps_object_context_and_bounds_images_and_count():
+    from PIL import Image
+    view, scopes = helper()["carrier_context_views"](
+        Image.new("RGB", (1000, 800)), [[.98, .98, 1., 1.], [0, 0, .03, .03], [.4, .4, .45, .45]])
+    assert len(view) == 2
+    for x, y, r, b in scopes:
+        assert 0 <= x < r <= 1000 and 0 <= y < b <= 800
+        assert r-x >= 288 and b-y >= 288
