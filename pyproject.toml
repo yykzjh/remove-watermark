@@ -27,6 +27,9 @@ quality-ocr = [
 quality-linear-attention = [
     "flash-linear-attention==0.6.0",
 ]
+quality-training = [
+    "peft>=0.21,<0.22",
+]
 
 [project.scripts]
 watermark-server = "watermark_studio.server:main"
