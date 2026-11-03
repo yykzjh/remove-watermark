@@ -7,7 +7,7 @@ import time
 FIELDS = {"watermark_removed", "content_preserved", "natural", "uncertain"}
 EVIDENCE_PROMPT = """
 补充检验协议：先用图像证据作观察记录，再给布尔结论。
-在observations字符串中简要记录：实际可读的数字覆盖文字/图案和整图位置；若是实物印字，
+observations字符串最多80个汉字，禁止冗长逐图复述。只简要记录：实际可读的数字覆盖文字/图案和整图位置；若是实物印字，
 记录支持它的实体载体、透视和连接关系；若无数字覆盖则写未见。逐项记录可见修补异常或未见异常。
 只能引用当前结果照片中的实际证据，不把提示词中的水印例子当成图像内容，
 也不把原图的水印、裁切坐标和检验排版当成结果残留。看不清或载体分类冲突则uncertain=true。
@@ -37,7 +37,10 @@ def inspect_grounded(chats,fields,encoder,processor,device,max_tokens):
         tail=messages[-1]["content"][-1]
         if tail.get("type")!="text":
             raise ValueError("Inspection must end in instructions")
-        tail["text"]+=EVIDENCE_PROMPT
+        tail["text"]+=EVIDENCE_PROMPT+(
+            "\n必须输出的完整字段名："+", ".join(("observations",*fields,"area"))+
+            "。每个布尔字段必须是JSON true或false；area必须是位置枚举中的字符串，"
+            "没有缺陷用字符串none，禁止null或省略area。先写observations，再写这些字段，不加其他字段。")
         prepared.append(messages)
     tokenizer=processor.tokenizer;previous=tokenizer.padding_side
     try:
@@ -47,7 +50,7 @@ def inspect_grounded(chats,fields,encoder,processor,device,max_tokens):
         inputs.pop("token_type_ids",None);inputs=inputs.to(device)
         width=inputs.input_ids.shape[1]
         with torch.inference_mode():
-            generated=encoder.generate(**inputs,do_sample=False,use_cache=True,max_new_tokens=max(256,max_tokens))
+            generated=encoder.generate(**inputs,do_sample=False,use_cache=True,max_new_tokens=max(384,max_tokens))
         texts=processor.batch_decode(generated[:,width:],skip_special_tokens=True,
             clean_up_tokenization_spaces=False)
         if len(texts)!=len(chats):
