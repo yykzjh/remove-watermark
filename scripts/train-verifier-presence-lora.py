@@ -63,6 +63,11 @@ def main():
     p.add_argument("--gradient-accumulation",type=int,default=2)
     p.add_argument("--rank",type=int,default=8)
     p.add_argument("--alpha",type=int,default=8)
+    p.add_argument("--vision-rank",type=int,choices=[0,4,8],default=0)
+    p.add_argument("--vision-learning-rate",type=float,default=1e-5)
+    p.add_argument("--initial-adapter",type=Path)
+    p.add_argument("--initial-adapter-sha256",default="")
+    p.add_argument("--freeze-language-lora",action="store_true")
     p.add_argument("--learning-rate",type=float,default=5e-5)
     p.add_argument("--warmup",type=int,default=20)
     p.add_argument("--save-every",type=int,default=100)
@@ -73,6 +78,9 @@ def main():
     a=p.parse_args()
     assert not a.target.exists() and 1<=a.steps<=1000 and 1<=a.gradient_accumulation<=8
     assert a.rank in {4,8,16,32} and 1<=a.alpha<=64 and 0<a.learning_rate<=2e-4
+    assert bool(a.initial_adapter)==bool(a.initial_adapter_sha256)
+    assert not a.freeze_language_lora or (a.initial_adapter and a.vision_rank)
+    assert 0<a.vision_learning_rate<=2e-4
     assert a.save_every>0 and a.validate_every>0 and 8<=a.validation_limit<=256
     from watermark_studio.training_reservation import offline_reservation
     reservation=offline_reservation(a.gpu)
@@ -163,25 +171,59 @@ def main():
     with torch.inference_mode():
         baseline=base(**sample,use_cache=False,logits_to_keep=1).logits.detach().clone()
     base.requires_grad_(False)
+    targets=["q_proj","v_proj"]+(["qkv"] if a.vision_rank else [])
     model=get_peft_model(base,LoraConfig(r=a.rank,lora_alpha=a.alpha,lora_dropout=0.,
-        target_modules=["q_proj","v_proj"],bias="none",task_type=TaskType.CAUSAL_LM))
+        target_modules=targets,bias="none",task_type=TaskType.CAUSAL_LM,
+        rank_pattern={"qkv":a.vision_rank} if a.vision_rank else {},
+        alpha_pattern={"qkv":a.vision_rank} if a.vision_rank else {}))
+    if a.initial_adapter:
+        from peft.utils.save_and_load import set_peft_model_state_dict
+        from safetensors.torch import load_file
+        initial=json.loads((a.initial_adapter/"presence-task.json").read_text())
+        if (digest(a.initial_adapter/"adapter_model.safetensors")!=a.initial_adapter_sha256 or
+                initial["weights_sha256"]!=a.initial_adapter_sha256 or
+                initial["prompt_sha256"]!=hashlib.sha256(PROMPT.encode()).hexdigest() or
+                initial["training_manifest_sha256"]!=manifest_sha or
+                initial.get("base_identity",{}).get("verifier_sha256")!=identity["verifier_sha256"]):
+            raise ValueError("Initial adapter/base/protocol/source-split identity mismatch")
+        saved=load_file(a.initial_adapter/"adapter_model.safetensors",device="cpu")
+        if any("lora_" not in key for key in saved):
+            raise ValueError("Initial adapter cannot replace any frozen base weights")
+        loaded=set_peft_model_state_dict(model,saved,adapter_name="default")
+        if loaded.unexpected_keys or any("lora_" in key and not (a.vision_rank and "visual" in key)
+                                         for key in loaded.missing_keys):
+            raise ValueError("Initial language adapter did not fully initialize its parameters")
+        del saved
+    if a.freeze_language_lora:
+        for name,param in model.named_parameters():
+            if "lora_" in name and "visual" not in name:
+                param.requires_grad_(False)
     with model.disable_adapter(),torch.inference_mode():
         replay=model(**sample,use_cache=False,logits_to_keep=1).logits.detach()
     if not torch.equal(baseline,replay):
         raise ValueError("Disabled LoRA changed the preserved base QA forward")
     del baseline,replay,sample
     names=[n for n,p in model.named_parameters() if p.requires_grad]
-    if not names or any("lora_" not in n or "visual" in n or "lm_head" in n for n in names):
-        raise ValueError("Only language-attention LoRA parameters may train")
+    if not names or any("lora_" not in n or "lm_head" in n or
+                        ("visual" in n and (not a.vision_rank or ".qkv." not in n)) for n in names):
+        raise ValueError("Only explicitly selected attention LoRA parameters may train")
+    if a.freeze_language_lora and any("visual" not in n for n in names):
+        raise ValueError("Frozen language adapter gained trainable parameters")
     if a.gradient_checkpointing:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant":False})
         model.enable_input_require_grads()
     model.config.use_cache=False
     parameters=[p for p in model.parameters() if p.requires_grad]
-    optimizer=torch.optim.AdamW(parameters,lr=a.learning_rate,betas=(.9,.95),weight_decay=.01)
+    groups=[]
+    for vision,name,lr in [(False,"language",a.learning_rate),(True,"vision",a.vision_learning_rate)]:
+        selected_parameters=[p for n,p in model.named_parameters() if p.requires_grad and ("visual" in n)==vision]
+        if selected_parameters:
+            groups.append({"params":selected_parameters,"lr":lr,"base_lr":lr,"name":name})
+    optimizer=torch.optim.AdamW(groups,betas=(.9,.95),weight_decay=.01)
     a.target.mkdir(parents=True)
     revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
-    run_config={"revision":revision,"arguments":vars(a)|{"manifest":str(a.manifest),"target":str(a.target)},
+    run_config={"revision":revision,"arguments":{key:str(value) if isinstance(value,Path) else value
+                                               for key,value in vars(a).items()},
         "manifest_sha256":manifest_sha,"base_model":str(base_path),"base_identity":identity,
         "prompt_sha256":hashlib.sha256(PROMPT.encode()).hexdigest(),
         "trainable_parameters":sum(p.numel() for p in parameters),"trainable_modules":names,
@@ -214,7 +256,7 @@ def main():
             if step>a.warmup:
                 factor=.1+.9*.5*(1+math.cos(math.pi*(step-a.warmup)/max(1,a.steps-a.warmup)))
             for group in optimizer.param_groups:
-                group["lr"]=a.learning_rate*factor
+                group["lr"]=group["base_lr"]*factor
             losses=[]
             model.train()
             for _ in range(a.gradient_accumulation):
@@ -237,6 +279,7 @@ def main():
             torch.nn.utils.clip_grad_norm_(parameters,1.,error_if_nonfinite=True)
             optimizer.step();optimizer.zero_grad(set_to_none=True)
             row={"step":step,"loss":sum(losses)/len(losses),"lr":optimizer.param_groups[0]["lr"],
+                 "group_lr":{group["name"]:group["lr"] for group in optimizer.param_groups},
                  "seconds":round(time.monotonic()-began,3),
                  "peak_cuda_bytes":torch.cuda.max_memory_allocated()}
             history.append(row);log.write(json.dumps(row)+"\n");log.flush()
@@ -246,7 +289,9 @@ def main():
                 folder=a.target/f"adapter-step{step:04d}"
                 model.save_pretrained(folder,safe_serialization=True)
                 (folder/"presence-task.json").write_text(json.dumps({
-                    "version":1,"task":"output_only_digital_overlay_presence","step":step,
+                     "version":1,"task":"output_only_digital_overlay_presence","step":step,
+                    "vision_rank":a.vision_rank,"freeze_language_lora":a.freeze_language_lora,
+                    "initial_adapter_sha256":a.initial_adapter_sha256,
                     "base_model":str(base_path),"base_identity":identity,"prompt_sha256":run_config["prompt_sha256"],
                     "training_manifest_sha256":manifest_sha,"source_revision":revision,
                     "weights_sha256":digest(folder/"adapter_model.safetensors"),
