@@ -18,20 +18,20 @@ def verdict():
 def run(monkeypatch,mode="success"):
     result=verdict();initial=deepcopy(result);photo=Image.new("RGB",(400,300),"gray")
     context={"background_preserved":True,"source_scene":"outdoor"};editor=object();validator=object()
-    proof={"physical_text_only":True,"watermark_removed":True,"natural":True,"uncertain":False,"area":"none"}
     check={"watermark_removed":True,"natural":True,"uncertain":False,"area":"none"}
     witness={"status":"unchanged","text_boxes":[{"box":[.5,.3,.7,.4]}]}
     if mode=="changed_text":witness["status"]="changed_text"
     if mode=="no_text":witness["status"]="no_text_witness"
-    if mode=="carrier_uncertain":proof["uncertain"]=True
-    if mode=="watermark_remains":proof["watermark_removed"]=False
     if mode=="judge_uncertain":check["uncertain"]=True
     if mode=="source_ambiguity":result["guard_codes"]=["source_physical_ambiguity"]
     if mode=="identity":editor=validator
-    monkeypatch.setattr("watermark_studio.quality._structured_vqa",lambda *args:([proof],0))
     monkeypatch.setattr("watermark_studio.grounded_review.inspect_grounded",lambda *args:([check],0))
-    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",lambda *args:[
-        ([Region(box=(.8,.8,1,1))] if mode=="fresh_residual" else [],"{}")])
+    def scan(images,encoder,*args):
+        if mode=="carrier_uncertain" and encoder is editor:
+            return [ValueError("Indeterminate native scan") for _ in images]
+        present=(mode=="watermark_remains" and encoder is editor) or (mode=="fresh_residual" and encoder is validator)
+        return [([Region(box=(.8,.8,1,1))] if present else [],"{}") for _ in images]
+    monkeypatch.setattr("watermark_studio.detection.locate_watermarks_batch",scan)
     def refresh(value):
         if mode=="refresh_error":raise RuntimeError("evidence refresh failed")
     monkeypatch.setattr("watermark_studio.evidence.refresh_evidence",refresh)
@@ -83,3 +83,11 @@ def test_quality_inquiry_hook_is_disabled_by_default(monkeypatch):
             source_regions=[[]],editor_context=[context],physical_text_review=enabled)
         assert len(calls)==int(enabled)
     assert calls[0][8]==context
+
+def test_carrier_context_keeps_line_and_surrounding_object_geometry():
+    from watermark_studio.physical_text_review import carrier_context_box
+    for box in [(20,20,220,40),(780,570,995,595),(0,0,15,8)]:
+        result=carrier_context_box(box,(1000,600))
+        l,t,r,b=result
+        assert 0<=l<=box[0]<box[2]<=r<=1000 and 0<=t<=box[1]<box[3]<=b<=600
+        assert r-l==b-t

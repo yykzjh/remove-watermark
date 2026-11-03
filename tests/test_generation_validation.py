@@ -123,3 +123,8 @@ def test_torchao_zero_row_is_preserved_with_positive_amax_floor(monkeypatch):
     monkeypatch.setattr(ao,"quantize_",lambda module,config,**kwargs:captured.append(config))
     quantize_transformer(torch.nn.Linear(8,8),"float8","row",amax_floor=1e-6)
     assert captured[0].activation_value_lb==1e-6
+
+def test_row_fp8_fails_early_without_safe_activation_scaling():
+    with pytest.raises(ValueError,match="zero-row NaNs"):
+        DeploymentConfig(quantization="float8",float8_granularity="row")
+    assert DeploymentConfig(quantization="float8",float8_granularity="row",float8_amax_floor=1e-6)

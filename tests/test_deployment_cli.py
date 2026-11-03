@@ -72,10 +72,10 @@ def test_convolution_and_fp8_options_are_serialized(tmp_path):
     path.write_text("")
     config, _ = parse_deployment([
         "--config", str(path), "--quantization", "float8",
-        "--float8-granularity", "row", "--vae-channels-last", "--cudnn-benchmark",
+        "--float8-granularity", "row", "--float8-amax-floor", "1e-6", "--vae-channels-last", "--cudnn-benchmark",
     ])
     restored = DeploymentConfig.model_validate_json(render_config(config))
-    assert restored.float8_granularity == "row"
+    assert restored.float8_granularity == "row" and restored.float8_amax_floor==1e-6
     assert restored.cudnn_benchmark and restored.vae_channels_last
     assert restored.quantization == "float8"
 

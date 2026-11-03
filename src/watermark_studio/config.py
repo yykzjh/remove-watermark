@@ -199,6 +199,8 @@ class DeploymentConfig(BaseModel):
     def compatible(self):
         if self.quality_physical_text_review and not (self.quality_verifier and self.quality_backend=="independent" and self.protection_physical_vet):
             raise ValueError("Physical text review requires an independent verifier and source physical vetting")
+        if self.quantization=="float8" and self.float8_granularity=="row" and not self.float8_amax_floor:
+            raise ValueError("Per-row FP8 requires a positive float8-amax-floor (e.g. 1e-6) to prevent zero-row NaNs")
         if self.float8_accurate_accum and self.quantization!="float8":
             raise ValueError("Accurate FP8 accumulation requires float8 quantization")
         if self.float8_amax_floor and self.quantization!="float8":
