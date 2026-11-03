@@ -209,3 +209,13 @@ def test_small_footer_without_a_core_does_not_cancel_the_separate_large_panel():
     # Missing metadata for a large target still blocks initialization entirely.
     untouched,used=prefill_whole_reference(original,[panel,footer],{})
     assert not used and untouched.tobytes()==photo_bytes
+
+
+def test_compact_candidate_keeps_scope_physical_text_and_document_semantics():
+    from watermark_studio.prompts import build_compact_focused_prompt
+
+    prompt=build_compact_focused_prompt("panel",(10,30,50,80),(0,0,100,100),scene="document")
+    assert "x=10.0%至50.0%" in prompt and "y=30.0%至80.0%" in prompt
+    assert "今日水印" in prompt and "防伪码" in prompt and "方形阴影" in prompt
+    assert "真实标牌" in prompt and "测量刻度全部保持原样" in prompt
+    assert "document/receipt" in prompt

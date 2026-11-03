@@ -16,6 +16,7 @@ p.add_argument("--selection",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
 p.add_argument("--prompt-profile",choices=["detailed","compact-zh"],default="detailed")
 a=p.parse_args()
+loaded_revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
 assert a.gpu in (0,1,2,3)
 assert not a.work.exists(), "Use a fresh output directory"
 names=json.loads(a.selection.read_text())
@@ -31,7 +32,7 @@ from watermark_studio.quality_loading import load_quality_encoder, load_quality_
 from watermark_studio.worker import load_pipeline, process_batch
 
 if a.prompt_profile=="compact-zh":
-    import watermark_studio.worker as worker
+    from watermark_studio import worker
     from watermark_studio.prompts import build_compact_focused_prompt
     worker.build_focused_prompt=build_compact_focused_prompt
     worker.build_small_overlay_prompt=lambda box,crop,extra="":build_compact_focused_prompt("panel",box,crop,extra)
@@ -87,7 +88,7 @@ report={"variant":a.variant,"prompt_profile":a.prompt_profile,"images":len(rows)
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
-    "revision":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
+    "revision":loaded_revision,
     "baseline_review_to_pass":sum(original[r["file"]]["quality"]["status"]!="passed" and r.get("quality",{}).get("status")=="passed" for r in rows),
     "baseline_pass_to_review":sum(original[r["file"]]["quality"]["status"]=="passed" and r.get("quality",{}).get("status")!="passed" for r in rows),
     "single_gpu":True,"first_generation_only":True,"development_reuse":True}
