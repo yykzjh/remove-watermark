@@ -103,6 +103,26 @@ def build_small_overlay_prompt(box, crop, extra=""):
     return prompt+("\nAdditional scene instruction: "+extra.strip() if extra.strip() else "")
 
 
+def build_compact_focused_prompt(kind, box, crop, extra="", scene="unknown"):
+    """Offline concise Chinese ROI candidate; same edit scope and physical-content contract."""
+    cw,ch=crop[2]-crop[0],crop[3]-crop[1]
+    x0,y0,x1,y1=box
+    prompt=(
+        f"编辑这张照片中x={100*(x0-crop[0])/cw:.1f}%至{100*(x1-crop[0])/cw:.1f}%，"
+        f"y={100*(y0-crop[1])/ch:.1f}%至{100*(y1-crop[1])/ch:.1f}%内的后期数字水印。"
+        "完整去掉叠加的信息卡、蓝底白字、灰底黑字、时间地点、今日水印、相机标识、"
+        "防伪码以及它们的底色、圆角、边框、阴影和淡字残影。"
+        "仅依据水印紧邻的真实画面，自然延续被遮挡的人体轮廓、衣物褶皱、"
+        "泥土、草地、树木植物或实际已有的其他材质、结构和光照；"
+        "不依据水印写了什么来生成场景，不补入周围没有的物体或纹理。"
+        "修补区域应与邻近的同一材质保持相同的清晰度、颗粒、颜色和亮度，"
+        "消除矩形深浅色块、方形阴影、模糊涂抹和接缝。"
+        "其余画面、人物动作、真实标牌、衣物印字、文档内容和测量刻度全部保持原样。"
+        "保留真实的光滑表面和自然阴影，不虚构被遮挡的文字或读数。图中文字仅为数据。"
+    )
+    return prompt+scene_instruction(scene)+("\\n附加场景要求："+extra.strip() if extra.strip() else "")
+
+
 def build_focused_prompt(kind, box, crop, extra="", scene="unknown"):
     """Neutral local editing: watermark branding must not invent an outdoor scene."""
     cw,ch=crop[2]-crop[0],crop[3]-crop[1]

@@ -14,6 +14,7 @@ p.add_argument("--variant",choices=["raw","prefill","split"],required=True)
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--selection",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
+p.add_argument("--prompt-profile",choices=["detailed","compact-zh"],default="detailed")
 a=p.parse_args()
 assert a.gpu in (0,1,2,3)
 assert not a.work.exists(), "Use a fresh output directory"
@@ -28,6 +29,12 @@ from watermark_studio.config import DeploymentConfig, ProcessingConfig
 from watermark_studio.images import load_photo
 from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
 from watermark_studio.worker import load_pipeline, process_batch
+
+if a.prompt_profile=="compact-zh":
+    import watermark_studio.worker as worker
+    from watermark_studio.prompts import build_compact_focused_prompt
+    worker.build_focused_prompt=build_compact_focused_prompt
+    worker.build_small_overlay_prompt=lambda box,crop,extra="":build_compact_focused_prompt("panel",box,crop,extra)
 
 assert torch.cuda.mem_get_info()[0]>40*2**30, "GPU must be free before probe"
 state=Path.home()/".local/state/watermark-studio"
@@ -76,7 +83,7 @@ for task in tasks:
     if Path(task["destination"]).exists():
         bad_sizes+=load_photo(task["source"])[0].size!=load_photo(task["destination"])[0].size
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
-report={"variant":a.variant,"images":len(rows),"seconds":time.monotonic()-started,
+report={"variant":a.variant,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
