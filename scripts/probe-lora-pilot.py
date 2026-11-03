@@ -35,7 +35,7 @@ def validation_reference(row, data, font_path):
     variant = int(row["id"].rsplit("-", 1)[-1])//2
     replay, _, render = render_profile_pair(
         native, variant, random.Random(row["seed"]), font_path, profile="camera-v2")
-    if render | {"kind": row["render"]["kind"]} != row["render"]:
+    if json.loads(json.dumps(render | {"kind": row["render"]["kind"]})) != row["render"]:
         raise ValueError("Frozen renderer metadata no longer matches")
     reference = replay.crop(tuple(row["roi_context_crop_native_parent"]))
     if dimensions(reference, row["model_input_resolution"]) != frozen.size:
