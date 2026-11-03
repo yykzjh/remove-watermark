@@ -498,13 +498,21 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
                     "_denoising_context_regions": ([r.model_dump() for r in state["denoising_regions"]]
                         if config.protect_denoising_context and state["whole_generation"]
                         and state["protected_regions"] is not None else None),
-                    "_semantic_reference": (source if hint_applied or (prefilled and state["whole_generation"]
-                                            and config.prefill_original_semantics) else None),
+                    # Original visual semantics use the same ROI geometry as the VAE.
+                    "_semantic_reference": (source if hint_applied else
+                        (source if state["whole_generation"] else source.crop(crop))
+                        if prefilled and config.prefill_original_semantics else None),
                     "prompt": (build_full_prompt(extra_prompt,options.whole_prompt_profile)
                                if prefilled and state["whole_generation"] and config.prefill_original_semantics else
                                build_gray_outpaint_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] and config.prefill_style=="gray" else
                                build_prefilled_full_prompt(extra_prompt,scene) if prefilled and state["whole_generation"] else
-                               build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
+                               build_small_overlay_prompt(box,crop,extra_prompt)+scene_instruction(scene)
+                                if prefilled and config.prefill_original_semantics and small else
+                                build_focused_prompt(region.kind,box,crop,extra_prompt,scene)
+                                if prefilled and config.prefill_original_semantics and focused else
+                                build_prompt(region.kind,box,crop,extra_prompt)
+                                if prefilled and config.prefill_original_semantics else
+                                build_prefilled_prompt(box,crop,extra_prompt,scene) if prefilled else
                                build_full_prompt(extra_prompt, options.whole_prompt_profile) if state["whole_generation"] else
                                build_small_overlay_prompt(box,crop,extra_prompt)+scene_instruction(scene)
                                if small else build_focused_prompt(region.kind,box,crop,extra_prompt,scene)

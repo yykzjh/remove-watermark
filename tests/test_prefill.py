@@ -46,7 +46,8 @@ def test_prefill_prompt_requires_actual_texture_not_a_blank_or_invented_landscap
     assert "document/receipt" in prompt and "do not assume outdoor terrain" in prompt
 
 
-def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_path,monkeypatch):
+@pytest.mark.parametrize("original_semantics",[False,True])
+def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_path,monkeypatch,original_semantics):
     import json
     import sys
     from types import SimpleNamespace
@@ -67,7 +68,13 @@ def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_p
     calls=[]
     def generate(pipe,items,*args):
         calls.append(len(items))
-        assert "pre-erased" in items[0]["prompt"]
+        assert ("pre-erased" in items[0]["prompt"]) is not original_semantics
+        semantic=items[0].get("_semantic_reference")
+        if original_semantics:
+            assert semantic.size==items[0]["image"].size
+            assert semantic.getpixel((100,280))==(0,0,255)
+        else:
+            assert semantic is None
         assert items[0]["image"].getpixel((100,280))!=(0,0,255)
         return [Image.new("RGB",(64,64),(80,100,60))]
     monkeypatch.setattr("watermark_studio.batching.independent_batch",generate)
@@ -77,7 +84,7 @@ def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_p
     pipe=SimpleNamespace(text_encoder=None,processor=None,_execution_device="cpu")
     row=process_batch([{"source":str(source),"destination":str(target),"relative":"source.png"}],
         ProcessingConfig(scope="full_image",preserve_background=True,first_pass_mode="focused"),
-        DeploymentConfig(prefill_overlays=True),pipe)[0]
+        DeploymentConfig(prefill_overlays=True,prefill_original_semantics=original_semantics),pipe)[0]
     assert row["ok"] and row["conditioning_prefill"]==[True] and row["model_inferences"]==1
     assert row["opaque_core_boxes"]==[None]
     assert calls==[1] and source.read_bytes()==original
