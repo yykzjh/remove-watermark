@@ -90,3 +90,56 @@ def translucent_body_hint(source, records, transmission=.55, *, foreground=255.,
         audits.append(audit)
     return (Image.fromarray(np.rint(result).astype(np.uint8)) if any(r["applied"] for r in audits)
             else source), audits
+
+
+def roi_body_conditioning(source, box, transmission=.45):
+    """Offline VAE-only assumption, never final recovered pixels or a QA proof."""
+    if not math.isfinite(transmission) or not .35 <= transmission <= .85:
+        raise ValueError("Finite bounded conditioning transmission required")
+    if len(box) != 4 or any(type(v) is not int for v in box):
+        raise ValueError("Native integer source ROI required")
+    l,t,r,b=box
+    if not 0 <= l < r <= source.width or not 0 <= t < b <= source.height:
+        raise ValueError("Conditioning ROI escaped source")
+    audit={"method":"assumed_neutral_roi_vae_only_v1","applied":False,
+           "transmission_assumption":transmission,"foreground_assumption":255,
+           "quality_permission":False,"final_pixels":False}
+    if min(r-l,b-t) < 64 or (r-l)*(b-t) > .4*source.width*source.height:
+        return source,audit|{"reason":"unsupported_extent"}
+    rgb=np.asarray(source.convert("RGB"),dtype=np.float32)
+    inset=max(8,round((r-l)*.08))
+    patch=rgb[t:b,l+inset:r-inset]
+    median=np.median(patch,axis=1)
+    neutral=(np.ptp(median,axis=1)<40)&(median.mean(axis=1)>150)
+    runs=[]
+    start=None
+    for index,good in enumerate(neutral.tolist()+[False]):
+        if good and start is None:
+            start=index
+        elif not good and start is not None:
+            runs.append((start,index))
+            start=None
+    if not runs:
+        return source,audit|{"reason":"no_neutral_body"}
+    top,end=max(runs,key=lambda span:span[1]-span[0])
+    if end-top < max(48,round((b-t)*.22)):
+        return source,audit|{"reason":"short_neutral_body"}
+    left,right=l+inset,r-inset
+    top,end=t+top+4,t+end-4
+    patch=rgb[top:end,left:right]
+    eligible=(patch.min(axis=2)>150)&(np.ptp(patch,axis=2)<55)
+    if eligible.mean()<.45 or patch.mean(axis=2)[eligible].std()<4:
+        return source,audit|{"reason":"no_transmitted_variation"}
+    recovered=(patch-255*(1-transmission))/transmission
+    clipped=np.any((recovered<0)|(recovered>255),axis=2)
+    if clipped[eligible].mean()>.15:
+        return source,audit|{"reason":"assumption_clips_background"}
+    yy,xx=np.indices((end-top,right-left))
+    distance=np.minimum.reduce([xx,yy,right-left-1-xx,end-top-1-yy])
+    weight=np.clip(distance/12,0,1)
+    weight=(weight*weight*(3-2*weight))[...,None]
+    output=rgb.copy()
+    output[top:end,left:right]=patch*(1-weight)+np.clip(recovered,0,255)*weight
+    audit.update(applied=True,body_pixels=[left,top,right,end],
+                 reason="unverified_conditioning_assumption_only")
+    return Image.fromarray(np.rint(output).astype(np.uint8)),audit

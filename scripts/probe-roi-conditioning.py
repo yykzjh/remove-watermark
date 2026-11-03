@@ -20,6 +20,7 @@ p.add_argument("--source-edge-small-panels",action="store_true")
 p.add_argument("--tone-step-repair",action="store_true")
 p.add_argument("--qwen-glyph-stencil",action="store_true")
 p.add_argument("--source-transmission-hint",action="store_true")
+p.add_argument("--roi-body-hint",type=float,default=0)
 p.add_argument("--context",type=float,default=.45)
 p.add_argument("--repair-blending",choices=["feather","harmonic","harmonic-fine"])
 p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
@@ -46,6 +47,8 @@ p.add_argument("--lora-alpha",type=float,default=0)
 p.add_argument("--lora-scale",type=float,default=1)
 a=p.parse_args()
 assert .1<=a.context<=2
+assert a.roi_body_hint==0 or .35<=a.roi_body_hint<=.85
+assert not (a.roi_body_hint and a.source_transmission_hint)
 assert a.sigma_profile=="native" or not (a.uniform_steps or a.roi_steps), "Explicit sigma and uniform/area schedules are mutually exclusive"
 assert bool(a.lora_path)==bool(a.lora_sha256), "Pin an explicit adapter SHA"
 assert bool(a.tiny_inpaint_path)==bool(a.tiny_inpaint_sha256), "Pin auxiliary weights"
@@ -92,8 +95,9 @@ guidance_audits=[]
 context_mappings=[]
 transmission_audits=[]
 stencil_audits=[]
-if a.source_transmission_hint:
+if a.source_transmission_hint or a.roi_body_hint:
     from watermark_studio import roi_grouping
+    from watermark_studio.translucent_hint import roi_body_conditioning
     from watermark_studio.translucent_recovery import recover_translucent_body
     source_coalesce=roi_grouping.coalesce_edits
     def hinted_coalesce(edits,mode):
@@ -104,9 +108,12 @@ if a.source_transmission_hint:
             source=state["source"];l,t,r,b=edit["box"]
             if (r-l)*(b-t)<.035*source.width*source.height:
                 continue
-            hint,audit=recover_translucent_body(source,source,
-                (l/source.width,t/source.height,r/source.width,b/source.height),
-                _native_padding_search=True)
+            if a.roi_body_hint:
+                hint,audit=roi_body_conditioning(source,(l,t,r,b),a.roi_body_hint)
+            else:
+                hint,audit=recover_translucent_body(source,source,
+                    (l/source.width,t/source.height,r/source.width,b/source.height),
+                    _native_padding_search=True)
             transmission_audits.append({"file":state["task"]["relative"],**audit,
                                          "quality_permission":False,"final_source_pixels":False})
             if audit["applied"]:
@@ -253,7 +260,7 @@ for task in tasks:
     if Path(task["destination"]).exists():
         bad_sizes+=load_photo(task["source"])[0].size!=load_photo(task["destination"])[0].size
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
-report={"sigma_profile":a.sigma_profile,"qwen_glyph_stencil":a.qwen_glyph_stencil,"source_transmission_hint":a.source_transmission_hint,"stencil_audits":stencil_audits,"transmission_audits":transmission_audits,"variant":a.variant,"roi_resolution":a.roi_resolution,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
+report={"roi_body_hint":a.roi_body_hint,"sigma_profile":a.sigma_profile,"qwen_glyph_stencil":a.qwen_glyph_stencil,"source_transmission_hint":a.source_transmission_hint,"stencil_audits":stencil_audits,"transmission_audits":transmission_audits,"variant":a.variant,"roi_resolution":a.roi_resolution,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
