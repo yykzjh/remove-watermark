@@ -671,9 +671,10 @@ def process_batch(tasks, options, config, pipe, batch_limits=None):
             "translucent_hint":[r for e in edits if e["state"] is state for r in e.get("translucent_hint",[])],
             "denoising_context": [e.get("_denoising_context_log") for e in edits if e["state"] is state
                                   and e.get("_denoising_context_log")],
-            "original_semantic_reference": bool(config.prefill_original_semantics and state["whole_generation"]
-                and any(e["prefilled"] for e in edits if e["state"] is state))
-                or any(any(r.get("applied") for r in e.get("translucent_hint",[])) for e in edits if e["state"] is state),
+            "original_semantic_reference": any(e.get("_semantic_reference") is not None
+                                               for e in edits if e["state"] is state),
+            "semantic_reference_sizes": [list(e["_semantic_reference"].size)
+                if e.get("_semantic_reference") is not None else None for e in edits if e["state"] is state],
             "whole_conditioning_source":("assumed_translucent_body_hint" if any(
                 any(r.get("applied") for r in e.get("translucent_hint",[])) for e in edits if e["state"] is state)
                 else "source_proven_gray_initialization" if config.prefill_style=="gray" and state["whole_generation"]

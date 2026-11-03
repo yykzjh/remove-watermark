@@ -74,7 +74,7 @@ for start in range(0,len(tasks),cfg.batch_window):
     results=process_batch(group,opts,cfg,pipe,limits)
     assert len(results)==len(group)
     with (a.work/"results.jsonl").open("a") as f:
-        for row in results:f.write(json.dumps(row,ensure_ascii=False)+"\\n")
+        for row in results:f.write(json.dumps(row,ensure_ascii=False)+"\n")
     rows.extend(results)
     print(json.dumps({"phase":"progress","variant":a.variant,"done":len(rows),
         "counts":dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))}),flush=True)

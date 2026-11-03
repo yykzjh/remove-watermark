@@ -87,6 +87,8 @@ def test_prefill_does_not_rewrite_source_or_add_a_second_diffusion_attempt(tmp_p
         DeploymentConfig(prefill_overlays=True,prefill_original_semantics=original_semantics),pipe)[0]
     assert row["ok"] and row["conditioning_prefill"]==[True] and row["model_inferences"]==1
     assert row["opaque_core_boxes"]==[None]
+    assert row["original_semantic_reference"] is original_semantics
+    assert row["semantic_reference_sizes"]==[row["model_reference_sizes"][0] if original_semantics else None]
     assert calls==[1] and source.read_bytes()==original
     with Image.open(target) as output:
         assert output.size==(800,600) and output.getpixel((700,50))==(80,100,60)

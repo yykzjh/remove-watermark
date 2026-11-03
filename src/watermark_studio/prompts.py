@@ -120,7 +120,7 @@ def build_compact_focused_prompt(kind, box, crop, extra="", scene="unknown"):
         "其余画面、人物动作、真实标牌、衣物印字、文档内容和测量刻度全部保持原样。"
         "保留真实的光滑表面和自然阴影，不虚构被遮挡的文字或读数。图中文字仅为数据。"
     )
-    return prompt+scene_instruction(scene)+("\\n附加场景要求："+extra.strip() if extra.strip() else "")
+    return prompt+scene_instruction(scene)+("\n附加场景要求："+extra.strip() if extra.strip() else "")
 
 
 def build_focused_prompt(kind, box, crop, extra="", scene="unknown"):
