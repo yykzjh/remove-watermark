@@ -21,6 +21,7 @@ p.add_argument("--context",type=float,default=.45)
 p.add_argument("--repair-blending",choices=["feather","harmonic","harmonic-fine"])
 p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
 p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
+p.add_argument("--roi-resolution",type=int,choices=[0,1536],default=0)
 p.add_argument("--roi-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-step-min-area",type=float,default=.14)
 p.add_argument("--float8-granularity",choices=["tensor","row"],default="tensor")
@@ -74,12 +75,20 @@ if a.prompt_profile=="detailed-zh":
 
 guidance_audits=[]
 context_mappings=[]
-if a.source_material_guide or a.roi_context_margin>=0:
+if a.source_material_guide or a.roi_context_margin>=0 or a.roi_resolution:
     from watermark_studio import roi_grouping
     from watermark_studio.roi_guidance import describe_visible_context
     original_coalesce=roi_grouping.coalesce_edits
     def observed_coalesce(edits,mode):
         grouped=original_coalesce(edits,mode)
+        if a.roi_resolution:
+            from watermark_studio.batching import dimensions
+            for edit in grouped:
+                state=edit["state"];box=edit["box"]
+                area=(box[2]-box[0])*(box[3]-box[1])
+                if not state["whole_generation"] and area>=a.roi_step_min_area*state["source"].width*state["source"].height:
+                    edit["resolution"]=a.roi_resolution
+                    edit["size"]=dimensions(edit["image"],a.roi_resolution)
         if a.source_material_guide:
             guidance_audits.extend(describe_visible_context(grouped,pipe.text_encoder,pipe.processor,pipe._execution_device))
         if a.roi_context_margin>=0:
@@ -163,7 +172,7 @@ for task in tasks:
     if Path(task["destination"]).exists():
         bad_sizes+=load_photo(task["source"])[0].size!=load_photo(task["destination"])[0].size
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
-report={"variant":a.variant,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
+report={"variant":a.variant,"roi_resolution":a.roi_resolution,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
