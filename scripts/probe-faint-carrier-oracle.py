@@ -49,7 +49,7 @@ def main():
     assert all(c.get("injected_remaining_overlay") for c in cases)
     torch.set_num_threads(1);logging.disable_progress_bar()
     cache=Path.home()/".cache/watermark-models/models"
-    paths=[cache/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master/text_encoder",
+    paths=[cache/"Qwen--Qwen3-VL-8B-Instruct/snapshots/master",
            cache/"Qwen--Qwen3-VL-4B-Instruct/snapshots/master"]
     identity=compare_model_weights(*paths)
     assert identity["relation"]=="different_weights"
