@@ -74,3 +74,15 @@ def test_clean_and_marked_pairs_use_the_exact_same_label_independent_view_geomet
     assert texts(first)==texts(second)
     images=lambda chat:[r["image"].size for r in chat[-1]["content"] if r["type"]=="image"]
     assert images(first)==images(second)
+
+
+def test_invisible_synthetic_positive_is_rejected_without_defining_a_native_quality_threshold():
+    import numpy as np
+
+    from watermark_studio.quality_presence import measurable_overlay
+    clean=Image.new("RGB",(300,200),"white")
+    assert not measurable_overlay(clean,clean.copy())["usable"]
+    pixels=np.asarray(clean).copy();pixels[10:20,20:40]=230
+    report=measurable_overlay(clean,Image.fromarray(pixels))
+    assert report["usable"] and report["pixels_delta_at_least_3"]==200
+    assert "Synthetic" in report["scope"]

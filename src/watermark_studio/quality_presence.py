@@ -100,3 +100,17 @@ def branch_weights(tree,ids,branch=3.,forced=.2):
     if node:
         raise ValueError("Completion must include one valid terminal EOS")
     return values
+
+
+def measurable_overlay(clean,marked):
+    """Reject invisible synthetic positives before training, never native outputs."""
+    import numpy as np
+    if clean.size!=marked.size:
+        raise ValueError("Synthetic pair geometry differs")
+    delta=np.abs(np.asarray(clean.convert("RGB"),dtype=np.int16)-
+                 np.asarray(marked.convert("RGB"),dtype=np.int16)).max(axis=2)
+    support=int((delta>=3).sum())
+    maximum=int(delta.max())
+    return {"usable":maximum>=6 and support>=max(24,round(delta.size*.00005)),
+            "max_rgb_delta":maximum,"pixels_delta_at_least_3":support,
+            "scope":"Synthetic label visibility only; never a photographic repair quality threshold"}
