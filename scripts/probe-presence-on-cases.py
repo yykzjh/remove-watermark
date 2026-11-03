@@ -21,6 +21,15 @@ def case_chat(case, resolution):
                        [Region.model_validate(r) for r in case["regions"]], resolution=resolution)
 
 
+def score_case(case):
+    # Controlled injections are evaluation labels only, never model-input hints.
+    if type(case.get("expected_overlay_present")) is bool:
+        return case
+    if isinstance(case.get("injected_remaining_overlay"), dict):
+        return case | {"expected_overlay_present": True, "presence_label_origin": "frozen_controlled_injection"}
+    return case
+
+
 def main():
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("--manifest", type=Path, required=True)
@@ -38,7 +47,7 @@ def main():
     from watermark_studio.training_reservation import offline_reservation
     reserved = offline_reservation(a.gpu)
     helper = runpy.run_path(str(Path(__file__).with_name("benchmark-verifier-known-source.py")))
-    cases = helper["manifest_cases"](a.manifest)
+    cases = [score_case(case) for case in helper["manifest_cases"](a.manifest)]
     if not 1 <= len(cases) <= 1000 or len({r["file"] for r in cases}) != len(cases):
         raise ValueError("Unique bounded frozen cases required")
     hashes = helper["file_hashes"](cases)

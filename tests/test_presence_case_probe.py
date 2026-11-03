@@ -25,3 +25,12 @@ def test_presence_case_chat_does_not_leak_injected_position_or_label(tmp_path):
             assert a["image"].tobytes() == b["image"].tobytes()
         else:
             assert a == b
+
+
+def test_shadow_failure_is_not_assumed_to_be_overlay():
+    module = runpy.run_path(str(Path(__file__).parents[1]/"scripts/probe-presence-on-cases.py"))
+    assert "expected_overlay_present" not in module["score_case"]({"expected": "review", "kind": "shadow"})
+    positive = module["score_case"]({"injected_remaining_overlay": {"box": [.1, .1, .2, .2]}})
+    assert positive["expected_overlay_present"] is True
+    clean = {"expected_overlay_present": False, "injected_remaining_overlay": {}}
+    assert module["score_case"](clean)["expected_overlay_present"] is False
