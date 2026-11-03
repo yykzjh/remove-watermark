@@ -38,6 +38,15 @@ def global_word(word,crop,size):
     return mapped
 
 
+def actual_views_support(base, presence, editor):
+    """Agreement only opens the existing fresh actual-output residual scan."""
+    return (base.get("natural") is True and base.get("content_preserved") is True
+            and base.get("uncertain") is False and not base.get("guard_codes")
+            and presence.get("overlay_present") is False and presence.get("uncertain") is False
+            and editor.get("watermark_removed") is True and editor.get("natural") is True
+            and editor.get("uncertain") is False)
+
+
 def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--manifest",type=Path,required=True)
@@ -45,6 +54,9 @@ def main():
     p.add_argument("--gpu",type=int,choices=[0,1,2,3],required=True)
     p.add_argument("--presence-adapter",type=Path,required=True)
     p.add_argument("--presence-adapter-sha256",required=True)
+    p.add_argument("--actual-output-consensus",action="store_true",
+                   help="Never mask pixels in inspector views; require independent actual-output agreement")
+    p.add_argument("--presence-resolution",type=int,choices=[768,1536,3072],default=768)
     a=p.parse_args()
     assert not a.target.exists()
     from watermark_studio.training_reservation import offline_reservation
@@ -130,11 +142,11 @@ def main():
             draw.polygon([(round(x*after.width),round(y*after.height)) for x,y in word["quad"]],fill=255)
         mask=mask.filter(ImageFilter.MaxFilter(5))
         fraction=float((np.asarray(mask)>0).mean())
-        if fraction>.02:
+        if fraction>.02 and not a.actual_output_consensus:
             audit["gate"]="counterfactual_word_area_exceeded"
             return {"watermark_removed":False,"natural":True,"uncertain":True,"area":"none"}
         diagnostic=after.copy()
-        for word in selected:
+        for word in ([] if a.actual_output_consensus else selected):
             native=pixel_box(word["box"],after.size)
             radius=max(8.,(native[3]-native[1])*.75)
             localmask=Image.new("L",after.size)
@@ -144,6 +156,33 @@ def main():
         audit.update(gate="native_word_and_dual_carrier_proofs",words=selected,
             mask_fraction=fraction,actual_output_pixels_changed=False,
             naturalness_source="Frozen actual-output base verdict, never the diagnostic blur")
+        if a.actual_output_consensus:
+            audit.update(gate="native_words_dual_carriers_actual_output_consensus",
+                inspection_pixels_masked=False, residual_scan_view="Unmodified actual output")
+            adapter_controller.base_model.enable_adapter_layers()
+            try:
+                actual_chat=output_chat(before,after,current["regions"],resolution=a.presence_resolution)
+                for box in boxes:
+                    from watermark_studio.images import context_box
+                    crop=context_box(pixel_box(box,after.size),after.size,1.)
+                    actual_chat[0]["content"][-1:-1]=[
+                        {"type":"text","text":"同一真实输出的原生文字局部；实物文字上也可能另叠加淡字或代码。裁切边缘不是水印。"},
+                        {"type":"image","image":preview(after.crop(crop),768)}]
+                pred,_=_structured_vqa([actual_chat],FIELDS,model,processor,"cuda:0",96)
+            finally:
+                adapter_controller.base_model.disable_adapter_layers()
+            audit["actual_presence"]=pred[0]
+            if pred[0]["overlay_present"] or pred[0]["uncertain"]:
+                return {"watermark_removed":False,"natural":current["base"]["natural"],
+                        "uncertain":True,"area":pred[0]["area"]}
+            editor_check=original_reinspect(before,after,boxes,editor,editor_processor,
+                device,max(1536,resolution),max_tokens,output_only=True)
+            audit["editor_actual_output"]=editor_check
+            supported=actual_views_support(current["base"],pred[0],editor_check)
+            # No diagnostic image is registered: the remaining-region scan in
+            # cross_review.reconsider must inspect the ORIGINAL output pixels.
+            return {"watermark_removed":supported,"natural":current["base"]["natural"],
+                    "uncertain":not supported,"area":editor_check.get("area","none")}
         # Inspect the ACTUAL output with a separate learned predicate before any
         # counterfactual decision. It can veto; it cannot approve by itself.
         adapter_controller.base_model.enable_adapter_layers()
@@ -201,6 +240,8 @@ def main():
         return [{"kind":"panel","box":w["box"]} for w in eligible[:2]]
 
     def locate(photos,encoder,proc,device,*args,**kwargs):
+        if a.actual_output_consensus and current.get("diagnostic") is not None:
+            raise ValueError("Actual-output consensus cannot register an altered inspector view")
         if current.get("diagnostic") is not None and len(photos)==1 and photos[0] is current.get("after"):
             current["audit"]["residual_scan_view"]="Only proven physical OCR glyphs blurred; all other pixels retained"
             return original_detect([current["diagnostic"]],encoder,proc,device,*args,**kwargs)
@@ -241,7 +282,7 @@ def main():
                         value["cross_review"]=inquiry.get("cross_review",{})
                         value["seconds"]=inquiry.get("seconds",value.get("seconds",0))
                         if inquiry.get("retry_recheck_only"):value["retry_recheck_only"]=True
-                value=constraint(case,value);value["ocr_bound_counterfactual"]=current["audit"]
+                value=constraint(case,value);value["physical_actual_output_appeal" if a.actual_output_consensus else "ocr_bound_counterfactual"]=current["audit"]
                 row=case|{"baseline_quality":baseline,"quality":value}
                 rows.append(row);log.write(json.dumps(row,ensure_ascii=False)+chr(10));log.flush()
                 if len(rows)%4==0:print(json.dumps({"done":len(rows),"counts":dict(collections.Counter(r["quality"]["status"] for r in rows))}),flush=True)
@@ -258,7 +299,11 @@ def main():
         "added_false_accept_files":sorted(newbad-oldbad),"false_accept_files":sorted(newbad),
         "false_refuse_files":[r["file"] for r in rows if r.get("expected")=="passed" and r["quality"]["status"]!="passed"],
         "revision":revision,"source_bytes_unchanged":True,"additional_generations":0,"production_adopted":False,
-        "scope":"Experimental physically-proven OCR-glyph counterfactual inspection; original natural/content/numeric/uncertainty vetoes retained"}
+        "actual_output_consensus":a.actual_output_consensus,"presence_resolution":a.presence_resolution,
+        "scope":("Unmodified actual output only; native OCR/dual-carrier proof plus learned presence and editor whole-output agreement, "
+                 "then fresh unfiltered actual-output residual scan; all original natural/content/numeric/uncertainty vetoes retained"
+                 if a.actual_output_consensus else
+                 "Experimental physically-proven OCR-glyph counterfactual inspection; original natural/content/numeric/uncertainty vetoes retained")}
     (a.target/"report.json").write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)
 
 
