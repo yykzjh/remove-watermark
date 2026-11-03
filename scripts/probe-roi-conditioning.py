@@ -14,7 +14,7 @@ p.add_argument("--variant",choices=["raw","raw-opaque","prefill","split"],requir
 p.add_argument("--baseline-job",required=True)
 p.add_argument("--selection",type=Path,required=True)
 p.add_argument("--work",type=Path,required=True)
-p.add_argument("--prompt-profile",choices=["detailed","compact-zh","detailed-zh"],default="detailed")
+p.add_argument("--prompt-profile",choices=["detailed","compact-zh","detailed-zh","precise-en"],default="detailed")
 p.add_argument("--source-material-guide",action="store_true")
 p.add_argument("--source-edge-small-panels",action="store_true")
 p.add_argument("--tone-step-repair",action="store_true")
@@ -73,6 +73,15 @@ if a.prompt_profile=="detailed-zh":
     )
     worker.build_focused_prompt=build_detailed_chinese_focused_prompt
     worker.build_small_overlay_prompt=build_detailed_chinese_small_prompt
+
+if a.prompt_profile=="precise-en":
+    from watermark_studio import worker
+    from watermark_studio.prompts import (
+        build_precise_english_focused_prompt,
+        build_precise_english_small_prompt,
+    )
+    worker.build_focused_prompt=build_precise_english_focused_prompt
+    worker.build_small_overlay_prompt=build_precise_english_small_prompt
 
 guidance_audits=[]
 context_mappings=[]
