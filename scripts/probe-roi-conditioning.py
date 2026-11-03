@@ -31,6 +31,8 @@ p.add_argument("--roi-context-margin",type=int,choices=range(-1,17),default=-1,
                help="Offline original-ROI source-flow context; -1 disables, otherwise latent-cell buffer")
 p.add_argument("--float8-accurate-accum",action="store_true")
 p.add_argument("--float8-amax-floor",type=float,default=0)
+p.add_argument("--tiny-inpaint-path",type=Path)
+p.add_argument("--tiny-inpaint-sha256",default="")
 p.add_argument("--lora-path",type=Path)
 p.add_argument("--lora-sha256",default="")
 p.add_argument("--lora-alpha",type=float,default=0)
@@ -38,6 +40,7 @@ p.add_argument("--lora-scale",type=float,default=1)
 a=p.parse_args()
 assert .1<=a.context<=2
 assert bool(a.lora_path)==bool(a.lora_sha256), "Pin an explicit adapter SHA"
+assert bool(a.tiny_inpaint_path)==bool(a.tiny_inpaint_sha256), "Pin auxiliary weights"
 loaded_revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
 assert a.gpu in (0,1,2,3)
 assert not a.work.exists(), "Use a fresh output directory"
@@ -124,6 +127,23 @@ pipe=load_pipeline(cfg,str(model))
 pipe._quality_encoder=load_quality_encoder(cfg.quality_model,cfg,pipe._execution_device)
 pipe._quality_processor=load_quality_processor(cfg.quality_model)
 pipe._quality_weights_relation="different_weights"
+if a.tiny_inpaint_path:
+    from watermark_studio import batching
+    from watermark_studio.tiny_inpaint import TinyInpainter, tiny_eligible
+    auxiliary = TinyInpainter(a.tiny_inpaint_path, a.tiny_inpaint_sha256, pipe._execution_device)
+    original_batch = batching.independent_batch
+    def routed_batch(pipeline, items, resolution, kv_cache):
+        # No candidate contest or fallback: each ROI runs exactly one chosen backend.
+        chosen = [tiny_eligible(item) for item in items]
+        patches = [None]*len(items)
+        ordinary = [item for item, route in zip(items, chosen) if not route]
+        if ordinary:
+            generated = iter(original_batch(pipeline, ordinary, resolution, kv_cache))
+        for index, (item, route) in enumerate(zip(items, chosen)):
+            patches[index] = auxiliary(item) if route else next(generated)
+        return patches
+    batching.independent_batch = routed_batch
+
 print(json.dumps({"phase":"loaded","variant":a.variant,"seconds":time.monotonic()-load_start}),flush=True)
 started=time.monotonic();rows=[];limits={}
 for start in range(0,len(tasks),cfg.batch_window):
