@@ -14,6 +14,7 @@ p.add_argument("--gpu",type=int,required=True)
 p.add_argument("--manifest",type=Path)
 p.add_argument("--controls",type=Path)
 p.add_argument("--frozen-baseline-job")
+p.add_argument("--known-bad",type=Path)
 p.add_argument("--output",type=Path,required=True)
 a=p.parse_args()
 assert a.gpu in (0,1,2,3) and not a.output.exists()
@@ -34,13 +35,16 @@ from watermark_studio.text_preservation import OutputTextPreservation
 spec=importlib.util.spec_from_file_location("verifier_benchmark",Path(__file__).with_name("benchmark-verifier-known-source.py"))
 helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
 cases=helper.manifest_cases(a.manifest) if a.manifest else helper.known_control_cases(a.controls)
-assert len(cases)<=1000
+extra=helper.manifest_cases(a.known_bad) if a.known_bad else []
+assert all(c.get("expected")=="review" for c in extra)
+cases+=extra
+assert len(cases)<=1000 and len({c["file"] for c in cases})==len(cases)
 hashes=helper.file_hashes(cases)
 baseline={}
 if a.frozen_baseline_job:
     baseline={r["file"]:r for r in map(json.loads,
         (Path.home()/".local/state/watermark-studio"/a.frozen_baseline_job/"results.jsonl").read_text().splitlines())}
-    assert {c["file"] for c in cases}<=baseline.keys()
+    assert {c["file"] for c in cases if c not in extra}<=baseline.keys()
 revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
 torch.set_num_threads(1)
 cfg=DeploymentConfig(quality_verifier=True,quality_backend="independent",quality_quantization="none")
@@ -62,7 +66,7 @@ with (a.output/"results.jsonl").open("w") as stream:
     for case in cases:
         before,after=load_photo(case["source"])[0],load_photo(case["output"])[0]
         context=helper.case_context(case)
-        if baseline:
+        if case["file"] in baseline:
             verdict=copy.deepcopy(baseline[case["file"]]["quality"])
         else:
             verdict=verify_batch([(before,after)],validator,vp,"cuda:0",
