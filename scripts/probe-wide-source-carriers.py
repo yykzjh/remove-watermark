@@ -11,6 +11,7 @@ p.add_argument("--gpu",type=int,required=True)
 p.add_argument("--job",required=True)
 p.add_argument("--physical-fixtures",type=Path,required=True)
 p.add_argument("--output",type=Path,required=True)
+p.add_argument("--structured-source",action="store_true",help="Use the existing symmetric source-only identity protocol")
 a=p.parse_args()
 assert not a.output.exists()
 os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
@@ -22,6 +23,10 @@ from watermark_studio.cross_review import _classify
 from watermark_studio.images import load_photo
 from watermark_studio.quality_loading import load_quality_encoder, load_quality_processor
 from watermark_studio.source_vetting import confirmed_digital, source_carrier_chats
+
+if a.structured_source:
+    from watermark_studio.source_digital_proof import _classify, digital_overlay
+    confirmed_digital=digital_overlay
 
 torch.set_num_threads(1)
 assert torch.cuda.mem_get_info()[0]>30*2**30
@@ -60,7 +65,7 @@ for i,c in enumerate(cases):
     records.append(row)
     print(json.dumps({"done":i+1,"total":len(cases),"cohort":c["cohort"],"digital_proof":row["digital_proof"]}),flush=True)
 bad=sum(c["digital_proof"] for c in records if c["cohort"]=="known_physical_veto")
-result={"physical_controls":sum(c["cohort"]=="known_physical_veto" for c in records),
+result={"structured_source":a.structured_source,"physical_controls":sum(c["cohort"]=="known_physical_veto" for c in records),
         "physical_misapproved":bad,
         "native_disputes":sum(c["cohort"]=="unlabelled_native_dispute" for c in records),
         "native_confirmed_digital":sum(c["digital_proof"] for c in records if c["cohort"]=="unlabelled_native_dispute"),
