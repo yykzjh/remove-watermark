@@ -23,7 +23,7 @@ def main():
     p=argparse.ArgumentParser(__doc__)
     p.add_argument("--manifest",type=Path,required=True)
     p.add_argument("--target",type=Path,required=True)
-    p.add_argument("--backend",choices=["rapid","ppocrv6"],default="rapid")
+    p.add_argument("--backend",choices=["rapid","ppocrv6","ppocrv5-server"],default="rapid")
     p.add_argument("--model-path",type=Path)
     p.add_argument("--model-sha256",default="")
     p.add_argument("--gpu",type=int,choices=[0,1,2,3])
@@ -35,16 +35,16 @@ def main():
     a=p.parse_args()
     assert not a.target.exists() and .1<=a.box_threshold<=.7 and .05<=a.pixel_threshold<=.5
     assert 0<=a.clahe_clip<=8
-    if bool(a.model_path)!=bool(a.model_sha256) or (a.model_path and a.backend!="ppocrv6"):
-        p.error("Pin both candidate model path and SHA256 for PP-OCRv6")
-    if a.backend=="ppocrv6":
+    if bool(a.model_path)!=bool(a.model_sha256) or (a.model_path and a.backend not in {"ppocrv6","ppocrv5-server"}):
+        p.error("Pin both candidate model path and SHA256 for a native OCR backend")
+    if a.backend in {"ppocrv6","ppocrv5-server"}:
         if a.gpu is None:p.error("Native GPU locator requires an authorized GPU")
         from watermark_studio.training_reservation import offline_reservation
         reservation=offline_reservation(a.gpu)
         import os
         os.environ["CUDA_VISIBLE_DEVICES"]=str(a.gpu)
     elif a.contrast_space!="gray":
-        p.error("Lab contrast pilot requires the pinned PP-OCRv6 backend")
+        p.error("Lab contrast pilot requires a pinned native OCR backend")
     elif a.gpu is not None:
         p.error("CPU RapidOCR does not allocate a GPU")
     from PIL import Image
@@ -57,15 +57,21 @@ def main():
     assert all(c.get("injected_remaining_overlay") for c in cases)
     hashes=helper["file_hashes"](cases)
     locator=None
-    if a.backend=="ppocrv6":
+    if a.backend in {"ppocrv6","ppocrv5-server"}:
         import torch
 
-        from watermark_studio.native_text import NativeTextLocator
+        from watermark_studio.native_text import OFFICIAL_SERVER_DET_SHA256, NativeTextLocator
         torch.set_num_threads(1)
-        path=a.model_path or Path.home()/".cache/watermark-models/models/PaddlePaddle--PP-OCRv6_small_det_safetensors/snapshots/master"
+        folder=("PaddlePaddle--PP-OCRv6_small_det_safetensors" if a.backend=="ppocrv6"
+                else "PaddlePaddle--PP-OCRv5_server_det_safetensors")
+        path=a.model_path or Path.home()/".cache/watermark-models/models"/folder/"snapshots/master"
+        sha=a.model_sha256 if a.model_path else (OFFICIAL_SERVER_DET_SHA256 if a.backend=="ppocrv5-server" else None)
         locator=NativeTextLocator(path,resolution=a.resolution,box_threshold=a.box_threshold,
                                   pixel_threshold=a.pixel_threshold,clahe_clip=a.clahe_clip,contrast_space=a.contrast_space,
-                                  **({"weights_sha256":a.model_sha256} if a.model_path else {}))
+                                  **({"weights_sha256":sha} if sha else {}))
+        expected="pp_ocrv6_small_det" if a.backend=="ppocrv6" else "pp_ocrv5_server_det"
+        if locator.architecture!=expected:
+            raise ValueError("Requested OCR backend differs from the pinned architecture")
         effective={"backend":a.backend,"resolution":a.resolution,"box_threshold":a.box_threshold,
                    "pixel_threshold":a.pixel_threshold,"clahe_clip":a.clahe_clip,
                    "contrast_space":a.contrast_space,"weight_sha256":locator.weights_sha256}
@@ -104,7 +110,7 @@ def main():
                                   float(hi[0]/photo.width),float(hi[1]/photo.height)])
             target=case["injected_remaining_overlay"]["box"]
             row={"file":case["file"],"alpha":case["injected_remaining_overlay"]["alpha"],
-                 "style":case["injected_remaining_overlay"]["style"],"target":target,
+                 "style":case["injected_remaining_overlay"].get("style",case["injected_remaining_overlay"].get("kind","unspecified")),"target":target,
                  "covered":any(location_covered(target,b) for b in boxes),"boxes":boxes,"detector":details,
                  "seconds":time.monotonic()-started,"source":case["source"],"output":case["output"]}
             rows.append(row);log.write(json.dumps(row)+"\n");log.flush()
