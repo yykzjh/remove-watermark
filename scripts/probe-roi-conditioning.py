@@ -17,6 +17,8 @@ p.add_argument("--work",type=Path,required=True)
 p.add_argument("--prompt-profile",choices=["detailed","compact-zh"],default="detailed")
 p.add_argument("--source-material-guide",action="store_true")
 p.add_argument("--context",type=float,default=.45)
+p.add_argument("--repair-blending",choices=["feather","harmonic","harmonic-fine"])
+p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
 p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-step-min-area",type=float,default=.14)
@@ -77,8 +79,9 @@ cfg=DeploymentConfig.model_validate({**cfg_values,
             "protection_core_feather":False if a.variant=="raw-opaque" else cfg_values["protection_core_feather"],
             "prefill_original_semantics":a.variant=="split"})
 opts=ProcessingConfig.model_validate(summary["options"]).model_copy(
-    update={"quality_auto_retry":False,"quality_cross_review":False,"overwrite":False,"context":a.context})
-assert opts.first_pass_mode=="complete" and opts.context==a.context and opts.resolution==1024
+    update={"quality_auto_retry":False,"quality_cross_review":False,"overwrite":False,"context":a.context,
+        "resolution":a.model_resolution,**({"repair_blending":a.repair_blending} if a.repair_blending else {})})
+assert opts.first_pass_mode=="complete" and opts.context==a.context and opts.resolution==a.model_resolution
 a.work.mkdir(parents=True)
 out=a.work/"output"
 hashes={}
