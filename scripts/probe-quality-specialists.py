@@ -116,14 +116,21 @@ def main():
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--gpu", type=int, choices=[0, 1, 2, 3], required=True)
     parser.add_argument("--residual-resolution", type=int, choices=[0, 768, 1024, 1536, 2048], default=0)
+    parser.add_argument("--presence-predicate", action="store_true")
+    parser.add_argument("--presence-adapter", type=Path)
+    parser.add_argument("--presence-adapter-sha256", default="")
     parser.add_argument("--output-source-reference", action="store_true")
     parser.add_argument("--output-carrier-context", action="store_true")
     parser.add_argument("--inspector-profile", choices=["internvl8b", "qwen4b"], default="internvl8b")
     parser.add_argument("--inspection-profile", choices=["legacy", "defects"], default="legacy")
     args = parser.parse_args()
+    if args.presence_predicate and (args.inspector_profile!="qwen4b" or args.output_source_reference or args.output_carrier_context):
+        parser.error("Dedicated-predicate pilot requires isolated Qwen4B base roles")
+    if bool(args.presence_adapter)!=bool(args.presence_adapter_sha256) or (args.presence_adapter and not args.presence_predicate):
+        parser.error("Pin adapter SHA256 and explicitly enable the dedicated predicate")
     if args.output_source_reference and args.output_carrier_context:
         parser.error("Independent evidence-layout ablations cannot be combined")
-    if (args.output_source_reference or args.output_carrier_context) and args.inspection_profile != "legacy":
+    if (args.output_source_reference or args.output_carrier_context or args.presence_predicate) and args.inspection_profile != "legacy":
         parser.error("Evidence-layout probes require the unchanged legacy predicates")
     from watermark_studio.training_reservation import offline_reservation
     reserved = offline_reservation(args.gpu)
@@ -170,6 +177,24 @@ def main():
     began = time.monotonic()
     inspector = load_quality_encoder(inspector_path, cfg, "cuda:0")
     inspector_processor = load_quality_processor(inspector_path)
+    if args.presence_adapter:
+        import hashlib
+
+        from peft import PeftModel
+
+        from watermark_studio.quality_presence import PROMPT
+        metadata=json.loads((args.presence_adapter/"presence-task.json").read_text())
+        weights=args.presence_adapter/"adapter_model.safetensors"
+        expected=args.presence_adapter_sha256
+        if (hashlib.sha256(weights.read_bytes()).hexdigest()!=expected or
+                metadata.get("weights_sha256")!=expected or
+                metadata.get("task")!="output_only_digital_overlay_presence" or
+                metadata.get("prompt_sha256")!=hashlib.sha256(PROMPT.encode()).hexdigest() or
+                metadata.get("base_identity",{}).get("verifier_sha256")!=identities["inspector"]["verifier_sha256"]):
+            raise ValueError("Presence adapter/base/protocol identity mismatch")
+        inspector=PeftModel.from_pretrained(inspector,args.presence_adapter,is_trainable=False,local_files_only=True)
+        inspector.base_model.disable_adapter_layers()
+        inspector.eval()
     locator = inspector if inspector_path == locator_path else load_quality_encoder(locator_path, cfg, "cuda:0")
     locator_processor = inspector_processor if locator is inspector else load_quality_processor(locator_path)
     load_seconds = time.monotonic()-began
@@ -179,8 +204,8 @@ def main():
         original_detect, inspector, locator, locator_processor, counters, args.residual_resolution)
     original_inspection = quality._structured_vqa
     source_context = {}
-    if args.output_source_reference or args.output_carrier_context:
-        def source_inspection(chats, fields, *model_args, **model_kwargs):
+    if args.output_source_reference or args.output_carrier_context or args.presence_predicate:
+        def source_inspection(chats, fields, encoder, processor, device, max_tokens):
             if args.output_source_reference and fields[0] == "watermark_removed":
                 if len(chats) != 1:
                     raise ValueError("Source-reference pilot requires fixed single-case correspondence")
@@ -190,7 +215,23 @@ def main():
                     raise ValueError("Carrier pilot requires exact source/output correspondence")
                 chats=[carrier_context_chat(chats[0],source_context["image"],source_context["output"],
                     source_context["carrier_boxes"],reference=fields[0]=="content_preserved")]
-            return original_inspection(chats, fields, *model_args, **model_kwargs)
+            values,seconds=original_inspection(chats,fields,encoder,processor,device,max_tokens)
+            if args.presence_predicate and fields[0]=="watermark_removed":
+                from watermark_studio.quality_presence import (
+                    FIELDS,
+                    merge_presence_checks,
+                    presence_chats,
+                )
+                if args.presence_adapter:
+                    encoder.base_model.enable_adapter_layers()
+                try:
+                    predicted,extra=original_inspection(presence_chats(chats),FIELDS,encoder,processor,device,min(96,max_tokens))
+                finally:
+                    if args.presence_adapter:
+                        encoder.base_model.disable_adapter_layers()
+                values=[merge_presence_checks(base,prediction) for base,prediction in zip(values,predicted,strict=True)]
+                seconds+=extra
+            return values,seconds
         quality._structured_vqa = source_inspection
     rows = []
     began = time.monotonic()
@@ -235,19 +276,26 @@ def main():
         raise ValueError("Frozen source code changed")
     if reserved != offline_reservation(args.gpu):
         raise ValueError("Reserved GPU/API state changed")
+    from watermark_studio.quality_presence import raw_presence_metrics
     errors = sum(row["quality"]["status"] == "error" for row in rows)
     report = {"state": "completed" if not errors else "completed_with_errors", "revision": revision,
               "images": len(rows), "errors": errors, "seconds": round(time.monotonic()-began, 3),
               "load_seconds": round(load_seconds, 3), "inspection_profile": args.inspection_profile,
               "residual_resolution": args.residual_resolution, "inspector_profile": args.inspector_profile,
               "output_source_reference": args.output_source_reference,
+              "presence_predicate":args.presence_predicate,
+              "presence_adapter":str(args.presence_adapter) if args.presence_adapter else None,
+              "presence_adapter_sha256":args.presence_adapter_sha256,
+              "raw_presence":raw_presence_metrics(rows),
               "output_carrier_context": args.output_carrier_context,
               "identities": identities, "locator_calls": dict(counters),
               "counts": dict(collections.Counter(r["quality"]["status"] for r in rows)),
               "false_accept_files": [r["file"] for r in rows if r.get("expected") == "review" and r["quality"]["status"] == "passed"],
               "false_refuse_files": [r["file"] for r in rows if r.get("expected") == "passed" and r["quality"]["status"] != "passed"],
               "pixels_changed": False, "additional_generations": 0,
-              "scope": "Offline QA-only fixed roles; every semantic, residual and numeric check remains mandatory"}
+              "scope": ("Offline dedicated-presence role; base naturalness/uncertainty, reference, numeric/source/residual checks unchanged; no image generation"
+                        if args.presence_predicate else
+                        "Offline QA-only fixed roles; every semantic, residual and numeric check remains mandatory")}
     (args.target/"report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
     print(json.dumps(report, ensure_ascii=False), flush=True)
 

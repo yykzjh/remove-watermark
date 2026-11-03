@@ -86,3 +86,24 @@ def test_invisible_synthetic_positive_is_rejected_without_defining_a_native_qual
     report=measurable_overlay(clean,Image.fromarray(pixels))
     assert report["usable"] and report["pixels_delta_at_least_3"]==200
     assert "Synthetic" in report["scope"]
+
+
+def test_presence_specialist_cannot_clear_base_naturalness_or_uncertainty_vetoes():
+    from watermark_studio.quality_presence import merge_presence_checks
+    base={"watermark_removed":False,"natural":False,"uncertain":True,"area":"bottom_left"}
+    result=merge_presence_checks(base,{"overlay_present":False,"uncertain":False,"area":"none"})
+    assert result["watermark_removed"] is True
+    assert result["natural"] is False and result["uncertain"] is True
+    assert result["area"]=="bottom_left"
+    assert result["base_watermark_removed"] is False
+    assert base["watermark_removed"] is False
+
+
+def test_rejection_by_source_or_numeric_checks_is_not_reported_as_real_watermark_detection():
+    from watermark_studio.quality_presence import raw_presence_metrics
+    rows=[{"file":"faint.png","expected_overlay_present":True,"quality":{
+        "status":"review","guard_codes":["source_physical_ambiguity"],
+        "output_checks":{"presence_predicate":{"overlay_present":False,"uncertain":False,"area":"none"}}}}]
+    result=raw_presence_metrics(rows)
+    assert result["overlay_false_negatives"]==["faint.png"]
+    assert result["overlay_unsafe_clear"]==["faint.png"]

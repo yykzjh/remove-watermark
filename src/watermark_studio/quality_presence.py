@@ -114,3 +114,32 @@ def measurable_overlay(clean,marked):
     return {"usable":maximum>=6 and support>=max(24,round(delta.size*.00005)),
             "max_rgb_delta":maximum,"pixels_delta_at_least_3":support,
             "scope":"Synthetic label visibility only; never a photographic repair quality threshold"}
+
+
+def merge_presence_checks(base,presence):
+    """One predicate changes; old naturalness and uncertainty remain mandatory."""
+    if any(type(base.get(k)) is not bool for k in ("watermark_removed","natural","uncertain")):
+        raise ValueError("Complete base output checks required")
+    if any(type(presence.get(k)) is not bool for k in FIELDS) or presence.get("area") not in AREAS:
+        raise ValueError("Complete dedicated presence checks required")
+    merged=dict(base)
+    merged["base_watermark_removed"]=base["watermark_removed"]
+    merged["presence_predicate"]=dict(presence)
+    merged["watermark_removed"]=not presence["overlay_present"]
+    merged["uncertain"]=base["uncertain"] or presence["uncertain"]
+    if base["natural"] and not base["uncertain"]:
+        merged["area"]=presence["area"] if presence["overlay_present"] or presence["uncertain"] else "none"
+    return merged
+
+
+def raw_presence_metrics(rows):
+    """A numeric/source veto never counts as genuine model detection."""
+    labeled=[r for r in rows if type(r.get("expected_overlay_present")) is bool and
+             r.get("quality",{}).get("output_checks",{}).get("presence_predicate")]
+    get=lambda row:row["quality"]["output_checks"]["presence_predicate"]
+    return {"labeled_cases":len(labeled),
+        "overlay_false_negatives":[r["file"] for r in labeled if r["expected_overlay_present"] and not get(r)["overlay_present"]],
+        "overlay_unsafe_clear":[r["file"] for r in labeled if r["expected_overlay_present"] and
+                                not get(r)["overlay_present"] and not get(r)["uncertain"]],
+        "clean_false_presence":[r["file"] for r in labeled if not r["expected_overlay_present"] and get(r)["overlay_present"]],
+        "clean_abstentions":[r["file"] for r in labeled if not r["expected_overlay_present"] and get(r)["uncertain"]]}

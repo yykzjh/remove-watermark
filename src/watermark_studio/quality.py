@@ -915,6 +915,23 @@ def verify_batch(pairs, encoder, processor, device, resolution=768, max_tokens=1
             started = local_started
             verdict["outside_repair_change"] = local
             verdict["source_regions"] = [r.model_dump() if hasattr(r, "model_dump") else r for r in regions]
+            # Match the source producer's existing broad-mask policy. A
+            # supplied legacy mask is not proof that visible physical content
+            # inside a very broad outdoor panel was digitally occluded.
+            if contexts[index].get("source_scene")=="outdoor":
+                from .source_geometry import broad_masks
+                unresolved=broad_masks((regions,""))
+                if unresolved and verdict["status"]!="error":
+                    verdict.update(status="review",uncertain=True)
+                    verdict["guard_codes"]=list(dict.fromkeys(
+                        verdict.get("guard_codes",[])+["source_physical_ambiguity"]))
+                    verdict["source_footprint_validation"]={
+                        "status":"unresolved","policy":"source-broad-consensus-v1",
+                        "boxes":[r.model_dump() for r in unresolved],
+                        "reviewer_cannot_authorize_broad_source_mask":True}
+                    verdict["reason"]=(verdict["reason"]+
+                        " 原图室外水印候选范围过大，缺少与真实实物分离的定位依据，"
+                        "无法确认原本可见内容已受到保护；应先重新定位，不能沿用原框重复生成。").strip()[:400]
             seam_photo = after if after.size == before.size else after.resize(before.size, Image.Resampling.LANCZOS)
             seam = repair_boundary_warnings(seam_photo, regions, feather, before=before)
             verdict["repair_boundary"] = seam
