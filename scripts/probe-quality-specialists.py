@@ -128,6 +128,18 @@ def main():
                 if len(chats) != 1:
                     raise ValueError("Source-reference pilot requires fixed single-case correspondence")
                 chats = [source_aware_output_chat(chats[0], source_context["image"], source_context["regions"])]
+            elif fields[0] == "content_preserved":
+                chats = [[dict(message, content=[dict(item) for item in message["content"]])
+                          for message in chat] for chat in chats]
+                for chat in chats:
+                    chat[-1]["content"][-1]["text"] += (
+                        "\n上游候选框不是已经证明的不透明水印。"
+                        "先独立核实原图可见文字是否依附真实物体；"
+                        "真实标牌、机械、衣物或纸张上原本可读的字符须逐项与结果比对，"
+                        "变字、伪字、乱码或抹掉一律content_preserved=false，"
+                        "即使该文字位于上游候选范围内也不豁免。"
+                        "仅有后期数字叠加的文字可以删除，不能把真实印字当数字水印。"
+                        "看不清是否相同则uncertain=true，不能因为两边都有字就称内容一致。")
             return original_inspection(chats, fields, *args, **kwargs)
         quality._structured_vqa = source_inspection
     rows = []
