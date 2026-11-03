@@ -88,8 +88,11 @@ def main():
         metadata["prompt_sha256"]!=hashlib.sha256(PROMPT.encode()).hexdigest() or
         metadata["base_identity"]["verifier_sha256"]!=identity["verifier_sha256"]):
         raise ValueError("Dedicated predicate base/protocol/artifact mismatch")
-    model=PeftModel.from_pretrained(model,a.presence_adapter,is_trainable=False,local_files_only=True).eval()
-    model.base_model.disable_adapter_layers()
+    adapter_controller=PeftModel.from_pretrained(model,a.presence_adapter,is_trainable=False,local_files_only=True).eval()
+    adapter_controller.base_model.disable_adapter_layers()
+    # Keep the original generation API for every base inspection; only linear
+    # adapter activation changes during the dedicated actual-output predicate.
+    model=adapter_controller.get_base_model()
     engine=RapidOCR(det_use_cuda=False,rec_use_cuda=False,cls_use_cuda=False,
         intra_op_num_threads=1,inter_op_num_threads=1,det_limit_type="max",
         det_limit_side_len=4096,max_side_len=4096,det_box_thresh=.5,use_cls=False,use_rec=True)
@@ -143,7 +146,7 @@ def main():
             naturalness_source="Frozen actual-output base verdict, never the diagnostic blur")
         # Inspect the ACTUAL output with a separate learned predicate before any
         # counterfactual decision. It can veto; it cannot approve by itself.
-        model.base_model.enable_adapter_layers()
+        adapter_controller.base_model.enable_adapter_layers()
         try:
             actual_chat=output_chat(before,after,current["regions"])
             from watermark_studio.images import context_box
@@ -153,7 +156,7 @@ def main():
                     {"type":"text","text":"同一真实输出的原生文字局部；检查实物文字上是否另叠加淡字、代码或底纹。裁切边缘不是水印。"},
                     {"type":"image","image":preview(after.crop(native),768)}]
             pred,_=_structured_vqa([actual_chat],FIELDS,model,processor,"cuda:0",96)
-        finally:model.base_model.disable_adapter_layers()
+        finally:adapter_controller.base_model.disable_adapter_layers()
         audit["actual_presence"]=pred[0]
         if pred[0]["overlay_present"] or pred[0]["uncertain"]:
             return {"watermark_removed":False,"natural":True,"uncertain":True,"area":pred[0]["area"]}
