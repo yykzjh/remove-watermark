@@ -23,6 +23,7 @@ p.add_argument("--source-transmission-hint",action="store_true")
 p.add_argument("--context",type=float,default=.45)
 p.add_argument("--repair-blending",choices=["feather","harmonic","harmonic-fine"])
 p.add_argument("--model-resolution",type=int,choices=[512,768,1024,1536],default=1024)
+p.add_argument("--sigma-profile",choices=["native","tail9","tail10","tail12","mid10","mid12"],default="native")
 p.add_argument("--uniform-steps",type=int,choices=[0,12,16,20,24,40],default=0)
 p.add_argument("--roi-resolution",type=int,choices=[0,1536],default=0)
 p.add_argument("--roi-steps",type=int,choices=[0,12,16,20,24,40],default=0)
@@ -45,6 +46,7 @@ p.add_argument("--lora-alpha",type=float,default=0)
 p.add_argument("--lora-scale",type=float,default=1)
 a=p.parse_args()
 assert .1<=a.context<=2
+assert a.sigma_profile=="native" or not (a.uniform_steps or a.roi_steps), "Explicit sigma and uniform/area schedules are mutually exclusive"
 assert bool(a.lora_path)==bool(a.lora_sha256), "Pin an explicit adapter SHA"
 assert bool(a.tiny_inpaint_path)==bool(a.tiny_inpaint_sha256), "Pin auxiliary weights"
 loaded_revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
@@ -204,6 +206,15 @@ cache=Path(cfg.cache_dir)/"models"
 model=cache/"Qwen--Qwen-Image-2.1-Turbo/snapshots/master"
 load_start=time.monotonic()
 pipe=load_pipeline(cfg,str(model))
+if a.sigma_profile!="native":
+    from watermark_studio.probe_schedules import tail_sigma_grid
+    original_sigmas=list(pipe.config.sample_sigmas)
+    sigmas=tail_sigma_grid(original_sigmas,a.sigma_profile)
+    pipe.register_to_config(sample_sigmas=sigmas)
+    pipe._watermark_sampling_info={"sampling":"offline_native_nodes_plus_refinement",
+        "profile":a.sigma_profile,"original_sigmas":original_sigmas,"sigmas":sigmas,
+        "checkpoint_modified":False,"quality_permission":False}
+
 pipe._quality_encoder=load_quality_encoder(cfg.quality_model,cfg,pipe._execution_device)
 pipe._quality_processor=load_quality_processor(cfg.quality_model)
 pipe._quality_weights_relation="different_weights"
@@ -242,7 +253,7 @@ for task in tasks:
     if Path(task["destination"]).exists():
         bad_sizes+=load_photo(task["source"])[0].size!=load_photo(task["destination"])[0].size
 counts=dict(collections.Counter(r.get("quality",{}).get("status","error") for r in rows))
-report={"qwen_glyph_stencil":a.qwen_glyph_stencil,"source_transmission_hint":a.source_transmission_hint,"stencil_audits":stencil_audits,"transmission_audits":transmission_audits,"variant":a.variant,"roi_resolution":a.roi_resolution,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
+report={"sigma_profile":a.sigma_profile,"qwen_glyph_stencil":a.qwen_glyph_stencil,"source_transmission_hint":a.source_transmission_hint,"stencil_audits":stencil_audits,"transmission_audits":transmission_audits,"variant":a.variant,"roi_resolution":a.roi_resolution,"roi_context_margin":a.roi_context_margin,"context_mappings":context_mappings,"source_material_guide":a.source_material_guide,"guidance_audits":guidance_audits,"prompt_profile":a.prompt_profile,"images":len(rows),"seconds":time.monotonic()-started,
     "counts":counts,"errors":sum(not r.get("ok") for r in rows),"bad_sizes":bad_sizes,
     "source_sha256":hashes,"selection_sha256":hashlib.sha256(a.selection.read_bytes()).hexdigest(),
     "config":cfg.model_dump(mode="json"),"options":opts.model_dump(mode="json"),
