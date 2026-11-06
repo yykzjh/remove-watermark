@@ -12,6 +12,7 @@ from pathlib import Path
 from .codex_photo_audit import run_audit
 from .codex_photo_repair import run_repairs
 from .dataset_transfer import write_json
+from .early_review import wait_for_handoff
 from .production_assembly import assemble
 from .production_cloud import retrieve
 from .production_final import finalize
@@ -72,6 +73,8 @@ def run(c):
                        Path(c["artifacts"]))
     write_json(state / "status.json", {"phase": "assembling_exact_tree"})
     report = assemble(indexes, Path(c["artifacts"]), Path(c["destination"]), state / "assembly")
+    write_json(state / "status.json", {"phase": "waiting_for_early_codex_handoff", "assembly": report})
+    wait_for_handoff(state)
     write_json(state / "status.json", {"phase": "individual_codex_review", "assembly": report})
     audit = run_audit(state / "assembly", Path(c["destination"]), Path(c["original_root"]),
                       state / "codex", Path(c["codex_executable"]), Path(c["baidu_config"]))

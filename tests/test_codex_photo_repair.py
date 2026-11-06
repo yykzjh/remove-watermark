@@ -101,3 +101,26 @@ def test_visible_source_content_can_be_restored_without_extra_generation(tmp_pat
     with Image.open(target) as image:
         assert image.getpixel((100, 100)) == (0, 128, 0)
         assert image.getpixel((500, 500)) == (255, 0, 0)
+
+
+def test_early_verified_repair_can_be_reapplied_only_to_its_exact_baseline(tmp_path, monkeypatch):
+    from watermark_studio.codex_photo_repair import repair_one
+    from watermark_studio.production_archives import file_sha256
+    original, target = tmp_path / "original.png", tmp_path / "target.png"
+    Image.new("RGB", (512, 512), "green").save(original)
+    Image.new("RGB", (512, 512), "red").save(target)
+    baseline = target.read_bytes()
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.review_photo",
+                        lambda *a: {"verdict": case_verdict()})
+    entry = {"file": "target.png", "identity": {"output_sha256": file_sha256(target)},
+             "verdict": case_verdict("content_change")}
+    folder = tmp_path / "repair"
+    report = repair_one("unused", original, target, entry, [], folder, attempts=1)
+    target.write_bytes(baseline)  # final full assembly restores the original Qwen output.
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.review_photo",
+                        lambda *a: pytest.fail("Exact cached repair should not generate a new grade"))
+    assert repair_one("unused", original, target, entry, [], folder) == report
+    assert file_sha256(target) == report["final_sha256"]
+    Image.new("RGB", (512, 512), "yellow").save(target)
+    with pytest.raises(ValueError, match="changed"):
+        repair_one("unused", original, target, entry, [], folder)

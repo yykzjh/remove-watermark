@@ -157,9 +157,19 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3)
     report_path = folder / "report.json"
     if report_path.exists():
         report = json.loads(report_path.read_text())
-        if file_sha256(target) != report["final_sha256"]:
-            raise ValueError("Previously repaired output changed")
-        return report
+        current_sha = file_sha256(target)
+        if current_sha == report["final_sha256"]:
+            return report
+        # An early review used a separate candidate copy. After final assembly,
+        # reapply its verified best bytes only to that exact original baseline.
+        if (current_sha == report["initial_sha256"] == entry["identity"]["output_sha256"]
+                and report.get("original_md5") == digest(original)):
+            selected = Path(report.get("selected_file", "")).resolve()
+            selected.relative_to(folder.resolve())
+            if selected.is_file() and file_sha256(selected) == report["final_sha256"]:
+                atomic_copy(selected, target, True, preserve_metadata=True)
+                return report
+        raise ValueError("Previously repaired output changed")
     initial = folder / ("initial" + target.suffix)
     if not initial.exists():
         if file_sha256(target) != entry["identity"]["output_sha256"]:
@@ -203,6 +213,7 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3)
     atomic_copy(best, target, True, preserve_metadata=True)
     report = {"file": entry["file"], "status": "passed" if verdict["acceptable"] else "needs_review",
               "initial_sha256": entry["identity"]["output_sha256"], "final_sha256": file_sha256(target),
+              "original_md5": digest(original), "selected_file": str(best.resolve()),
               "final_verdict": verdict, "history": history}
     write_json(report_path, report)
     return report
