@@ -76,10 +76,13 @@ def run(c):
     write_json(state / "status.json", {"phase": "waiting_for_early_codex_handoff", "assembly": report})
     wait_for_handoff(state)
     write_json(state / "status.json", {"phase": "individual_codex_review", "assembly": report})
+    completed_path = c.get("codex_completed_before_scope_change")
+    completed = json.loads(Path(completed_path).read_text())["files"] if completed_path else []
     audit = run_audit(state / "assembly", Path(c["destination"]), Path(c["original_root"]),
                       state / "codex", Path(c["codex_executable"]), Path(c["baidu_config"]),
                       concurrency=c.get("codex_concurrency", 1),
-                      minimum_server_attempts=c.get("codex_min_server_attempts", 0))
+                      minimum_server_attempts=c.get("codex_min_server_attempts", 0),
+                      completed_before_scope_change=completed)
     write_json(state / "status.json", {"phase": "individual_codex_repairs",
                                       "assembly": report, "audit": audit})
     overrides = [json.loads(Path(p).read_text()) for p in c.get("human_acceptance", [])]

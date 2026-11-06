@@ -113,6 +113,7 @@ def finalize(assembly, audit, repairs, output, state, workers=8):
               "codex_repair_dispositions": len(changes), "remaining_valid_images_needing_review": len(remaining),
               "source_empty_images": assembly_report["source_empty_images"],
               "server_review_deferred_by_scope": len(deferred),
+              "previously_completed_preserved": len(plan.get("completed_before_scope_change", [])),
               "manifest_sha256": assembly_report["manifest_sha256"], "output": str(output)}
     write_json(state / "final-output-manifest.json", {"files": rows, "source_manifest_sha256": report["manifest_sha256"]})
     (state / "needs-review-relative-paths.txt").write_text("".join(name + "\n" for name in remaining))

@@ -74,26 +74,33 @@ def validate_verdict(value):
     return value
 
 
-def freeze_plan(records, state, seed=20261106, sample_size=1000, minimum_server_attempts=0):
+def freeze_plan(records, state, seed=20261106, sample_size=1000, minimum_server_attempts=0,
+                completed_before_scope_change=()):
     if type(minimum_server_attempts) is not int or minimum_server_attempts < 0:
         raise ValueError("Minimum server attempts must be a nonnegative integer")
+    completed = set(completed_before_scope_change)
+    bad = {r["file"] for r in records if r["quality_status"] != "passed"}
+    if not completed <= bad:
+        raise ValueError("Previously completed fallback contains an unknown or unrelated server result")
     eligible = sorted(r["file"] for r in records if r["quality_status"] == "passed")
     rejected = sorted(r["file"] for r in records if r["quality_status"] != "passed"
-                      and r.get("server_attempts", 0) >= minimum_server_attempts)
+                      and (r.get("server_attempts", 0) >= minimum_server_attempts or r["file"] in completed))
     deferred = sorted(r["file"] for r in records if r["quality_status"] != "passed"
-                      and r.get("server_attempts", 0) < minimum_server_attempts)
+                      and r.get("server_attempts", 0) < minimum_server_attempts and r["file"] not in completed)
     identity = hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest()
     path = Path(state) / "audit-plan.json"
     if path.exists():
         plan = json.loads(path.read_text())
         if (plan["records_sha256"] != identity
-                or plan.get("minimum_server_attempts", 0) != minimum_server_attempts):
+                or plan.get("minimum_server_attempts", 0) != minimum_server_attempts
+                or set(plan.get("completed_before_scope_change", [])) != completed):
             raise ValueError("Audit input changed after the original sample was frozen")
         return plan
     plan = {"records_sha256": identity, "seed": seed, "sampling": "uniform_without_replacement_by_path",
             "sample": random.Random(seed).sample(eligible, min(sample_size, len(eligible))),
             "initially_rejected": rejected, "eligible": len(eligible),
-            "deferred_server_review": deferred, "minimum_server_attempts": minimum_server_attempts}
+            "deferred_server_review": deferred, "minimum_server_attempts": minimum_server_attempts,
+            "completed_before_scope_change": sorted(completed)}
     write_json(path, plan)
     return plan
 
@@ -145,7 +152,7 @@ def detail_pairs(original, output, regions, folder):
     return pairs
 
 
-def review_photo(executable, original, output, folder, regions=(), model="gpt-6.1-sol"):
+def review_photo(executable, original, output, folder, regions=(), model="gpt-6.1-sol", cached_only=False):
     folder.mkdir(parents=True, exist_ok=True)
     identity = {"original_md5": digest(original), "output_sha256": file_sha256(output),
                 "model": model, "prompt_sha256": hashlib.sha256(PROMPT.encode()).hexdigest()}
@@ -158,6 +165,8 @@ def review_photo(executable, original, output, folder, regions=(), model="gpt-6.
             validate_verdict(saved["verdict"])
             return saved
         raise ValueError("Refusing to overwrite an immutable original audit judgment")
+    if cached_only:
+        raise ValueError("Previously completed photo lacks its immutable cached review")
     write_json(folder / "schema.json", SCHEMA)
     images = [display_input(original, folder, "original"), display_input(output, folder, "candidate"),
               *detail_pairs(original, output, regions, folder)]
@@ -183,7 +192,8 @@ def review_photo(executable, original, output, folder, regions=(), model="gpt-6.
     return saved
 
 
-def run_audit(assembly, output, original_root, state, executable, baidu_config, sample_size=1000, concurrency=1, minimum_server_attempts=0):
+def run_audit(assembly, output, original_root, state, executable, baidu_config, sample_size=1000, concurrency=1, minimum_server_attempts=0,
+              completed_before_scope_change=()):
     assembly, output, original_root, state = map(Path, [assembly, output, original_root, state])
     state.mkdir(parents=True, exist_ok=True)
     records = [json.loads(line) for line in (assembly / "assembled-images.jsonl").read_text().splitlines()]
@@ -201,7 +211,15 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     if minimum_server_attempts:
         records = [dict(r, server_attempts=attempts.get(r["file"], 0)) for r in records]
     source_status = {r["file"]: r["quality_status"] for r in records}
-    plan = freeze_plan(records, state, sample_size=sample_size, minimum_server_attempts=minimum_server_attempts)
+    completed = {r["file"]: r for r in completed_before_scope_change}
+    if len(completed) != len(completed_before_scope_change):
+        raise ValueError("Duplicate previously completed fallback")
+    baselines = {r["file"]: r["sha256"] for r in records}
+    for name, prior in completed.items():
+        if baselines.get(name) != prior["baseline_sha256"]:
+            raise ValueError("Previously completed fallback belongs to another server candidate")
+    plan = freeze_plan(records, state, sample_size=sample_size, minimum_server_attempts=minimum_server_attempts,
+                       completed_before_scope_change=completed)
     (state / "deferred-server-review.jsonl").write_text("".join(
         json.dumps({"file": name, **notes.get(name, {})}, ensure_ascii=False) + chr(10)
         for name in plan.get("deferred_server_review", [])))
@@ -228,13 +246,17 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     def inspect(payload):
         name, source, target, group = payload
         key = hashlib.sha256(name.encode()).hexdigest()
-        return review_photo(executable, source, target, state / group / key, detailed.get(name, []))
+        return review_photo(executable, source, target, state / group / key, detailed.get(name, []),
+                            cached_only=name in completed)
 
     with (state / "audit-results.jsonl").open("w") as journal, (state / "codex-repair-queue.jsonl").open("w") as queue:
         for group, paths in [("initially-rejected", plan["initially_rejected"]), ("sample-1000", plan["sample"])]:
             for number, (name, reviewed) in enumerate(photo_map(prepare(paths, group), inspect, concurrency), 1):
                 row = {"file": name, "group": group, "server_attempts": attempts.get(name, 0),
                        "server_final_status": source_status[name], **reviewed}
+                if name in completed:
+                    row["reuse_completed_before_scope_change"] = True
+                    row["prior_completed_final_sha256"] = completed[name]["final_sha256"]
                 all_results.append(row)
                 journal.write(json.dumps(row, ensure_ascii=False) + chr(10))
                 journal.flush()
@@ -250,7 +272,8 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
                   r["verdict"]["acceptable"] for r in sample),
               "needs_codex_repair": sum(not r["verdict"]["acceptable"] for r in all_results),
               "minimum_server_attempts": minimum_server_attempts,
-              "deferred_server_reviews": len(plan.get("deferred_server_review", []))}
+              "deferred_server_reviews": len(plan.get("deferred_server_review", [])),
+              "previously_completed_reused": len(completed)}
     write_json(state / "report.json", report)
     write_json(state / "status.json", report)
     return report
@@ -263,9 +286,11 @@ def main():
     p.add_argument("--sample-size", type=int, default=1000)
     p.add_argument("--concurrency", type=int, default=1)
     p.add_argument("--minimum-server-attempts", type=int, default=0)
+    p.add_argument("--completed-before-scope-change", type=Path)
     a = p.parse_args()
+    completed = json.loads(a.completed_before_scope_change.read_text())["files"] if a.completed_before_scope_change else []
     print(json.dumps(run_audit(a.assembly, a.output, a.original_root, a.state,
-                               a.executable, a.baidu_config, a.sample_size, a.concurrency, a.minimum_server_attempts)))
+                               a.executable, a.baidu_config, a.sample_size, a.concurrency, a.minimum_server_attempts, completed)))
 
 
 if __name__ == "__main__":

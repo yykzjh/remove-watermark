@@ -182,3 +182,70 @@ def test_passed_server_sample_can_be_inspected_but_not_locally_edited_under_stri
                          concurrency=4, minimum_server_attempts=minimum, server_failures_only=only_failures)
     assert report["needs_review"] == 1
     assert file_sha256(output / file) == before
+
+
+def test_completed_before_scope_change_is_reused_without_any_new_codex_call(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from watermark_studio.codex_photo_audit import PROMPT, run_audit
+    from watermark_studio.production_archives import file_sha256
+    indexes, artifacts, source = shards(tmp_path)
+    output, assembly, audit = [tmp_path / n for n in ["output", "assembly", "audit"]]
+    assemble(indexes, artifacts, output, assembly)
+    name = "镇/村/图像二.jpg"
+    folder = audit / "initially-rejected" / hashlib.sha256(name.encode()).hexdigest()
+    folder.mkdir(parents=True)
+    sha = file_sha256(output / name)
+    verdict = {"acceptable": True, "watermark_removed": True, "natural_fill": True,
+               "content_preserved": True, "uncertain": False, "defects": [],
+               "evidence": ["Previously completed independent comparison accepted these exact bytes."]}
+    cached = {"identity": {"original_md5": digest(source / name), "output_sha256": sha,
+                          "model": "gpt-6.1-sol", "prompt_sha256": hashlib.sha256(PROMPT.encode()).hexdigest()},
+              "verdict": verdict}
+    path = folder / "review.json"
+    path.write_text(json.dumps(cached))
+    before = path.read_bytes()
+    monkeypatch.setattr("watermark_studio.codex_photo_audit.BaiduDelivery",
+                        lambda *a: SimpleNamespace(command=lambda *a: pytest.fail("Original is already verified")))
+    monkeypatch.setattr("watermark_studio.codex_photo_audit.subprocess.run",
+                        lambda *a, **k: pytest.fail("Preserving completed work cannot create another Codex session"))
+    report = run_audit(assembly, output, source, audit, "must-not-run", tmp_path / "baidu",
+                       sample_size=0, concurrency=4, minimum_server_attempts=3,
+                       completed_before_scope_change=[{"file": name, "baseline_sha256": sha, "final_sha256": sha}])
+    assert report["individually_reviewed"] == 1
+    assert report["deferred_server_reviews"] == 0
+    assert path.read_bytes() == before
+    plan = json.loads((audit / "audit-plan.json").read_text())
+    assert plan["completed_before_scope_change"] == [name]
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+def test_only_explicit_pre_scope_cache_can_be_merged_without_any_new_edit(tmp_path, monkeypatch, reuse):
+    from watermark_studio.codex_photo_repair import run_repairs
+    from watermark_studio.production_archives import file_sha256
+    _, assembly, audit, repairs, output = final_fixture(tmp_path)
+    name = json.loads((audit / "audit-plan.json").read_text())["initially_rejected"][0]
+    baseline = file_sha256(output / name)
+    case = repairs / hashlib.sha256(name.encode()).hexdigest()
+    case.mkdir()
+    selected = case / "selected.jpg"
+    Image.new("RGB", (48, 32), "gray").save(selected)
+    final_sha = file_sha256(selected)
+    good = {"acceptable": True, "watermark_removed": True, "natural_fill": True,
+            "content_preserved": True, "uncertain": False, "defects": [],
+            "evidence": ["Prior independent comparison accepted this exact candidate."]}
+    report = {"file": name, "status": "passed", "initial_sha256": baseline,
+              "final_sha256": final_sha, "original_md5": digest(tmp_path / "source" / name),
+              "selected_file": str(selected), "final_verdict": good, "history": []}
+    (case / "report.json").write_text(json.dumps(report))
+    bad = dict(good, acceptable=False, natural_fill=False)
+    entry = {"file": name, "server_attempts": 1, "server_final_status": "review",
+             "identity": {"output_sha256": baseline}, "verdict": bad,
+             "reuse_completed_before_scope_change": reuse, "prior_completed_final_sha256": final_sha}
+    (audit / "codex-repair-queue.jsonl").write_text(json.dumps(entry) + chr(10))
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.generate",
+                        lambda *a: pytest.fail("Merging a prior cache cannot call the image model"))
+    result = run_repairs(assembly, audit, output, tmp_path / "source", repairs, "must-not-run",
+                         concurrency=4, minimum_server_attempts=3, server_failures_only=True)
+    assert result["accepted"] == int(reuse)
+    assert file_sha256(output / name) == (final_sha if reuse else baseline)

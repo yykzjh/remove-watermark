@@ -272,12 +272,19 @@ def defect_score(verdict):
                    (d["box"][3] - d["box"][1])) for d in verdict["defects"]) + 10 * verdict["uncertain"]
 
 
-def repair_one(executable, original, target, entry, regions, folder, attempts=3):
+def repair_one(executable, original, target, entry, regions, folder, attempts=3, cached_only=False):
     folder.mkdir(parents=True, exist_ok=True)
     validate_verdict(entry["verdict"])
     report_path = folder / "report.json"
     if report_path.exists():
         report = json.loads(report_path.read_text())
+        if cached_only:
+            validate_verdict(report["final_verdict"])
+            if (report["status"] != "passed" or not report["final_verdict"]["acceptable"]
+                    or report.get("original_md5") != digest(original)
+                    or report["initial_sha256"] != entry["identity"]["output_sha256"]
+                    or report["final_sha256"] != entry.get("prior_completed_final_sha256", report["final_sha256"])):
+                raise ValueError("Previously completed repair lacks matching acceptance evidence")
         current_sha = file_sha256(target)
         if current_sha == report["final_sha256"]:
             return report
@@ -291,6 +298,8 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3)
                 atomic_copy(selected, target, True, preserve_metadata=True)
                 return report
         raise ValueError("Previously repaired output changed")
+    if cached_only:
+        raise ValueError("Previously completed photo lacks its verified repair cache")
     initial = folder / ("initial" + target.suffix)
     if not initial.exists():
         if file_sha256(target) != entry["identity"]["output_sha256"]:
@@ -361,7 +370,8 @@ def run_repairs(assembly, audit, output, originals_root, state, executable, over
             name = entry["file"]
             target = beneath(output, name)
             if ((server_failures_only or minimum_server_attempts) and (entry.get("server_final_status") == "passed"
-                    or entry.get("server_attempts", 0) < minimum_server_attempts)):
+                    or entry.get("server_attempts", 0) < minimum_server_attempts)
+                    and not entry.get("reuse_completed_before_scope_change")):
                 yield name, (entry, target, False)
                 continue
             if (name, file_sha256(target)) in accepted:
@@ -386,7 +396,8 @@ def run_repairs(assembly, audit, output, originals_root, state, executable, over
             return {"file": name, "status": "accepted_by_user", "final_sha256": identity[1],
                     "human_acceptance": accepted[identity]}
         folder = state / hashlib.sha256(name.encode()).hexdigest()
-        return repair_one(executable, original, target, entry, regions.get(name, []), folder)
+        return repair_one(executable, original, target, entry, regions.get(name, []), folder,
+                          cached_only=entry.get("reuse_completed_before_scope_change", False))
 
     with (state / "repair-results.jsonl").open("w") as journal:
         for number, (name, report) in enumerate(photo_map(prepare(), inspect, concurrency), 1):

@@ -119,7 +119,7 @@ def test_early_verified_repair_can_be_reapplied_only_to_its_exact_baseline(tmp_p
     target.write_bytes(baseline)  # final full assembly restores the original Qwen output.
     monkeypatch.setattr("watermark_studio.codex_photo_repair.review_photo",
                         lambda *a: pytest.fail("Exact cached repair should not generate a new grade"))
-    assert repair_one("unused", original, target, entry, [], folder) == report
+    assert repair_one("unused", original, target, entry, [], folder, cached_only=True) == report
     assert file_sha256(target) == report["final_sha256"]
     Image.new("RGB", (512, 512), "yellow").save(target)
     with pytest.raises(ValueError, match="changed"):
@@ -274,3 +274,17 @@ def test_refinement_records_actual_conditioning_and_reuses_exact_artifact(tmp_pa
     assert "CURRENT WATERMARK-REMOVED" in calls[0]
     assert generate("unused", original, candidate, defects, folder) == result
     assert len(calls) == 1
+
+
+def test_preserving_prior_work_can_never_generate_when_repair_cache_is_absent(tmp_path, monkeypatch):
+    from watermark_studio.codex_photo_repair import repair_one
+    from watermark_studio.production_archives import file_sha256
+    source, target = tmp_path / "source.png", tmp_path / "target.png"
+    Image.new("RGB", (64, 64), "green").save(source)
+    Image.new("RGB", (64, 64), "blue").save(target)
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.generate",
+                        lambda *a: pytest.fail("Cache preservation cannot initiate new image editing"))
+    entry = {"file": "target.png", "identity": {"output_sha256": file_sha256(target)},
+             "verdict": case_verdict("unnatural_fill")}
+    with pytest.raises(ValueError, match="repair cache"):
+        repair_one("must-not-run", source, target, entry, [], tmp_path / "missing", cached_only=True)

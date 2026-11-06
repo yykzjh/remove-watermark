@@ -121,3 +121,21 @@ def test_strict_scope_excludes_early_stops_without_changing_passed_sample(tmp_pa
     assert plan["sample"] == normal["sample"]
     with pytest.raises(ValueError, match="frozen"):
         freeze_plan(rows, strict, minimum_server_attempts=0)
+
+
+def test_preserving_completed_work_does_not_authorize_new_out_of_scope_reviews(tmp_path):
+    from watermark_studio.codex_photo_audit import review_photo
+    rows = [{"file": "done", "quality_status": "review", "server_attempts": 1},
+            {"file": "later", "quality_status": "review", "server_attempts": 1}]
+    plan = freeze_plan(rows, tmp_path, minimum_server_attempts=3,
+                       completed_before_scope_change=["done"])
+    assert plan["initially_rejected"] == ["done"]
+    assert plan["deferred_server_review"] == ["later"]
+    with pytest.raises(ValueError, match="frozen"):
+        freeze_plan(rows, tmp_path, minimum_server_attempts=3)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.write_bytes(b"source"); target.write_bytes(b"target")
+    folder = tmp_path / "missing"
+    with pytest.raises(ValueError, match="cached review"):
+        review_photo("must-not-run", source, target, folder, cached_only=True)
+    assert not (folder / "events.jsonl").exists()
