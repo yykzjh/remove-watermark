@@ -107,3 +107,28 @@ def test_directory_boundaries_expand_gpus_and_preserve_rejected_outputs(tmp_path
     assert results[0]["quality_attempts"] == 3
     assert results[1]["fallback_original"] is True
     assert {p.relative_to(output) for p in output.rglob("*")} == {p.relative_to(source) for p in source.rglob("*")}
+
+def test_failed_service_job_retains_lease_and_is_resubmitted(tmp_path):
+    import pytest
+    runner = object.__new__(ProductionRunner)
+    runner.c = {"options": {}, "server_state_dir": str(tmp_path / "service")}
+    runner.output, runner.state = tmp_path / "output", tmp_path
+    runner.gpus, runner.current = [0], {"lease": "still-owned"}
+    runner.prepare = lambda _: tmp_path / "input/A"
+    runner.status = lambda *args, **kwargs: None
+    runner.heartbeat = lambda *args, **kwargs: None
+    existing = {"id": "old", "state": "failed", "input_dir": str(tmp_path / "input/A"),
+                "output_dir": str(tmp_path / "output/A"), "options": {"concurrency": 4}}
+    submissions = []
+    def api(path, payload=None):
+        if path == "/jobs":
+            submissions.append(payload)
+            return {"id": "new"}
+        return {"stage": "ready", "job": existing if not submissions else
+                {"id": "new", "state": "failed", "completed": 0, "total": 1}}
+    runner.api = api
+    with pytest.raises(RuntimeError, match="retain lease"):
+        runner.run_directory({"id": "one", "prefix": "A", "files": []})
+    assert len(submissions) == 1
+    assert runner.current["lease"] == "still-owned"
+    assert not (tmp_path / "one-results.json").exists()

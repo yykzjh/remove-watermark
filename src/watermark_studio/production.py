@@ -257,7 +257,8 @@ class ProductionRunner:
         options = dict(self.c["options"])
         options["concurrency"] = min(4 * len(self.gpus), self.c.get("max_concurrency", 64))
         existing = self.api("/health").get("job")
-        compatible = (existing and existing.get("input_dir") == str(input_dir)
+        compatible = (existing and existing.get("state") not in {"failed", "interrupted", "cancelled"}
+                      and existing.get("input_dir") == str(input_dir)
                       and existing.get("output_dir") == str(destination)
                       and all(existing.get("options", {}).get(k) == v
                               for k, v in options.items()))
@@ -283,6 +284,8 @@ class ProductionRunner:
             if job["state"] in {"completed", "failed", "interrupted", "cancelled"}:
                 break
             time.sleep(5)
+        if job["state"] != "completed":
+            raise RuntimeError("Directory inference did not complete; retain lease for recovery")
         report_root = Path(self.c["server_state_dir"]) / job_id
         records = {}
         results = report_root / "results.jsonl"
