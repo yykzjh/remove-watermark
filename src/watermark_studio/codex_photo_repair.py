@@ -72,28 +72,39 @@ def generated_view(saved):
     return {"path": path, "view_box": saved["view_box"], "display_size": saved["display_size"]}
 
 
+def edit_context(original, candidate, defects):
+    source, _, _, _ = load_photo(str(original))
+    view = context_view(source.size, defects)
+    if view and all(d["kind"] == "unnatural_fill" for d in defects):
+        current, _, _, _ = load_photo(str(candidate))
+        if current.size != source.size:
+            raise ValueError("Refinement candidate differs from original dimensions")
+        return current, view, "processed_context_refinement_v1"
+    return source, view, "original_context_v2"
+
+
 def generate(executable, original, candidate, defects, folder, model="gpt-6.1-sol"):
     folder.mkdir(parents=True, exist_ok=True)
     identity = {"original_md5": digest(original), "candidate_sha256": file_sha256(candidate),
                 "defects_sha256": hashlib.sha256(json.dumps(defects, sort_keys=True).encode()).hexdigest()}
+    source, view, policy = edit_context(original, candidate, defects)
+    refinement = policy == "processed_context_refinement_v1"
     result = folder / "generation.json"
     if result.exists():
         saved = json.loads(result.read_text())
         p = Path(saved["generated_file"])
         if file_sha256(p) != saved["generated_sha256"]:
             raise ValueError("Cached native edit artifact changed")
-        if saved.get("input_identity", identity) != identity:
+        if saved.get("input_identity", identity) != identity or saved.get("policy") != policy:
             raise ValueError("Cached image edit belongs to different inputs")
         return generated_view(saved)
-    source, _, _, _ = load_photo(str(original))
-    view = context_view(source.size, defects)
     instructions = [dict(d) for d in defects]
     original_display = display_input(original, folder, "reference")
     images = [original_display]
     view_text = "Image 1 is the ORIGINAL complete photograph. Return that same complete framing."
     if view:
         crop = source.crop(view)
-        crop_path = folder / "original-context.png"
+        crop_path = folder / ("processed-context.png" if refinement else "original-context.png")
         crop.save(crop_path)
         images = [crop_path, original_display]
         for d in instructions:
@@ -102,14 +113,22 @@ def generate(executable, original, candidate, defects, folder, model="gpt-6.1-so
                         max(0, (b[1] * source.height - view[1]) / crop.height),
                         min(1, (b[2] * source.width - view[0]) / crop.width),
                         min(1, (b[3] * source.height - view[1]) / crop.height)]
-        view_text = ("Image 1 is the ORIGINAL SQUARE CROP and the ONLY edit canvas. "
+        label = "CURRENT WATERMARK-REMOVED" if refinement else "ORIGINAL"
+        view_text = (f"Image 1 is the {label} SQUARE CROP and the ONLY edit canvas. "
                      "Image 2 is the complete original photo for context, never the output canvas. "
                      "Return the same square crop composition, without padding, zoom or a comparison panel. "
                      "Coordinates below refer to Image 1, not the complete photograph.")
+    starting = ("Refine the current watermark-removed crop in Image 1. Preserve its correct reconstructed "
+                "scene structure and fix only the listed local defect. Image 2 is only an authentic context "
+                "reference and still contains overlays: NEVER transfer its blue/gray panels, lettering or "
+                "tinted overlay colours into this clean crop. For a colour defect, correct the tint and "
+                "lighting without inventing new stone shapes, altering a ruler or adding any text. "
+                if refinement else "Start fresh from the authentic ORIGINAL pixels, not an earlier generated texture. ")
+    avoid = ("Preserve the existing natural reconstruction except for the localized observed defect. "
+             if refinement else "Do not copy earlier generated artifacts. ")
     write_json(folder / "schema.json", EDIT_SCHEMA)
     prompt = """Use the ACTUAL built-in image_gen editing tool exactly once.
-""" + view_text + """
-Start fresh from the authentic ORIGINAL pixels, not an earlier generated texture.
+""" + view_text + "\n" + starting + """
 Remove digital overlay lettering, panels, logos, camera branding and anti-forgery codes
 that fall within the requested repair area. Rebuild plausible matching scene materials.
 For soil or gravel, use naturally varied, small irregular particles matching nearby original
@@ -118,7 +137,7 @@ noise and blur level; avoid sharpening into decorative patterns or repeated outl
 Keep original visible people, clothes, pose, measuring tools, branches, boards, construction
 lines, buildings and real physical text. Never reproduce digital overlay text from the reference.
 An earlier removal had the defects described below; those descriptions guide what to avoid.
-Do not copy earlier generated artifacts. The parent pipeline protects every unedited pixel,
+""" + avoid + """The parent pipeline protects every unedited pixel,
 matches local lighting and independently inspects the complete assembled photo.
 A plausible small difference in gravel granularity is acceptable.
 Do not call shell commands, install software, use other CLIs/APIs, seek credentials or copy files.
@@ -148,7 +167,7 @@ Observed defects and intended repair locations:
     generated = native_output(answer["output_path"], events, started)
     saved = {"generated_file": str(generated), "generated_sha256": file_sha256(generated),
              "tool_evidence": answer["evidence"], "view_box": view, "display_size": list(source.size),
-             "policy": "original_context_v2", "input_identity": identity}
+             "policy": policy, "input_identity": identity}
     write_json(result, saved)
     return generated_view(saved)
 

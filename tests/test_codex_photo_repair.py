@@ -200,3 +200,75 @@ def test_only_truly_occluded_defects_are_sent_to_generator():
     assert not needs_reconstruction(content | {"source_visible": True}, roi)
     assert not needs_reconstruction(content | {"box": [0, 0, .4, .4]}, roi)
     assert needs_reconstruction({"kind": "unnatural_fill", "box": [.1, .1, .2, .2]}, roi)
+
+
+def test_small_fill_refinement_uses_clean_candidate_but_true_reconstruction_keeps_original(tmp_path):
+    from watermark_studio.codex_photo_repair import edit_context
+    original, candidate = tmp_path / "original.png", tmp_path / "candidate.png"
+    Image.new("RGB", (1024, 768), "blue").save(original)
+    Image.new("RGB", (1024, 768), "gray").save(candidate)
+    small = {"kind": "unnatural_fill", "box": [.7, .8, .8, .9]}
+    pixels, view, policy = edit_context(original, candidate, [small])
+    assert view is not None and policy == "processed_context_refinement_v1"
+    assert pixels.getpixel((0, 0)) == (128, 128, 128)
+    for defects in [[small | {"kind": "residual_watermark"}],
+                    [small | {"kind": "content_change"}],
+                    [small | {"box": [0, 0, .9, .9]}]]:
+        pixels, _, policy = edit_context(original, candidate, defects)
+        assert policy == "original_context_v2"
+        assert pixels.getpixel((0, 0)) == (0, 0, 255)
+    Image.new("RGB", (512, 512), "gray").save(candidate)
+    with pytest.raises(ValueError, match="dimensions"):
+        edit_context(original, candidate, [small])
+
+
+def test_original_conditioned_artifact_cannot_be_reused_for_clean_candidate_refinement(tmp_path):
+    import hashlib
+    import json
+
+    from watermark_studio.codex_photo_repair import generate
+    from watermark_studio.dataset_transfer import digest
+    from watermark_studio.production_archives import file_sha256
+    original, candidate, edited = [tmp_path / n for n in ["original.png", "candidate.png", "edited.png"]]
+    for p, colour in [(original, "blue"), (candidate, "gray"), (edited, "red")]:
+        Image.new("RGB", (1024, 768), colour).save(p)
+    defects = [{"kind": "unnatural_fill", "box": [.7, .8, .8, .9]}]
+    folder = tmp_path / "native"
+    folder.mkdir()
+    saved = {"generated_file": str(edited), "generated_sha256": file_sha256(edited),
+             "policy": "original_context_v2",
+             "input_identity": {"original_md5": digest(original), "candidate_sha256": file_sha256(candidate),
+                                "defects_sha256": hashlib.sha256(json.dumps(defects, sort_keys=True).encode()).hexdigest()}}
+    (folder / "generation.json").write_text(json.dumps(saved))
+    with pytest.raises(ValueError, match="different inputs"):
+        generate("must-not-run", original, candidate, defects, folder)
+
+
+def test_refinement_records_actual_conditioning_and_reuses_exact_artifact(tmp_path, monkeypatch):
+    import json
+    import subprocess
+
+    from watermark_studio.codex_photo_repair import generate
+    original, candidate, edited = [tmp_path / n for n in ["original.png", "candidate.png", "edited.png"]]
+    for p, colour in [(original, "blue"), (candidate, "gray"), (edited, "red")]:
+        Image.new("RGB", (1024, 768), colour).save(p)
+    folder = tmp_path / "native"
+    calls = []
+    def invoke(cmd, **kwargs):
+        calls.append(kwargs["input"].decode())
+        kwargs["stdout"].write(json.dumps({"type": "thread.started", "thread_id": "test"}).encode() + bytes([10]))
+        (folder / "tool-result.json").write_text(json.dumps(
+            {"status": "edited", "output_path": str(edited), "evidence": ["Native edit completed."]}))
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.windows_path", lambda p: str(p))
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.native_output", lambda *a: edited)
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.subprocess.run", invoke)
+    defects = [{"kind": "unnatural_fill", "box": [.7, .8, .8, .9]}]
+    result = generate("unused", original, candidate, defects, folder)
+    saved = json.loads((folder / "generation.json").read_text())
+    assert saved["policy"] == "processed_context_refinement_v1"
+    with Image.open(folder / "processed-context.png") as conditioned:
+        assert conditioned.getpixel((0, 0)) == (128, 128, 128)
+    assert "CURRENT WATERMARK-REMOVED" in calls[0]
+    assert generate("unused", original, candidate, defects, folder) == result
+    assert len(calls) == 1
