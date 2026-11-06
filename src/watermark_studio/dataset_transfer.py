@@ -153,12 +153,53 @@ def serve(args):
                for name, value in manifests.items()}
     allowed = set(args.allowed_peers)
     token = read_token(args.token_file)
+    broker = None
+    if args.broker_dir:
+        from .production_queue import WorkBroker
+        broker = WorkBroker(manifest, args.broker_dir, args.nodes)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, *_):
             pass
+
+        def respond(self, value, status=200):
+            body = json.dumps(value, ensure_ascii=False).encode()
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if (not broker or self.client_address[0] not in allowed
+                    or not secrets.compare_digest(self.headers.get("Authorization", ""),
+                                                   "Bearer " + token)):
+                self.send_error(403)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 8 * 1024 * 1024:
+                    raise ValueError("Invalid request size")
+                payload = json.loads(self.rfile.read(length))
+                node = payload["node"]
+                action = urllib.parse.urlsplit(self.path).path
+                if action == "/broker/claim":
+                    value = broker.claim(node)
+                elif action == "/broker/heartbeat":
+                    value = broker.heartbeat(node, payload["unit_id"], payload["lease"],
+                                             payload.get("progress"))
+                elif action == "/broker/complete":
+                    value = broker.complete(node, payload["unit_id"], payload["lease"],
+                                            payload["rows"])
+                elif action == "/broker/worker":
+                    value = broker.worker(node, payload["info"])
+                else:
+                    raise ValueError("Unknown queue operation")
+                self.respond(value)
+            except (KeyError, ValueError) as error:
+                self.respond({"error": str(error)}, 409)
 
         def do_GET(self):
             if (self.client_address[0] not in allowed or not secrets.compare_digest(
@@ -167,6 +208,13 @@ def serve(args):
                 return
             parsed = urllib.parse.urlsplit(self.path)
             path = parsed.path
+            if broker and path in {"/broker/status", "/broker/ownership"}:
+                try:
+                    value = broker.status() if path.endswith("/status") else broker.ownership()
+                    self.respond(value)
+                except ValueError as error:
+                    self.respond({"error": str(error)}, 409)
+                return
             if path == "/manifest":
                 shard = urllib.parse.parse_qs(parsed.query).get("shard", [""])[0]
                 if shard not in encoded:
@@ -329,6 +377,8 @@ def main():
     server.add_argument("--certificate", type=Path, required=True)
     server.add_argument("--private-key", type=Path, required=True)
     server.add_argument("--plan-file", type=Path)
+    server.add_argument("--broker-dir", type=Path)
+    server.add_argument("--nodes", nargs="+", default=["cdu_dev1", "cdu_dev2"])
     client = commands.add_parser("fetch")
     client.add_argument("--url", required=True)
     client.add_argument("--shard")
