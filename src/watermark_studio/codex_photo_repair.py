@@ -76,11 +76,12 @@ def generated_view(saved):
 def edit_context(original, candidate, defects):
     source, _, _, _ = load_photo(str(original))
     view = context_view(source.size, defects)
-    if view and all(d["kind"] == "unnatural_fill" for d in defects):
+    if view and all(d["kind"] in {"unnatural_fill", "residual_watermark"} for d in defects):
         current, _, _, _ = load_photo(str(candidate))
         if current.size != source.size:
             raise ValueError("Refinement candidate differs from original dimensions")
-        return current, view, "processed_context_refinement_v1"
+        return current, view, ("processed_residual_context_v1" if any(
+            d["kind"] == "residual_watermark" for d in defects) else "processed_context_refinement_v1")
     return source, view, "original_context_v2"
 
 
@@ -89,7 +90,8 @@ def generate(executable, original, candidate, defects, folder, model="gpt-6.1-so
     identity = {"original_md5": digest(original), "candidate_sha256": file_sha256(candidate),
                 "defects_sha256": hashlib.sha256(json.dumps(defects, sort_keys=True).encode()).hexdigest()}
     source, view, policy = edit_context(original, candidate, defects)
-    refinement = policy == "processed_context_refinement_v1"
+    refinement = policy in {"processed_context_refinement_v1", "processed_residual_context_v1"}
+    residual_cleanup = policy == "processed_residual_context_v1"
     result = folder / "generation.json"
     if result.exists():
         saved = json.loads(result.read_text())
@@ -114,12 +116,14 @@ def generate(executable, original, candidate, defects, folder, model="gpt-6.1-so
                         max(0, (b[1] * source.height - view[1]) / crop.height),
                         min(1, (b[2] * source.width - view[0]) / crop.width),
                         min(1, (b[3] * source.height - view[1]) / crop.height)]
-        label = "CURRENT WATERMARK-REMOVED" if refinement else "ORIGINAL"
+        label = ("CURRENT PARTIALLY PROCESSED" if residual_cleanup else
+                 "CURRENT WATERMARK-REMOVED" if refinement else "ORIGINAL")
         view_text = (f"Image 1 is the {label} SQUARE CROP and the ONLY edit canvas. "
                      "Image 2 is the complete original photo for context, never the output canvas. "
                      "Return the same square crop composition, without padding, zoom or a comparison panel. "
                      "Coordinates below refer to Image 1, not the complete photograph.")
-    starting = ("Refine the current watermark-removed crop in Image 1. Preserve its correct reconstructed "
+    state = "partially processed" if residual_cleanup else "watermark-removed"
+    starting = (f"Refine the current {state} crop in Image 1. Preserve its correct reconstructed "
                 "scene structure and fix only the listed local defect. Image 2 is only an authentic context "
                 "reference and still contains overlays: NEVER transfer its blue/gray panels, lettering or "
                 "tinted overlay colours into this clean crop. For a colour defect, correct the tint and "

@@ -211,8 +211,10 @@ def test_small_fill_refinement_uses_clean_candidate_but_true_reconstruction_keep
     pixels, view, policy = edit_context(original, candidate, [small])
     assert view is not None and policy == "processed_context_refinement_v1"
     assert pixels.getpixel((0, 0)) == (128, 128, 128)
-    for defects in [[small | {"kind": "residual_watermark"}],
-                    [small | {"kind": "content_change"}],
+    pixels, _, policy = edit_context(original, candidate, [small | {"kind": "residual_watermark"}])
+    assert policy == "processed_residual_context_v1"
+    assert pixels.getpixel((0, 0)) == (128, 128, 128)
+    for defects in [[small | {"kind": "content_change"}],
                     [small | {"box": [0, 0, .9, .9]}]]:
         pixels, _, policy = edit_context(original, candidate, defects)
         assert policy == "original_context_v2"
