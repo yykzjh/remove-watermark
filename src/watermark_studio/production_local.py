@@ -10,9 +10,11 @@ import time
 from pathlib import Path
 
 from .codex_photo_audit import run_audit
+from .codex_photo_repair import run_repairs
 from .dataset_transfer import write_json
 from .production_assembly import assemble
 from .production_cloud import retrieve
+from .production_final import finalize
 
 
 def remote_snapshot(node, root):
@@ -73,10 +75,17 @@ def run(c):
     write_json(state / "status.json", {"phase": "individual_codex_review", "assembly": report})
     audit = run_audit(state / "assembly", Path(c["destination"]), Path(c["original_root"]),
                       state / "codex", Path(c["codex_executable"]), Path(c["baidu_config"]))
-    # A reviewed dataset can still need repairs. Never call pending repairs "complete".
-    write_json(state / "status.json", {"phase": "codex_audit_complete",
+    write_json(state / "status.json", {"phase": "individual_codex_repairs",
                                       "assembly": report, "audit": audit})
-    return audit
+    overrides = [json.loads(Path(p).read_text()) for p in c.get("human_acceptance", [])]
+    repair = run_repairs(state / "assembly", state / "codex", Path(c["destination"]),
+                         Path(c["original_root"]), state / "codex-repairs",
+                         Path(c["codex_executable"]), overrides)
+    write_json(state / "status.json", {"phase": "final_integrity_verification", "repairs": repair})
+    final = finalize(state / "assembly", state / "codex", state / "codex-repairs",
+                     Path(c["destination"]), state / "final")
+    write_json(state / "status.json", {"phase": final["state"], "report": final})
+    return final
 
 
 def main():

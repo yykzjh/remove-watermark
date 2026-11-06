@@ -102,3 +102,46 @@ def test_exit_zero_without_download_never_counts_as_success(tmp_path, monkeypatc
 def test_cloud_path_confined(path):
     with pytest.raises(ValueError):
         cloud_path(path)
+
+
+def final_fixture(tmp_path):
+    from watermark_studio.production_final import finalize
+    indexes, artifacts, _ = shards(tmp_path)
+    output, assembly, audit, repairs = [tmp_path / n for n in ["assembled", "assembly", "audit", "repairs"]]
+    assemble(indexes, artifacts, output, assembly)
+    audit.mkdir()
+    repairs.mkdir()
+    rows = [json.loads(line) for line in (assembly / "assembled-images.jsonl").read_text().splitlines()]
+    plan = {"sample": [rows[0]["file"]], "initially_rejected": [rows[1]["file"]]}
+    (audit / "audit-plan.json").write_text(json.dumps(plan))
+    verdict = {"acceptable": True, "watermark_removed": True, "natural_fill": True,
+               "content_preserved": True, "uncertain": False, "defects": [],
+               "evidence": ["No digital overlay remains; reconstructed regions are plausible."]}
+    (audit / "audit-results.jsonl").write_text(
+        "".join(json.dumps({"file": r["file"], "verdict": verdict}) + "\n" for r in rows))
+    (repairs / "repair-results.jsonl").write_text("")
+    return finalize, assembly, audit, repairs, output
+
+
+def test_final_inventory_keeps_initial_sample_grades_and_exact_original_tree(tmp_path):
+    finalize, assembly, audit, repairs, output = final_fixture(tmp_path)
+    report = finalize(assembly, audit, repairs, output, tmp_path / "final")
+    assert report["files"] == 4 and report["directories_including_root"] == 5
+    assert report["valid_images"] == 2 and report["initial_sample_passed"] == 1
+    assert report["codex_repair_dispositions"] == 0
+    assert report["source_empty_images"] == ["原始空图.jpg"]
+
+
+def test_final_inventory_rejects_later_byte_changes(tmp_path):
+    finalize, assembly, audit, repairs, output = final_fixture(tmp_path)
+    (output / "镇/村/图像一.jpg").write_bytes(b"corrupted after initial assembly")
+    with pytest.raises(ValueError, match="differs"):
+        finalize(assembly, audit, repairs, output, tmp_path / "final")
+
+
+def test_final_inventory_requires_every_individual_review(tmp_path):
+    finalize, assembly, audit, repairs, output = final_fixture(tmp_path)
+    p = audit / "audit-results.jsonl"
+    p.write_text(p.read_text().splitlines()[0] + "\n")
+    with pytest.raises(ValueError, match="every required"):
+        finalize(assembly, audit, repairs, output, tmp_path / "final")

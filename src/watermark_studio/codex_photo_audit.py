@@ -126,7 +126,7 @@ def review_photo(executable, original, output, folder, regions=(), model="gpt-6.
     write_json(folder / "schema.json", SCHEMA)
     images = [original, output, *detail_pairs(original, output, regions, folder)]
     cmd = [str(executable), "exec", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check",
-           "--disable", "image_generation", "-m", model, "-c", 'model_reasoning_effort="high"',
+           "--disable", "image_generation", "--disable", "shell_tool", "-m", model, "-c", 'model_reasoning_effort="high"',
            "-s", "read-only", "-C", windows_path(folder), "--output-schema",
            windows_path(folder / "schema.json"), "--json", "-o", windows_path(folder / "verdict.json")]
     for image in images:
