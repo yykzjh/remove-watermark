@@ -38,3 +38,18 @@ def test_sample_is_frozen_and_cannot_be_regraded_after_repairs(tmp_path):
     changed[0]["sha256"] = "repaired bytes"
     with pytest.raises(ValueError, match="changed"):
         freeze_plan(changed, tmp_path)
+
+
+def test_codex_detail_views_use_the_same_exif_orientation_as_complete_images(tmp_path):
+    from PIL import Image
+
+    from watermark_studio.codex_photo_audit import detail_pairs
+    source, output = tmp_path / "source.jpg", tmp_path / "output.jpg"
+    photo = Image.new("RGB", (80, 40), "green")
+    exif = Image.Exif()
+    exif[274] = 6
+    photo.save(source, exif=exif)
+    output.write_bytes(source.read_bytes())
+    pairs = detail_pairs(source, output, [{"box": [0, 0, 1, 1]}], tmp_path)
+    with Image.open(pairs[0]) as pair:
+        assert pair.size == (80, 80)
