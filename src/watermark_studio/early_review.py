@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .codex_photo_audit import review_photo
 from .codex_photo_repair import repair_one
+from .codex_pool import photo_map
 from .dataset_transfer import beneath, digest, signature, write_json
 from .images import atomic_copy
 from .production_archives import file_sha256
@@ -208,44 +209,55 @@ def local(c):
                     packet = folder / "artifacts" / artifact["name"]
                     meta = unpack_packet(packet, folder / "unpacked", delivery)
                     sources = {r["path"]: r for r in meta["sources"]}
-                    for row in meta["files"]:
-                        if control.exists():
-                            break
+                    def prepare(rows=meta["files"], source_records=sources, packet_folder=folder):
+                        for row in rows:
+                            if control.exists():
+                                break
+                            name = row["file"]
+                            if name in results and results[name]["baseline_sha256"] == row["sha256"]:
+                                continue
+                            if (name, row["sha256"]) in human:
+                                yield name, (row, None, None, True)
+                                continue
+                            original = original_for(source_records[name], c, client)
+                            candidate = beneath(packet_folder / "unpacked/images", name)
+                            if file_sha256(candidate) != row["sha256"]:
+                                raise ValueError("Early candidate changed after committed-byte verification")
+                            yield name, (row, original, candidate, False)
+
+                    def inspect(payload):
+                        row, original, candidate, human_accepted = payload
                         name = row["file"]
-                        if name in results and results[name]["baseline_sha256"] == row["sha256"]:
-                            continue
-                        if (name, row["sha256"]) in human:
-                            results[name] = {"file": name, "baseline_sha256": row["sha256"],
-                                             "status": "accepted_by_user", "codex_reviewed": False}
-                            write_json(results_path, results)
-                            continue
-                        original = original_for(sources[name], c, client)
-                        candidate = beneath(folder / "unpacked/images", name)
-                        if file_sha256(candidate) != row["sha256"]:
-                            raise ValueError("Early candidate changed after committed-byte verification")
-                        key = hashlib.sha256(name.encode()).hexdigest()
-                        write_json(state / "status.json", {"phase": "reviewing", "file": name,
-                                                           "reviewed": len(results)})
-                        reviewed = review_photo(c["codex_executable"], original, candidate,
-                                                root / "codex/initially-rejected" / key,
-                                                row.get("regions", []))
-                        entry = {"file": name, "group": "initially-rejected", **reviewed}
-                        status = "accepted_without_edit"
-                        if not reviewed["verdict"]["acceptable"]:
-                            target = beneath(state / "repair-targets", name)
-                            atomic_copy(candidate, target, True, preserve_metadata=True)
-                            write_json(state / "status.json", {"phase": "repairing", "file": name,
-                                                               "reviewed": len(results)})
-                            report = repair_one(c["codex_executable"], original, target, entry,
-                                                row.get("regions", []), root / "codex-repairs" / key)
-                            status = report["status"]
-                        results[name] = {"file": name, "baseline_sha256": row["sha256"],
-                                         "status": status, "codex_reviewed": True}
-                        write_json(results_path, results)
-                        write_json(state / "status.json", {"phase": "following_committed_directories",
+                        status = "accepted_by_user" if human_accepted else "accepted_without_edit"
+                        if not human_accepted:
+                            key = hashlib.sha256(name.encode()).hexdigest()
+                            reviewed = review_photo(c["codex_executable"], original, candidate,
+                                                    root / "codex/initially-rejected" / key,
+                                                    row.get("regions", []))
+                            entry = {"file": name, "group": "initially-rejected", **reviewed}
+                            if not reviewed["verdict"]["acceptable"]:
+                                target = beneath(state / "repair-targets", name)
+                                atomic_copy(candidate, target, True, preserve_metadata=True)
+                                report = repair_one(c["codex_executable"], original, target, entry,
+                                                    row.get("regions", []), root / "codex-repairs" / key)
+                                status = report["status"]
+                        return {"file": name, "baseline_sha256": row["sha256"],
+                                "status": status, "codex_reviewed": not human_accepted}
+
+                    concurrency = c.get("codex_concurrency", 1)
+                    def progress(active, workers=concurrency):
+                        write_json(state / "status.json", {"phase": "reviewing_and_repairing",
+                                   "concurrency": workers, "active": list(active),
                                    "reviewed": len(results), "accepted": sum(
-                                       r["status"] in {"passed", "accepted_without_edit", "accepted_by_user"} for r in results.values()),
+                                       r["status"] in {"passed", "accepted_without_edit", "accepted_by_user"}
+                                       for r in results.values()),
                                    "needs_review": sum(r["status"] == "needs_review" for r in results.values())})
+                    for name, result in photo_map(prepare(), inspect, concurrency,
+                                                  stop=control.exists, progress=progress):
+                        results[name] = result
+                        write_json(results_path, results)
+                    if control.exists():
+                        break
             if not control.exists():
                 cursors[node] = batch["cursor"]
                 write_json(cursors_path, cursors)

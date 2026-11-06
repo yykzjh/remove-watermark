@@ -6,8 +6,10 @@ import hashlib
 import json
 import random
 import subprocess
+import time
 from pathlib import Path
 
+from .codex_pool import photo_map
 from .dataset_transfer import beneath, digest, write_json
 from .production_archives import file_sha256
 from .production_cloud import BaiduDelivery
@@ -159,18 +161,22 @@ def review_photo(executable, original, output, folder, regions=(), model="gpt-6.
     for image in images:
         cmd.extend(["--image", windows_path(image)])
     cmd.append("-")
+    started = time.monotonic()
     with (folder / "events.jsonl").open("wb") as events, (folder / "stderr.log").open("wb") as errors:
         p = subprocess.run(cmd, input=PROMPT.encode(), stdout=events, stderr=errors,
                            timeout=900, check=False)
+    write_json(folder / "execution.json", {"returncode": p.returncode,
+               "elapsed_seconds": round(time.monotonic() - started, 3),
+               "verdict_exists": (folder / "verdict.json").is_file()})
     if p.returncode != 0 or not (folder / "verdict.json").is_file():
-        raise RuntimeError("Codex review did not finish; this image is not accepted")
+        raise RuntimeError(f"Codex review did not finish (exit {p.returncode}); this image is not accepted")
     saved = {"identity": identity, "verdict": validate_verdict(
         json.loads((folder / "verdict.json").read_text()))}
     write_json(result, saved)
     return saved
 
 
-def run_audit(assembly, output, original_root, state, executable, baidu_config, sample_size=1000):
+def run_audit(assembly, output, original_root, state, executable, baidu_config, sample_size=1000, concurrency=1):
     assembly, output, original_root, state = map(Path, [assembly, output, original_root, state])
     state.mkdir(parents=True, exist_ok=True)
     records = [json.loads(line) for line in (assembly / "assembled-images.jsonl").read_text().splitlines()]
@@ -183,8 +189,8 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     plan = freeze_plan(records, state, sample_size=sample_size)
     client = BaiduDelivery(baidu_config, state / "original-download")
     all_results = []
-    for group, paths in [("initially-rejected", plan["initially_rejected"]), ("sample-1000", plan["sample"])]:
-        for number, name in enumerate(paths, 1):
+    def prepare(paths, group):
+        for name in paths:
             reference = sources[name]
             source = beneath(original_root, name)
             if (not source.is_file() or source.stat().st_size != reference["size"]
@@ -199,20 +205,26 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
                         or digest(source) != reference["md5"]
                         or Path(str(source) + ".BaiduPCS-Go-downloading").exists()):
                     raise ValueError("Could not obtain checksum-verified comparison original: " + name)
-            key = hashlib.sha256(name.encode()).hexdigest()
-            target = beneath(output, name)
-            row = review_photo(executable, source, target, state / group / key,
-                               detailed.get(name, []))
-            row = {"file": name, "group": group, **row}
-            all_results.append(row)
-            write_json(state / "status.json", {"state": "reviewing", "group": group,
-                      "complete": number, "total": len(paths), "last_file": name,
-                      "last_acceptable": row["verdict"]["acceptable"]})
-            (state / "audit-results.jsonl").write_text(
-                "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in all_results))
-            repairs = [r for r in all_results if not r["verdict"]["acceptable"]]
-            (state / "codex-repair-queue.jsonl").write_text(
-                "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in repairs))
+            yield name, (name, source, beneath(output, name), group)
+
+    def inspect(payload):
+        name, source, target, group = payload
+        key = hashlib.sha256(name.encode()).hexdigest()
+        return review_photo(executable, source, target, state / group / key, detailed.get(name, []))
+
+    with (state / "audit-results.jsonl").open("w") as journal, (state / "codex-repair-queue.jsonl").open("w") as queue:
+        for group, paths in [("initially-rejected", plan["initially_rejected"]), ("sample-1000", plan["sample"])]:
+            for number, (name, reviewed) in enumerate(photo_map(prepare(paths, group), inspect, concurrency), 1):
+                row = {"file": name, "group": group, **reviewed}
+                all_results.append(row)
+                journal.write(json.dumps(row, ensure_ascii=False) + chr(10))
+                journal.flush()
+                if not row["verdict"]["acceptable"]:
+                    queue.write(json.dumps(row, ensure_ascii=False) + chr(10))
+                    queue.flush()
+                write_json(state / "status.json", {"state": "reviewing", "group": group,
+                           "concurrency": concurrency, "complete": number, "total": len(paths),
+                           "last_file": name, "last_acceptable": row["verdict"]["acceptable"]})
     sample = [r for r in all_results if r["group"] == "sample-1000"]
     report = {"state": "reviewed", "individually_reviewed": len(all_results),
               "original_sample_size": len(sample), "original_sample_passed": sum(
@@ -228,9 +240,10 @@ def main():
     for arg in ["assembly", "output", "original-root", "state", "executable", "baidu-config"]:
         p.add_argument("--" + arg, type=Path, required=True)
     p.add_argument("--sample-size", type=int, default=1000)
+    p.add_argument("--concurrency", type=int, default=1)
     a = p.parse_args()
     print(json.dumps(run_audit(a.assembly, a.output, a.original_root, a.state,
-                               a.executable, a.baidu_config, a.sample_size)))
+                               a.executable, a.baidu_config, a.sample_size, a.concurrency)))
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from pathlib import Path, PureWindowsPath
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
 from .codex_photo_audit import display_input, review_photo, validate_verdict, windows_path
+from .codex_pool import photo_map
 from .config import ProcessingConfig, Region
 from .dataset_transfer import beneath, digest, write_json
 from .images import atomic_copy, harmonize_repair, load_photo, save_output
@@ -158,8 +159,11 @@ Observed defects and intended repair locations:
     with (folder / "events.jsonl").open("wb") as out, (folder / "stderr.log").open("wb") as err:
         p = subprocess.run(cmd, input=prompt.encode(), stdout=out, stderr=err,
                            timeout=1200, check=False)
+    write_json(folder / "execution.json", {"returncode": p.returncode,
+               "elapsed_seconds": round(time.time() - started, 3),
+               "tool_result_exists": (folder / "tool-result.json").is_file(), "policy": policy})
     if p.returncode or not (folder / "tool-result.json").exists():
-        raise RuntimeError("Actual Codex image edit did not complete")
+        raise RuntimeError(f"Actual Codex image edit did not complete (exit {p.returncode})")
     answer = json.loads((folder / "tool-result.json").read_text())
     if answer["status"] != "edited":
         raise RuntimeError("Built-in Codex image editor unavailable")
@@ -333,7 +337,7 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3)
     return report
 
 
-def run_repairs(assembly, audit, output, originals_root, state, executable, overrides=()):
+def run_repairs(assembly, audit, output, originals_root, state, executable, overrides=(), concurrency=1):
     assembly, audit, output, originals_root, state = map(Path, [assembly, audit, output, originals_root, state])
     state.mkdir(parents=True, exist_ok=True)
     originals = json.loads((assembly / "reports/cdu_dev1/global/original-manifest.json").read_text())
@@ -348,27 +352,38 @@ def run_repairs(assembly, audit, output, originals_root, state, executable, over
     if len({e["file"] for e in entries}) != len(entries):
         raise ValueError("Duplicate image in Codex repair queue")
     reports = []
-    if not entries:
-        (state / "repair-results.jsonl").write_text("")
-    for number, entry in enumerate(entries, 1):
-        name = entry["file"]
-        target = beneath(output, name)
-        if (name, file_sha256(target)) in accepted:
-            report = {"file": name, "status": "accepted_by_user", "final_sha256": file_sha256(target),
-                      "human_acceptance": accepted[(name, file_sha256(target))]}
-        else:
+    def prepare():
+        for entry in entries:
+            name = entry["file"]
+            target = beneath(output, name)
+            if (name, file_sha256(target)) in accepted:
+                yield name, (entry, target, None)
+                continue
             candidates = [beneath(originals_root, name), beneath(audit / "verified-originals", name)]
             original = next((p for p in candidates if p.is_file() and
                              digest(p) == references[name]["md5"]), None)
             if original is None:
                 raise ValueError("Checksum-verified original unavailable for Codex repair")
-            folder = state / hashlib.sha256(name.encode()).hexdigest()
-            report = repair_one(executable, original, target, entry, regions.get(name, []), folder)
-        reports.append(report)
-        write_json(state / "status.json", {"phase": "repairing", "complete": number, "total": len(entries),
-                                          "last_file": name, "last_status": report["status"]})
-        (state / "repair-results.jsonl").write_text(
-            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in reports))
+            yield name, (entry, target, original)
+
+    def inspect(payload):
+        entry, target, original = payload
+        name = entry["file"]
+        if original is None:
+            identity = (name, file_sha256(target))
+            return {"file": name, "status": "accepted_by_user", "final_sha256": identity[1],
+                    "human_acceptance": accepted[identity]}
+        folder = state / hashlib.sha256(name.encode()).hexdigest()
+        return repair_one(executable, original, target, entry, regions.get(name, []), folder)
+
+    with (state / "repair-results.jsonl").open("w") as journal:
+        for number, (name, report) in enumerate(photo_map(prepare(), inspect, concurrency), 1):
+            reports.append(report)
+            journal.write(json.dumps(report, ensure_ascii=False) + chr(10))
+            journal.flush()
+            write_json(state / "status.json", {"phase": "repairing", "concurrency": concurrency,
+                                              "complete": number, "total": len(entries),
+                                              "last_file": name, "last_status": report["status"]})
     remaining = [r for r in reports if r["status"] not in {"passed", "accepted_by_user"}]
     (state / "needs-review-relative-paths.txt").write_text("".join(r["file"] + "\n" for r in remaining))
     summary = {"phase": "repairs_completed", "images_individually_processed": len(reports),
@@ -383,10 +398,11 @@ def main():
     for arg in ["assembly", "audit", "output", "originals-root", "state", "executable"]:
         p.add_argument("--" + arg, type=Path, required=True)
     p.add_argument("--human-acceptance", nargs="*", type=Path, default=[])
+    p.add_argument("--concurrency", type=int, default=1)
     a = p.parse_args()
     overrides = [json.loads(path.read_text()) for path in a.human_acceptance]
     print(json.dumps(run_repairs(a.assembly, a.audit, a.output, a.originals_root, a.state,
-                                 a.executable, overrides)))
+                                 a.executable, overrides, a.concurrency)))
 
 
 if __name__ == "__main__":
