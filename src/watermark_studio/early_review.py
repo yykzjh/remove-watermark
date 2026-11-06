@@ -10,6 +10,7 @@ import time
 import zipfile
 from pathlib import Path
 
+from .codex_fallback import allowed_fallback, packet_dispositions
 from .codex_photo_audit import review_photo
 from .codex_photo_repair import repair_one
 from .codex_pool import photo_map
@@ -209,24 +210,36 @@ def local(c):
                     packet = folder / "artifacts" / artifact["name"]
                     meta = unpack_packet(packet, folder / "unpacked", delivery)
                     sources = {r["path"]: r for r in meta["sources"]}
-                    def prepare(rows=meta["files"], source_records=sources, packet_folder=folder):
+                    proofs = packet_dispositions(meta, c["remote_states"], folder)
+                    minimum_attempts = c.get("codex_min_server_attempts", 0)
+                    def prepare(rows=meta["files"], source_records=sources, packet_folder=folder,
+                                final_proofs=proofs, required_attempts=minimum_attempts):
                         for row in rows:
                             if control.exists():
                                 break
                             name = row["file"]
+                            proof = final_proofs[hashlib.sha256(name.encode()).hexdigest()]
+                            eligible = allowed_fallback(row, proof, required_attempts)
+                            if name in results:
+                                results[name].update(server_attempts=proof["attempts"],
+                                                     server_final_status=proof["status"],
+                                                     eligible_under_current_scope=eligible)
+                                write_json(results_path, results)
                             if name in results and results[name]["baseline_sha256"] == row["sha256"]:
                                 continue
+                            if not eligible:
+                                continue
                             if (name, row["sha256"]) in human:
-                                yield name, (row, None, None, True)
+                                yield name, (row, None, None, True, proof)
                                 continue
                             original = original_for(source_records[name], c, client)
                             candidate = beneath(packet_folder / "unpacked/images", name)
                             if file_sha256(candidate) != row["sha256"]:
                                 raise ValueError("Early candidate changed after committed-byte verification")
-                            yield name, (row, original, candidate, False)
+                            yield name, (row, original, candidate, False, proof)
 
                     def inspect(payload):
-                        row, original, candidate, human_accepted = payload
+                        row, original, candidate, human_accepted, proof = payload
                         name = row["file"]
                         status = "accepted_by_user" if human_accepted else "accepted_without_edit"
                         if not human_accepted:
@@ -242,13 +255,19 @@ def local(c):
                                                     row.get("regions", []), root / "codex-repairs" / key)
                                 status = report["status"]
                         return {"file": name, "baseline_sha256": row["sha256"],
-                                "status": status, "codex_reviewed": not human_accepted}
+                                "status": status, "codex_reviewed": not human_accepted,
+                                "server_attempts": proof["attempts"], "server_final_status": proof["status"],
+                                "eligible_under_current_scope": True}
 
                     concurrency = c.get("codex_concurrency", 1)
-                    def progress(active, workers=concurrency):
+                    def progress(active, workers=concurrency, required_attempts=minimum_attempts):
                         write_json(state / "status.json", {"phase": "reviewing_and_repairing",
-                                   "concurrency": workers, "active": list(active),
-                                   "reviewed": len(results), "accepted": sum(
+                                   "concurrency": workers, "minimum_server_attempts": required_attempts,
+                                   "scope": "committed_server_failures_only", "active": list(active),
+                                   "reviewed": len(results),
+                                   "completed_in_scope": sum(r.get("eligible_under_current_scope") is True for r in results.values()),
+                                   "completed_before_scope_change": sum(r.get("eligible_under_current_scope") is False for r in results.values()),
+                                   "accepted": sum(
                                        r["status"] in {"passed", "accepted_without_edit", "accepted_by_user"}
                                        for r in results.values()),
                                    "needs_review": sum(r["status"] == "needs_review" for r in results.values())})

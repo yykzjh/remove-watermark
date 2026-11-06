@@ -46,6 +46,13 @@ def finalize(assembly, audit, repairs, output, state, workers=8):
     rejected = {r["file"] for r in reviews if not r["verdict"]["acceptable"]}
     if set(changed) != rejected:
         raise ValueError("Not every rejected photo received an individual repair disposition")
+    deferred = set(plan.get("deferred_server_review", []))
+    if not deferred <= set(baseline):
+        raise ValueError("Deferred review contains an unknown image")
+    if plan.get("minimum_server_attempts", 0):
+        server_bad = {name for name, row in baseline.items() if row.get("quality_status") != "passed"}
+        if server_bad != set(plan["initially_rejected"]) | deferred:
+            raise ValueError("Server failures were omitted from reviewed or deferred dispositions")
     actual_files, actual_dirs = set(), set()
     for folder, directories, names in os.walk(output):
         actual_dirs.add(Path(folder).relative_to(output).as_posix())
@@ -83,6 +90,8 @@ def finalize(assembly, audit, repairs, output, state, workers=8):
             status = "codex_" + changed[name]["status"]
         elif name in review_map:
             status = "codex_verified"
+        elif name in deferred:
+            status = "server_needs_review_outside_local_scope"
         else:
             status = "self_hosted_verified_unsampled"
         return {"file": name, "size": size, "sha256": sha.hexdigest(), "status": status,
@@ -90,7 +99,7 @@ def finalize(assembly, audit, repairs, output, state, workers=8):
 
     with cf.ThreadPoolExecutor(max_workers=workers) as pool:
         rows = list(pool.map(verify, sorted(references.items())))
-    remaining = [r["file"] for r in changes if r["status"] not in {"passed", "accepted_by_user"}]
+    remaining = sorted(deferred | {r["file"] for r in changes if r["status"] not in {"passed", "accepted_by_user"}})
     sample = set(plan["sample"])
     initial_sample_passed = sum(review_map[name]["verdict"]["acceptable"] for name in sample)
     final_sample_passed = sum(review_map[name]["verdict"]["acceptable"] or
@@ -103,6 +112,7 @@ def finalize(assembly, audit, repairs, output, state, workers=8):
               "initial_sample_passed": initial_sample_passed, "sample_passed_after_repairs": final_sample_passed,
               "codex_repair_dispositions": len(changes), "remaining_valid_images_needing_review": len(remaining),
               "source_empty_images": assembly_report["source_empty_images"],
+              "server_review_deferred_by_scope": len(deferred),
               "manifest_sha256": assembly_report["manifest_sha256"], "output": str(output)}
     write_json(state / "final-output-manifest.json", {"files": rows, "source_manifest_sha256": report["manifest_sha256"]})
     (state / "needs-review-relative-paths.txt").write_text("".join(name + "\n" for name in remaining))

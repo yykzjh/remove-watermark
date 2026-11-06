@@ -74,19 +74,26 @@ def validate_verdict(value):
     return value
 
 
-def freeze_plan(records, state, seed=20261106, sample_size=1000):
+def freeze_plan(records, state, seed=20261106, sample_size=1000, minimum_server_attempts=0):
+    if type(minimum_server_attempts) is not int or minimum_server_attempts < 0:
+        raise ValueError("Minimum server attempts must be a nonnegative integer")
     eligible = sorted(r["file"] for r in records if r["quality_status"] == "passed")
-    rejected = sorted(r["file"] for r in records if r["quality_status"] != "passed")
+    rejected = sorted(r["file"] for r in records if r["quality_status"] != "passed"
+                      and r.get("server_attempts", 0) >= minimum_server_attempts)
+    deferred = sorted(r["file"] for r in records if r["quality_status"] != "passed"
+                      and r.get("server_attempts", 0) < minimum_server_attempts)
     identity = hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest()
     path = Path(state) / "audit-plan.json"
     if path.exists():
         plan = json.loads(path.read_text())
-        if plan["records_sha256"] != identity:
+        if (plan["records_sha256"] != identity
+                or plan.get("minimum_server_attempts", 0) != minimum_server_attempts):
             raise ValueError("Audit input changed after the original sample was frozen")
         return plan
     plan = {"records_sha256": identity, "seed": seed, "sampling": "uniform_without_replacement_by_path",
             "sample": random.Random(seed).sample(eligible, min(sample_size, len(eligible))),
-            "initially_rejected": rejected, "eligible": len(eligible)}
+            "initially_rejected": rejected, "eligible": len(eligible),
+            "deferred_server_review": deferred, "minimum_server_attempts": minimum_server_attempts}
     write_json(path, plan)
     return plan
 
@@ -176,17 +183,28 @@ def review_photo(executable, original, output, folder, regions=(), model="gpt-6.
     return saved
 
 
-def run_audit(assembly, output, original_root, state, executable, baidu_config, sample_size=1000, concurrency=1):
+def run_audit(assembly, output, original_root, state, executable, baidu_config, sample_size=1000, concurrency=1, minimum_server_attempts=0):
     assembly, output, original_root, state = map(Path, [assembly, output, original_root, state])
     state.mkdir(parents=True, exist_ok=True)
     records = [json.loads(line) for line in (assembly / "assembled-images.jsonl").read_text().splitlines()]
     originals = json.loads((assembly / "reports/cdu_dev1/global/original-manifest.json").read_text())
     sources = {r["path"]: r for r in originals["files"]}
-    detailed = {}
+    detailed, attempts, notes = {}, {}, {}
     for report in (assembly / "reports").glob("*/directories/*-results.json"):
         for row in json.loads(report.read_text())["rows"]:
             detailed[row["file"]] = row.get("regions", [])
-    plan = freeze_plan(records, state, sample_size=sample_size)
+            attempts[row["file"]] = row.get("quality_attempts", 0)
+            if row.get("quality_status") != "passed":
+                notes[row["file"]] = {"server_attempts": attempts[row["file"]],
+                                      "retry_blocked": row.get("retry_blocked"),
+                                      "reason": str((row.get("quality") or {}).get("reason") or row.get("error") or "")[:600]}
+    if minimum_server_attempts:
+        records = [dict(r, server_attempts=attempts.get(r["file"], 0)) for r in records]
+    source_status = {r["file"]: r["quality_status"] for r in records}
+    plan = freeze_plan(records, state, sample_size=sample_size, minimum_server_attempts=minimum_server_attempts)
+    (state / "deferred-server-review.jsonl").write_text("".join(
+        json.dumps({"file": name, **notes.get(name, {})}, ensure_ascii=False) + chr(10)
+        for name in plan.get("deferred_server_review", [])))
     client = BaiduDelivery(baidu_config, state / "original-download")
     all_results = []
     def prepare(paths, group):
@@ -215,7 +233,8 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     with (state / "audit-results.jsonl").open("w") as journal, (state / "codex-repair-queue.jsonl").open("w") as queue:
         for group, paths in [("initially-rejected", plan["initially_rejected"]), ("sample-1000", plan["sample"])]:
             for number, (name, reviewed) in enumerate(photo_map(prepare(paths, group), inspect, concurrency), 1):
-                row = {"file": name, "group": group, **reviewed}
+                row = {"file": name, "group": group, "server_attempts": attempts.get(name, 0),
+                       "server_final_status": source_status[name], **reviewed}
                 all_results.append(row)
                 journal.write(json.dumps(row, ensure_ascii=False) + chr(10))
                 journal.flush()
@@ -229,7 +248,9 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     report = {"state": "reviewed", "individually_reviewed": len(all_results),
               "original_sample_size": len(sample), "original_sample_passed": sum(
                   r["verdict"]["acceptable"] for r in sample),
-              "needs_codex_repair": sum(not r["verdict"]["acceptable"] for r in all_results)}
+              "needs_codex_repair": sum(not r["verdict"]["acceptable"] for r in all_results),
+              "minimum_server_attempts": minimum_server_attempts,
+              "deferred_server_reviews": len(plan.get("deferred_server_review", []))}
     write_json(state / "report.json", report)
     write_json(state / "status.json", report)
     return report
@@ -241,9 +262,10 @@ def main():
         p.add_argument("--" + arg, type=Path, required=True)
     p.add_argument("--sample-size", type=int, default=1000)
     p.add_argument("--concurrency", type=int, default=1)
+    p.add_argument("--minimum-server-attempts", type=int, default=0)
     a = p.parse_args()
     print(json.dumps(run_audit(a.assembly, a.output, a.original_root, a.state,
-                               a.executable, a.baidu_config, a.sample_size, a.concurrency)))
+                               a.executable, a.baidu_config, a.sample_size, a.concurrency, a.minimum_server_attempts)))
 
 
 if __name__ == "__main__":

@@ -337,7 +337,7 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3)
     return report
 
 
-def run_repairs(assembly, audit, output, originals_root, state, executable, overrides=(), concurrency=1):
+def run_repairs(assembly, audit, output, originals_root, state, executable, overrides=(), concurrency=1, minimum_server_attempts=0, server_failures_only=False):
     assembly, audit, output, originals_root, state = map(Path, [assembly, audit, output, originals_root, state])
     state.mkdir(parents=True, exist_ok=True)
     originals = json.loads((assembly / "reports/cdu_dev1/global/original-manifest.json").read_text())
@@ -356,6 +356,10 @@ def run_repairs(assembly, audit, output, originals_root, state, executable, over
         for entry in entries:
             name = entry["file"]
             target = beneath(output, name)
+            if ((server_failures_only or minimum_server_attempts) and (entry.get("server_final_status") == "passed"
+                    or entry.get("server_attempts", 0) < minimum_server_attempts)):
+                yield name, (entry, target, False)
+                continue
             if (name, file_sha256(target)) in accepted:
                 yield name, (entry, target, None)
                 continue
@@ -369,6 +373,10 @@ def run_repairs(assembly, audit, output, originals_root, state, executable, over
     def inspect(payload):
         entry, target, original = payload
         name = entry["file"]
+        if original is False:
+            return {"file": name, "status": "needs_review", "final_sha256": file_sha256(target),
+                    "reason": "Outside authorized local fallback scope; inspected only, no local edit.",
+                    "history": [], "server_attempts": entry.get("server_attempts", 0)}
         if original is None:
             identity = (name, file_sha256(target))
             return {"file": name, "status": "accepted_by_user", "final_sha256": identity[1],
@@ -399,10 +407,12 @@ def main():
         p.add_argument("--" + arg, type=Path, required=True)
     p.add_argument("--human-acceptance", nargs="*", type=Path, default=[])
     p.add_argument("--concurrency", type=int, default=1)
+    p.add_argument("--minimum-server-attempts", type=int, default=0)
+    p.add_argument("--server-failures-only", action="store_true")
     a = p.parse_args()
     overrides = [json.loads(path.read_text()) for path in a.human_acceptance]
     print(json.dumps(run_repairs(a.assembly, a.audit, a.output, a.originals_root, a.state,
-                                 a.executable, overrides, a.concurrency)))
+                                 a.executable, overrides, a.concurrency, a.minimum_server_attempts, a.server_failures_only)))
 
 
 if __name__ == "__main__":

@@ -145,3 +145,40 @@ def test_final_inventory_requires_every_individual_review(tmp_path):
     p.write_text(p.read_text().splitlines()[0] + "\n")
     with pytest.raises(ValueError, match="every required"):
         finalize(assembly, audit, repairs, output, tmp_path / "final")
+
+
+def test_scope_deferred_server_failures_are_preserved_and_never_labelled_verified(tmp_path):
+    finalize, assembly, audit, repairs, output = final_fixture(tmp_path)
+    path = audit / "audit-plan.json"
+    plan = json.loads(path.read_text())
+    deferred = plan["initially_rejected"]
+    plan.update(initially_rejected=[], deferred_server_review=deferred, minimum_server_attempts=3)
+    path.write_text(json.dumps(plan))
+    reviews = [json.loads(line) for line in (audit / "audit-results.jsonl").read_text().splitlines()]
+    (audit / "audit-results.jsonl").write_text("".join(json.dumps(r) + chr(10) for r in reviews
+                                                    if r["file"] not in deferred))
+    report = finalize(assembly, audit, repairs, output, tmp_path / "final")
+    assert report["state"] == "completed_with_review"
+    assert report["remaining_valid_images_needing_review"] == 1
+    assert (tmp_path / "final/needs-review-relative-paths.txt").read_text().strip() == deferred[0]
+    inventory = json.loads((tmp_path / "final/final-output-manifest.json").read_text())
+    row = next(r for r in inventory["files"] if r["file"] == deferred[0])
+    assert row["status"] == "server_needs_review_outside_local_scope"
+
+
+@pytest.mark.parametrize("minimum,only_failures", [(3, False), (0, True)])
+def test_passed_server_sample_can_be_inspected_but_not_locally_edited_under_strict_scope(
+        tmp_path, monkeypatch, minimum, only_failures):
+    from watermark_studio.codex_photo_repair import run_repairs
+    from watermark_studio.production_archives import file_sha256
+    _, assembly, audit, repairs, output = final_fixture(tmp_path)
+    file = json.loads((audit / "audit-plan.json").read_text())["sample"][0]
+    before = file_sha256(output / file)
+    entry = {"file": file, "group": "sample-1000", "server_final_status": "passed", "server_attempts": 1}
+    (audit / "codex-repair-queue.jsonl").write_text(json.dumps(entry) + chr(10))
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.repair_one",
+                        lambda *a: pytest.fail("Strict scope prohibits local edits to server-passed samples"))
+    report = run_repairs(assembly, audit, output, tmp_path / "originals", repairs, "unused",
+                         concurrency=4, minimum_server_attempts=minimum, server_failures_only=only_failures)
+    assert report["needs_review"] == 1
+    assert file_sha256(output / file) == before

@@ -106,3 +106,18 @@ def test_visible_restoration_requires_an_explicit_valid_content_claim(kind, visi
                          "evidence": "Visible physical sign changed.", "repair_instruction": "Restore original."}]
     with pytest.raises(ValueError, match="visible-original"):
         validate_verdict(value)
+
+
+def test_strict_scope_excludes_early_stops_without_changing_passed_sample(tmp_path):
+    rows = [{"file": str(n), "quality_status": "passed", "server_attempts": 1} for n in range(1200)]
+    rows += [{"file": "early-stop", "quality_status": "review", "server_attempts": 1},
+             {"file": "exhausted", "quality_status": "review", "server_attempts": 3}]
+    original, strict = tmp_path / "original", tmp_path / "strict"
+    original.mkdir(); strict.mkdir()
+    normal = freeze_plan(rows, original)
+    plan = freeze_plan(rows, strict, minimum_server_attempts=3)
+    assert plan["initially_rejected"] == ["exhausted"]
+    assert plan["deferred_server_review"] == ["early-stop"]
+    assert plan["sample"] == normal["sample"]
+    with pytest.raises(ValueError, match="frozen"):
+        freeze_plan(rows, strict, minimum_server_attempts=0)

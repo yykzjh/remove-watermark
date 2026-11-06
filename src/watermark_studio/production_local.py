@@ -78,13 +78,16 @@ def run(c):
     write_json(state / "status.json", {"phase": "individual_codex_review", "assembly": report})
     audit = run_audit(state / "assembly", Path(c["destination"]), Path(c["original_root"]),
                       state / "codex", Path(c["codex_executable"]), Path(c["baidu_config"]),
-                      concurrency=c.get("codex_concurrency", 1))
+                      concurrency=c.get("codex_concurrency", 1),
+                      minimum_server_attempts=c.get("codex_min_server_attempts", 0))
     write_json(state / "status.json", {"phase": "individual_codex_repairs",
                                       "assembly": report, "audit": audit})
     overrides = [json.loads(Path(p).read_text()) for p in c.get("human_acceptance", [])]
     repair = run_repairs(state / "assembly", state / "codex", Path(c["destination"]),
                          Path(c["original_root"]), state / "codex-repairs",
-                         Path(c["codex_executable"]), overrides, concurrency=c.get("codex_concurrency", 1))
+                         Path(c["codex_executable"]), overrides, concurrency=c.get("codex_concurrency", 1),
+                      minimum_server_attempts=c.get("codex_min_server_attempts", 0),
+                          server_failures_only=c.get("codex_server_failures_only", False))
     write_json(state / "status.json", {"phase": "final_integrity_verification", "repairs": repair})
     final = finalize(state / "assembly", state / "codex", state / "codex-repairs",
                      Path(c["destination"]), state / "final")
