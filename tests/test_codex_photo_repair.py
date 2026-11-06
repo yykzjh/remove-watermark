@@ -155,3 +155,48 @@ def test_context_patch_maps_back_to_original_canvas_and_preserves_every_other_ar
     assert result.getpixel((300, 350)) == (0, 0, 255)
     with pytest.raises(ValueError, match="original"):
         protected_repair(original, candidate, view | {"display_size": [4096, 3072]}, defects, [])
+
+
+def test_confirmed_visible_sign_overrides_false_positive_roi_and_is_not_generated(tmp_path, monkeypatch):
+    from watermark_studio.codex_photo_repair import repair_one
+    from watermark_studio.production_archives import file_sha256
+    original, target = tmp_path / "original.png", tmp_path / "target.png"
+    source = Image.new("RGB", (512, 512), "green")
+    ImageDraw.Draw(source).rectangle((100, 100, 200, 200), fill="yellow")
+    source.save(original)
+    Image.new("RGB", source.size, "blue").save(target)
+    initial = case_verdict("content_change")
+    initial["defects"][0]["source_visible"] = True
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.generate",
+                        lambda *a: pytest.fail("Do not regenerate visible text even inside a false ROI"))
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.review_photo",
+                        lambda *a: {"verdict": case_verdict()})
+    entry = {"file": "target.png", "identity": {"output_sha256": file_sha256(target)}, "verdict": initial}
+    report = repair_one("unused", original, target, entry, [{"box": [.05, .05, .45, .45]}],
+                        tmp_path / "repair", attempts=1)
+    assert report["status"] == "passed"
+    with Image.open(target) as actual:
+        assert actual.getpixel((150, 150)) == source.getpixel((150, 150))
+        assert actual.getpixel((400, 400)) == (0, 0, 255)
+
+
+def test_adjacent_generated_patch_cannot_feather_over_restored_original_sign(tmp_path):
+    original, target, native = [tmp_path / n for n in ["original.png", "target.png", "native.png"]]
+    Image.new("RGB", (512, 512), "green").save(original)
+    Image.new("RGB", (512, 512), "blue").save(target)
+    Image.new("RGB", (512, 512), "red").save(native)
+    defects = [{"kind": "content_change", "box": [.1, .1, .4, .4], "source_visible": True},
+               {"kind": "unnatural_fill", "box": [.38, .1, .6, .4]}]
+    result, _, _ = protected_repair(original, target, native, defects, [{"box": [.1, .1, .6, .4]}])
+    assert result.getpixel((195, 150)) == (0, 128, 0)
+    assert result.getpixel((400, 400)) == (0, 0, 255)
+
+
+def test_only_truly_occluded_defects_are_sent_to_generator():
+    from watermark_studio.codex_photo_repair import needs_reconstruction
+    roi = [{"box": [.5, .5, 1, 1]}]
+    content = {"kind": "content_change", "box": [.6, .6, .9, .9]}
+    assert needs_reconstruction(content, roi)
+    assert not needs_reconstruction(content | {"source_visible": True}, roi)
+    assert not needs_reconstruction(content | {"box": [0, 0, .4, .4]}, roi)
+    assert needs_reconstruction({"kind": "unnatural_fill", "box": [.1, .1, .2, .2]}, roi)

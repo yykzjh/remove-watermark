@@ -70,3 +70,39 @@ def test_complete_model_input_is_oriented_in_the_same_coordinate_system(tmp_path
         assert image.getexif().get(274, 1) == 1
     with Image.open(source) as image:
         assert image.size == (80, 40) and image.getexif()[274] == 6
+
+
+def test_known_legacy_review_is_preserved_but_unknown_identity_cannot_be_reused(tmp_path):
+    import hashlib
+    import json
+
+    from watermark_studio.codex_photo_audit import LEGACY_PROMPT_SHA256, review_photo
+    from watermark_studio.dataset_transfer import digest
+    from watermark_studio.production_archives import file_sha256
+    original, target = tmp_path / "original", tmp_path / "target"
+    original.write_bytes(b"source")
+    target.write_bytes(b"candidate")
+    folder = tmp_path / "case"
+    folder.mkdir()
+    saved = {"identity": {"original_md5": digest(original), "output_sha256": file_sha256(target),
+                          "model": "gpt-6.1-sol", "prompt_sha256": next(iter(LEGACY_PROMPT_SHA256))},
+             "verdict": verdict()}
+    path = folder / "review.json"
+    path.write_text(json.dumps(saved))
+    before = path.read_bytes()
+    assert review_photo("must-not-run", original, target, folder) == saved
+    assert path.read_bytes() == before
+    saved["identity"]["prompt_sha256"] = hashlib.sha256(b"unknown policy").hexdigest()
+    path.write_text(json.dumps(saved))
+    with pytest.raises(ValueError, match="immutable"):
+        review_photo("must-not-run", original, target, folder)
+
+
+@pytest.mark.parametrize("kind,visible", [("content_change", "yes"), ("unnatural_fill", True)])
+def test_visible_restoration_requires_an_explicit_valid_content_claim(kind, visible):
+    value = verdict()
+    value.update(acceptable=False, content_preserved=False)
+    value["defects"] = [{"kind": kind, "source_visible": visible, "box": [.1, .1, .2, .2],
+                         "evidence": "Visible physical sign changed.", "repair_instruction": "Restore original."}]
+    with pytest.raises(ValueError, match="visible-original"):
+        validate_verdict(value)

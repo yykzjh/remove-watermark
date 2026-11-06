@@ -170,11 +170,25 @@ def box_mask(size, boxes, feather=0, margin=0):
 def repair_masks(size, defects, regions):
     overlays = box_mask(size, [r["box"] for r in regions])
     content = box_mask(size, [d["box"] for d in defects if d["kind"] == "content_change"])
-    restore = ImageChops.subtract(content, overlays)
+    # Independent full-image evidence can correct a false-positive detector ROI.
+    visible = box_mask(size, [d["box"] for d in defects
+                              if d["kind"] == "content_change" and d.get("source_visible") is True])
+    restore = ImageChops.lighter(ImageChops.subtract(content, overlays), visible)
     repaint = box_mask(size, [d["box"] for d in defects
                              if d["kind"] in {"residual_watermark", "unnatural_fill"}], margin=12)
     repaint = ImageChops.lighter(repaint, ImageChops.multiply(content, overlays))
+    repaint = ImageChops.subtract(repaint, visible)
     return restore, repaint
+
+
+def needs_reconstruction(defect, regions):
+    if defect["kind"] in {"residual_watermark", "unnatural_fill"}:
+        return True
+    if defect["kind"] != "content_change" or defect.get("source_visible") is True:
+        return False
+    a, b, c, d = defect["box"]
+    return any(max(a, r["box"][0]) < min(c, r["box"][2])
+               and max(b, r["box"][1]) < min(d, r["box"][3]) for r in regions)
 
 
 def protected_repair(original, candidate, generated, defects, regions):
@@ -213,7 +227,8 @@ def protected_repair(original, candidate, generated, defects, regions):
         else:
             edited = pixels.resize(target.size, Image.Resampling.LANCZOS)
             edited = harmonize_repair(result, edited, exclusions, reference_resolution=512)
-        mask = repaint.filter(ImageFilter.GaussianBlur(3))
+        # Generation feathering must never overwrite source content restored above.
+        mask = ImageChops.subtract(repaint.filter(ImageFilter.GaussianBlur(3)), restore)
         result = Image.composite(edited, result, mask)
     if alpha is not None:
         result.putalpha(alpha)
@@ -269,7 +284,8 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3)
         _, repaint = repair_masks(display.size, actionable, regions)
         needs_generation = repaint.getbbox() is not None
         try:
-            generated = generate(executable, original, best, actionable, step / "native-edit") if needs_generation else None
+            reconstruction = [d for d in actionable if needs_reconstruction(d, regions)]
+            generated = generate(executable, original, best, reconstruction, step / "native-edit") if needs_generation else None
             image, exif, icc = protected_repair(original, best, generated, actionable, regions)
             candidate = step / ("candidate" + target.suffix)
             save_output(image, original, candidate, exif, icc, ProcessingConfig(overwrite=True))
