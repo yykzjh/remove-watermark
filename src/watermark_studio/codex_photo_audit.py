@@ -152,7 +152,7 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     detailed = {}
     for report in (assembly / "reports").glob("*/directories/*-results.json"):
         for row in json.loads(report.read_text())["rows"]:
-            detailed[row["file"]] = row
+            detailed[row["file"]] = row.get("regions", [])
     plan = freeze_plan(records, state, sample_size=sample_size)
     client = BaiduDelivery(baidu_config, state / "original-download")
     all_results = []
@@ -175,7 +175,7 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
             key = hashlib.sha256(name.encode()).hexdigest()
             target = beneath(output, name)
             row = review_photo(executable, source, target, state / group / key,
-                               detailed.get(name, {}).get("regions", []))
+                               detailed.get(name, []))
             row = {"file": name, "group": group, **row}
             all_results.append(row)
             write_json(state / "status.json", {"state": "reviewing", "group": group,
