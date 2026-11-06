@@ -132,3 +132,69 @@ def test_failed_service_job_retains_lease_and_is_resubmitted(tmp_path):
     assert len(submissions) == 1
     assert runner.current["lease"] == "still-owned"
     assert not (tmp_path / "one-results.json").exists()
+
+
+def test_deployment_capacity_race_cleans_only_own_group_and_resamples(monkeypatch):
+    from watermark_studio.production import DeploymentCapacityError
+    runner = object.__new__(ProductionRunner)
+    runner.current, runner.service, runner.gpus = {"lease": "owned"}, {"pid": 11}, [0]
+    snapshots = iter([[0, 4], [], [2]])
+    runner.resources = lambda: next(snapshots)
+    stopped, waits, deployments, statuses = [], [], [], []
+    runner.status = lambda phase, **extra: statuses.append((phase, extra))
+    runner.heartbeat = lambda progress: None
+    monkeypatch.setattr("watermark_studio.production.stop_service",
+                        lambda plan: stopped.append(plan["pid"]))
+    monkeypatch.setattr("watermark_studio.production.time.sleep", waits.append)
+    monkeypatch.setattr("watermark_studio.production.group_members", lambda _: [11])
+    def deploy(gpus):
+        deployments.append(list(gpus))
+        runner.service, runner.gpus = {"pid": 22}, list(gpus)
+        if len(deployments) == 1:
+            raise DeploymentCapacityError("CUDA out of memory")
+    runner.deploy = deploy
+    runner.ensure_service()
+    assert deployments == [[0, 4], [2]]
+    assert stopped == [22]
+    assert waits == [30, 30]
+    assert statuses[0][1]["reason"] == "deployment_capacity_changed"
+    assert runner.current == {"lease": "owned"}
+
+
+def test_non_capacity_deployment_error_still_propagates():
+    import pytest
+    runner = object.__new__(ProductionRunner)
+    runner.service, runner.gpus = None, []
+    runner.resources = lambda: [0]
+    def deploy(_):
+        raise RuntimeError("Editor and verifier must use different weights")
+    runner.deploy = deploy
+    with pytest.raises(RuntimeError, match="different weights"):
+        runner.ensure_service()
+
+
+def test_resource_wait_releases_expired_lease_without_reviving_it(tmp_path):
+    import urllib.error
+
+    import pytest
+    runner = object.__new__(ProductionRunner)
+    runner.current = {"unit": {"id": "old"}, "lease": "expired", "state": "running"}
+    runner.node, runner.state, runner.last_heartbeat = "cdu_dev2", tmp_path, 0
+    def broker(*_):
+        raise urllib.error.HTTPError("https://broker", 409, "expired", {}, None)
+    runner.broker = broker
+    runner.heartbeat({"phase": "waiting_for_gpu"})
+    assert runner.current is None
+    assert json.loads((tmp_path / "current-directory.json").read_text())["state"] == "lease_lost"
+    runner.current = {"unit": {"id": "processing"}, "lease": "expired"}
+    runner.last_heartbeat = 0
+    with pytest.raises(urllib.error.HTTPError):
+        runner.heartbeat({"completed": 3})
+
+
+def test_idle_node_can_finish_when_peer_completes_all_work():
+    runner = object.__new__(ProductionRunner)
+    runner.current, runner.service, runner.gpus = None, None, []
+    runner.resources = list
+    runner.broker = lambda path: {"state": "completed"}
+    runner.ensure_service()

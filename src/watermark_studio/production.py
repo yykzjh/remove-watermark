@@ -90,6 +90,10 @@ def eligible_gpus(rows, required, allowed):
     return sorted(r["index"] for r in rows if r["index"] in allowed and r["available"] >= required)
 
 
+class DeploymentCapacityError(RuntimeError):
+    """Another workload claimed GPU memory while our models were loading."""
+
+
 class ProductionRunner:
     def __init__(self, config):
         self.c = config
@@ -143,9 +147,20 @@ class ProductionRunner:
     def heartbeat(self, progress=None):
         if not self.current or time.monotonic() - self.last_heartbeat < 30:
             return
-        self.broker("/broker/heartbeat", {"node": self.node,
-                    "unit_id": self.current["unit"]["id"], "lease": self.current["lease"],
-                    "progress": progress or {}})
+        try:
+            self.broker("/broker/heartbeat", {"node": self.node,
+                        "unit_id": self.current["unit"]["id"], "lease": self.current["lease"],
+                        "progress": progress or {}})
+        except urllib.error.HTTPError as error:
+            if error.code != 409 or (progress or {}).get("phase") not in {
+                "waiting_for_gpu", "deploying",
+            }:
+                raise
+            # No image work is in flight during resource waits/deployment.
+            # A recovered controller must not revive an expired directory lease.
+            write_json(self.state / "current-directory.json",
+                       self.current | {"state": "lease_lost"})
+            self.current = None
         self.last_heartbeat = time.monotonic()
 
     def resources(self):
@@ -180,7 +195,10 @@ class ProductionRunner:
             try:
                 health = self.api("/health")
                 if health["stage"] == "failed":
-                    raise RuntimeError("Model deployment failed: " + health.get("error", ""))
+                    error = health.get("error", "")
+                    if "cuda out of memory" in error.lower():
+                        raise DeploymentCapacityError("Model deployment failed: " + error)
+                    raise RuntimeError("Model deployment failed: " + error)
                 if health["stage"] == "ready":
                     if health.get("quality_weight_identity", {}).get("relation") == "same_weights":
                         raise RuntimeError("Editor and verifier must use different weights")
@@ -194,19 +212,35 @@ class ProductionRunner:
         raise TimeoutError("Model deployment timed out")
 
     def ensure_service(self):
-        selected = self.resources()
-        while not selected:
-            if self.service:
+        while True:
+            selected = self.resources()
+            if not selected:
+                if self.service:
+                    stop_service(self.service)
+                    self.service = None
+                    self.gpus = []
+                if not self.current and self.broker("/broker/status")["state"] == "completed":
+                    return
+                self.status("waiting_for_gpu")
+                self.heartbeat({"phase": "waiting_for_gpu"})
+                time.sleep(30)
+                continue
+            alive = self.service and bool(group_members(self.service["pid"]))
+            if selected == self.gpus and alive:
+                return
+            try:
+                self.deploy(selected)
+                return
+            except DeploymentCapacityError as error:
+                # Eligibility is a snapshot, not a reservation. Stop only our
+                # verified process group, then resample without disturbing peers.
                 stop_service(self.service)
                 self.service = None
                 self.gpus = []
-            self.status("waiting_for_gpu")
-            self.heartbeat({"phase": "waiting_for_gpu"})
-            time.sleep(30)
-            selected = self.resources()
-        alive = self.service and bool(group_members(self.service["pid"]))
-        if selected != self.gpus or not alive:
-            self.deploy(selected)
+                self.status("waiting_for_gpu", reason="deployment_capacity_changed",
+                            message=str(error)[:400])
+                self.heartbeat({"phase": "waiting_for_gpu"})
+                time.sleep(30)
 
     def preserve_auxiliary(self, manifest):
         if not self.c.get("preserve_auxiliary", False):
