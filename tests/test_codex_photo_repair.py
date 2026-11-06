@@ -124,3 +124,34 @@ def test_early_verified_repair_can_be_reapplied_only_to_its_exact_baseline(tmp_p
     Image.new("RGB", (512, 512), "yellow").save(target)
     with pytest.raises(ValueError, match="changed"):
         repair_one("unused", original, target, entry, [], folder)
+
+
+def test_tiny_defects_receive_a_context_view_without_losing_source_coordinates():
+    from watermark_studio.codex_photo_repair import context_view
+    box = [.86, .969, .998, .999]
+    view = context_view((4096, 3072), [{"box": box}])
+    assert view is not None
+    x0, y0, x1, y1 = view
+    assert x1 - x0 == y1 - y0
+    assert 0 <= x0 < box[0] * 4096 < box[2] * 4096 <= x1 <= 4096
+    assert 0 <= y0 < box[1] * 3072 < box[3] * 3072 <= y1 <= 3072
+    assert (x1-x0)*(y1-y0) < .2 * 4096 * 3072
+    assert context_view((4096, 3072), [{"box": [.01, .55, .9, .98]}]) is None
+
+
+def test_context_patch_maps_back_to_original_canvas_and_preserves_every_other_area(tmp_path):
+    original, candidate, generated = [tmp_path / n for n in ["original.png", "candidate.png", "patch.png"]]
+    Image.new("RGB", (512, 384), "green").save(original)
+    Image.new("RGB", (512, 384), "blue").save(candidate)
+    patch = Image.new("RGB", (256, 256), "blue")
+    ImageDraw.Draw(patch).rectangle((110, 110, 150, 150), fill="red")
+    patch.save(generated)
+    view = {"path": generated, "view_box": [256, 128, 512, 384], "display_size": [512, 384]}
+    defects = [{"kind": "residual_watermark", "box": [.70, .60, .80, .75]}]
+    result, _, _ = protected_repair(original, candidate, view, defects, [])
+    assert result.size == (512, 384)
+    assert result.getpixel((384, 256)) == (255, 0, 0)
+    assert result.getpixel((10, 10)) == (0, 0, 255)
+    assert result.getpixel((300, 350)) == (0, 0, 255)
+    with pytest.raises(ValueError, match="original"):
+        protected_repair(original, candidate, view | {"display_size": [4096, 3072]}, defects, [])

@@ -82,6 +82,19 @@ def windows_path(path):
     return subprocess.check_output(["wslpath", "-w", str(Path(path).resolve())], text=True).strip()
 
 
+def display_input(path, folder, label):
+    """Make analysis coordinates independent of a client's JPEG EXIF handling."""
+    from PIL import Image, ImageOps
+    with Image.open(path) as raw:
+        if raw.getexif().get(274, 1) not in {2, 3, 4, 5, 6, 7, 8}:
+            return path
+        oriented = ImageOps.exif_transpose(raw).convert("RGB")
+        oriented.info.pop("exif", None)
+        staged = folder / (label + "-display.png")
+        oriented.save(staged, format="PNG", icc_profile=raw.info.get("icc_profile"))
+        return staged
+
+
 def detail_pairs(original, output, regions, folder):
     from PIL import Image, ImageOps
     with Image.open(original) as im:
@@ -124,7 +137,8 @@ def review_photo(executable, original, output, folder, regions=(), model="gpt-6.
             return saved
         raise ValueError("Refusing to overwrite an immutable original audit judgment")
     write_json(folder / "schema.json", SCHEMA)
-    images = [original, output, *detail_pairs(original, output, regions, folder)]
+    images = [display_input(original, folder, "original"), display_input(output, folder, "candidate"),
+              *detail_pairs(original, output, regions, folder)]
     cmd = [str(executable), "exec", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check",
            "--disable", "image_generation", "--disable", "shell_tool", "-m", model, "-c", 'model_reasoning_effort="high"',
            "-s", "read-only", "-C", windows_path(folder), "--output-schema",

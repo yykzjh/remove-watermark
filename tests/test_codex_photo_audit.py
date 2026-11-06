@@ -53,3 +53,20 @@ def test_codex_detail_views_use_the_same_exif_orientation_as_complete_images(tmp
     pairs = detail_pairs(source, output, [{"box": [0, 0, 1, 1]}], tmp_path)
     with Image.open(pairs[0]) as pair:
         assert pair.size == (80, 80)
+
+
+def test_complete_model_input_is_oriented_in_the_same_coordinate_system(tmp_path):
+    from PIL import Image
+
+    from watermark_studio.codex_photo_audit import display_input
+    source = tmp_path / "original.jpg"
+    photo = Image.new("RGB", (80, 40), "green")
+    exif = Image.Exif()
+    exif[274] = 6
+    photo.save(source, exif=exif)
+    staged = display_input(source, tmp_path, "source")
+    with Image.open(staged) as image:
+        assert image.size == (40, 80)
+        assert image.getexif().get(274, 1) == 1
+    with Image.open(source) as image:
+        assert image.size == (80, 40) and image.getexif()[274] == 6
