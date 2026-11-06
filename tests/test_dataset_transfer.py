@@ -119,3 +119,22 @@ def test_transfer_token_is_required(tmp_path):
     token.write_text("")
     with pytest.raises(ValueError):
         read_token(token)
+
+def test_auxiliary_mirror_preserves_all_empty_dirs_and_empty_originals(tmp_path):
+    from watermark_studio.dataset_transfer import copy_auxiliary
+    root, output, state = tmp_path/"source", tmp_path/"output", tmp_path/"state"
+    (root/"town/village/deep-empty").mkdir(parents=True)
+    (root/"town/village/note.txt").write_bytes(b"keep exact bytes")
+    (root/"town/village/empty.jpg").write_bytes(b"")
+    (root/"town/village/photo.jpg").write_bytes(b"unprocessed photo")
+    files = [{"path": p.relative_to(root).as_posix(), "size": p.stat().st_size, "md5": digest(p)}
+             for p in root.rglob("*") if p.is_file()]
+    manifest = {"files": files, "directories": [".", "town", "town/village", "town/village/deep-empty"]}
+    signatures = {p: signature(p) for p in root.rglob("*") if p.is_file()}
+    report = copy_auxiliary(root, output, manifest, state)
+    assert report["state"] == "completed" and report["copied"] == 2
+    assert (output/"town/village/deep-empty").is_dir()
+    assert (output/"town/village/note.txt").read_bytes() == b"keep exact bytes"
+    assert (output/"town/village/empty.jpg").read_bytes() == b""
+    assert not (output/"town/village/photo.jpg").exists()
+    assert all(signature(p) == s for p, s in signatures.items())

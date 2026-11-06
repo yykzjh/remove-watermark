@@ -9,6 +9,7 @@ import json
 import os
 import random
 import secrets
+import shutil
 import ssl
 import time
 import urllib.parse
@@ -364,6 +365,43 @@ def fetch(args):
         raise SystemExit(1)
 
 
+
+def copy_auxiliary(root, destination, manifest, state):
+    from .production_queue import IMAGE_SUFFIXES
+    destination.mkdir(parents=True, exist_ok=True)
+    state.mkdir(parents=True, exist_ok=True)
+    copied, byte_count = 0, 0
+    invalid = []
+    for directory in manifest["directories"]:
+        if directory != ".":
+            beneath(destination, directory).mkdir(parents=True, exist_ok=True)
+    for row in manifest["files"]:
+        if row["size"] > 0 and PurePosixPath(row["path"]).suffix.lower() in IMAGE_SUFFIXES:
+            continue
+        source, target = beneath(root, row["path"]), beneath(destination, row["path"])
+        if not (target.is_file() and target.stat().st_size == row["size"]
+                and digest(target) == row["md5"]):
+            temporary = state / (hashlib.sha256(row["path"].encode()).hexdigest() + ".part")
+            if temporary.is_symlink() or target.is_symlink():
+                raise ValueError("Auxiliary copy cannot use symbolic links")
+            shutil.copy2(source, temporary)
+            if temporary.stat().st_size != row["size"] or digest(temporary) != row["md5"]:
+                raise ValueError("Auxiliary bytes differ from frozen input")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary.replace(target)
+        copied += 1
+        byte_count += row["size"]
+        if PurePosixPath(row["path"]).suffix.lower() in IMAGE_SUFFIXES:
+            invalid.append({"file": row["path"], "reason": "empty_original_file"})
+        write_json(state / "status.json", {"state": "copying", "copied": copied, "bytes": byte_count})
+    report = {"state": "completed", "copied": copied, "bytes": byte_count,
+              "directories_including_root": len(manifest["directories"]),
+              "invalid_originals": invalid}
+    write_json(state / "report.json", report)
+    write_json(state / "status.json", report)
+    return report
+
+
 def main():
     p = argparse.ArgumentParser(__doc__)
     commands = p.add_subparsers(dest="mode", required=True)
@@ -394,8 +432,16 @@ def main():
     planner.add_argument("--inventory", type=Path, required=True)
     planner.add_argument("--weights", required=True, help="JSON host to free GPU count")
     planner.add_argument("--output", type=Path, required=True)
+    auxiliary = commands.add_parser("auxiliary")
+    auxiliary.add_argument("--root", type=Path, required=True)
+    auxiliary.add_argument("--inventory", type=Path, required=True)
+    auxiliary.add_argument("--destination", type=Path, required=True)
+    auxiliary.add_argument("--state-dir", type=Path, required=True)
     args = p.parse_args()
-    if args.mode == "plan":
+    if args.mode == "auxiliary":
+        manifest, _ = frozen_inventory(args.root, args.inventory)
+        print(json.dumps(copy_auxiliary(args.root, args.destination, manifest, args.state_dir)))
+    elif args.mode == "plan":
         manifest, _ = frozen_inventory(args.root, args.inventory)
         plan = partition_manifest(manifest, json.loads(args.weights))
         write_json(args.output, plan)

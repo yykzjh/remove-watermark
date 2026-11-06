@@ -49,7 +49,7 @@ def directory_units(manifest, target=256):
 
 
 class WorkBroker:
-    def __init__(self, manifest, state_dir, nodes, clock=time.time, lease_seconds=1800):
+    def __init__(self, manifest, state_dir, nodes, clock=time.time, lease_seconds=1800, target=256):
         self.manifest = manifest
         self.root = state_dir
         self.root.mkdir(parents=True, exist_ok=True)
@@ -58,7 +58,7 @@ class WorkBroker:
         self.clock = clock
         self.lease_seconds = lease_seconds
         self.lock = threading.RLock()
-        self.units = directory_units(manifest)
+        self.units = directory_units(manifest, target)
         self.by_id = {u["id"]: u for u in self.units}
         self.identity = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
         path = self.root / "leases.json"
