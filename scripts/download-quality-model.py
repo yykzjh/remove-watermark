@@ -10,23 +10,32 @@ from pathlib import Path
 
 parser=argparse.ArgumentParser()
 parser.add_argument("--model",default="Qwen/Qwen3-VL-4B-Instruct")
+parser.add_argument("--root", type=Path)
 parser.add_argument("--workers",type=int,choices=range(1,17),default=8)
 args=parser.parse_args()
 repo=args.model
 if len(repo.split("/"))!=2 or any(not part.replace("-","").replace("_","").replace(".","").isalnum() for part in repo.split("/")):
     parser.error("Model must be owner/repository")
-root=Path.home()/".cache/watermark-models/models"/repo.replace("/","--")/"snapshots/master"
+root=args.root or Path.home()/".cache/watermark-models/models"/repo.replace("/","--")/"snapshots/master"
 root.mkdir(parents=True, exist_ok=True)
 url = f"https://modelscope.cn/api/v1/models/{repo}/repo/files?Revision=master&Recursive=true"
 with urllib.request.urlopen(url, timeout=30) as response:
-    files = [f for f in json.load(response)["Data"]["Files"]
-             if f["Name"].endswith((".safetensors",".json",".txt",".jinja",".model"))
-             and Path(f["Name"]).name==f["Name"]]
+    files = []
+    for row in json.load(response)["Data"]["Files"]:
+        relative = Path(row.get("Path", row["Name"]))
+        if row.get("Type") == "tree" or row["Size"] == 0 and not row.get("Sha256"):
+            continue
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("Unsafe model asset path")
+        if relative.parts[0] == "assets" or relative.suffix.lower() in {".md", ".png", ".jpg"}:
+            continue
+        files.append(row | {"Name": relative.as_posix()})
     files.sort(key=lambda f:(f["Name"].endswith(".safetensors"),f["Name"]))
 chunk = 32 * 1024 * 1024
 for row in files:
     name, size = row["Name"], row["Size"]
     dest = root/name
+    dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_file() and dest.stat().st_size == size:
         with dest.open("rb") as f:
             if hashlib.file_digest(f, "sha256").hexdigest() == row["Sha256"]:
