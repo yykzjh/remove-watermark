@@ -181,7 +181,8 @@ def test_passed_packet_contains_only_frozen_passed_candidates_and_no_large_ssh_i
 
 
 @pytest.mark.parametrize("proof_status", ["passed", "review"])
-def test_passed_inspection_requires_committed_passed_proof_but_not_three_edit_attempts(tmp_path, monkeypatch, proof_status):
+@pytest.mark.parametrize("cached", [False, True])
+def test_passed_inspection_requires_committed_passed_proof_but_not_three_edit_attempts(tmp_path, monkeypatch, proof_status, cached):
     import shutil
 
     from watermark_studio.early_review import prepared_deliveries
@@ -210,7 +211,12 @@ def test_passed_inspection_requires_committed_passed_proof_but_not_three_edit_at
     c = {"baidu_config": str(tmp_path), "remote_states": {}, "codex_min_server_attempts": 3,
          "codex_sample_population": 3, "codex_sample_size": 2}
     batches = {"cdu_dev1:sample-1000": {"deliveries": [receipt]}}
-    prepared = prepared_deliveries(c, state, batches, {}, None, state / "stop",
+    previous = {plan["primary"][0]: {"baseline_sha256": file_sha256(output / plan["primary"][0]),
+                                    "status": "needs_review"}} if cached else {}
+    rejected_path = state / "results.json"
+    rejected_path.write_text(json.dumps({"preserved-server-reject.png": {"status": "passed"}}))
+    before = rejected_path.read_bytes()
+    prepared = prepared_deliveries(c, state, batches, previous, None, state / "stop",
                                    {(plan["primary"][0], file_sha256(output / plan["primary"][0]))},
                                    "sample-1000")
     if proof_status != "passed":
@@ -219,10 +225,15 @@ def test_passed_inspection_requires_committed_passed_proof_but_not_three_edit_at
         assert not originals
     else:
         items = list(prepared)
-        assert originals == [plan["primary"][0]]
-        assert items[0][1][0]["_audit_group"] == "sample-1000"
-        assert items[0][1][3] is False
+        assert originals == ([] if cached else [plan["primary"][0]])
+        if not cached:
+            assert items[0][1][0]["_audit_group"] == "sample-1000"
+            assert items[0][1][3] is False
+        else:
+            assert items == []
+            assert json.loads((state / "passed-results.json").read_text()) == previous
         assert json.loads((state / "stream-sampling-plan.json").read_text()) == plan
+    assert rejected_path.read_bytes() == before
 
 
 def test_failed_samples_are_review_only_and_both_groups_share_four_slots(tmp_path, monkeypatch):

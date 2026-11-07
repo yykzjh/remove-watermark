@@ -279,7 +279,8 @@ def prepared_deliveries(c, state, batches, results, client, control, human,
                         results[name].update(server_attempts=proof["attempts"],
                                              server_final_status=proof["status"],
                                              eligible_under_current_scope=eligible)
-                        write_json(state / "results.json", results)
+                        write_json(state / ("passed-results.json" if group == "sample-1000"
+                                            else "results.json"), results)
                     if name in results and results[name]["baseline_sha256"] == row["sha256"]:
                         continue
                     if not eligible:
@@ -398,6 +399,9 @@ def local(c):
             write_json(cursors_path, cursors)
         if not did_work and not control.exists():
             time.sleep(10)
+    write_json(results_path, results)
+    if streaming:
+        write_json(passed_path, passed)
     write_json(state / "status.json", {"phase": "handoff_ready", "reviewed": len(results),
                                      "passed_sample_reviewed": len(passed),
                                      "passed_sample_needs_review": sum(
