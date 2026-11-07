@@ -344,3 +344,93 @@ def test_source_restoration_never_guesses_through_occlusion_or_waives_review(tmp
         "unused", source, target, verdict, [], tmp_path / "visible")
     assert best == target and not grade["acceptable"]
     assert record["adopted"] is False and len(calls) == 1
+
+
+@pytest.mark.parametrize("legacy_log", [False, True])
+def test_provider_rejection_is_terminal_and_never_retries_the_photo(tmp_path, monkeypatch, legacy_log):
+    import json
+    import subprocess
+
+    from watermark_studio.codex_photo_repair import NativeEditRejected, generate
+    original, candidate = tmp_path / "original.png", tmp_path / "candidate.png"
+    Image.new("RGB", (512, 512), "green").save(original)
+    Image.new("RGB", (512, 512), "blue").save(candidate)
+    folder = tmp_path / "native"
+    folder.mkdir()
+    refusal = "ERROR codex_core::tools::router: error=image generation failed: moderation_blocked"
+    calls = []
+    def invoke(cmd, **kwargs):
+        calls.append(cmd)
+        kwargs["stderr"].write(refusal.encode())
+        (folder / "tool-result.json").write_text(json.dumps(
+            {"status": "unavailable", "output_path": "", "evidence": ["Provider refused the edit."]}))
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.windows_path", lambda p: str(p))
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.subprocess.run", invoke)
+    if legacy_log:
+        (folder / "stderr.log").write_text(refusal)
+    defects = case_verdict("unnatural_fill")["defects"]
+    for _ in range(2):
+        with pytest.raises(NativeEditRejected, match="moderation_blocked"):
+            generate("unused", original, candidate, defects, folder)
+    assert len(calls) == (0 if legacy_log else 1)
+    saved = json.loads((folder / "provider-rejection.json").read_text())
+    assert saved["code"] == "moderation_blocked" and not saved["native_generation_completed"]
+    Image.new("RGB", (512, 512), "red").save(candidate)
+    with pytest.raises(ValueError, match="rejected native edit belongs to different inputs"):
+        generate("must-not-run", original, candidate, defects, folder)
+    assert len(calls) == (0 if legacy_log else 1)
+
+
+def test_unavailable_tool_without_provider_refusal_remains_an_infrastructure_error(tmp_path, monkeypatch):
+    import json
+    import subprocess
+
+    from watermark_studio.codex_photo_repair import generate
+    original, candidate = tmp_path / "original.png", tmp_path / "candidate.png"
+    Image.new("RGB", (512, 512), "green").save(original)
+    Image.new("RGB", (512, 512), "blue").save(candidate)
+    folder = tmp_path / "native"
+    def invoke(cmd, **kwargs):
+        (folder / "tool-result.json").write_text(json.dumps(
+            {"status": "unavailable", "output_path": "", "evidence": ["Tool not available."]}))
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.windows_path", lambda p: str(p))
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.subprocess.run", invoke)
+    with pytest.raises(RuntimeError, match="editor unavailable"):
+        generate("unused", original, candidate, case_verdict("unnatural_fill")["defects"], folder)
+    assert not (folder / "provider-rejection.json").exists()
+
+
+def test_refused_photo_keeps_best_output_and_does_not_abort_other_photos(tmp_path, monkeypatch):
+    from watermark_studio.codex_photo_repair import NativeEditRejected, repair_one
+    from watermark_studio.codex_pool import photo_map
+    from watermark_studio.production_archives import file_sha256
+    original, target = tmp_path / "original.png", tmp_path / "target.png"
+    Image.new("RGB", (512, 512), "green").save(original)
+    Image.new("RGB", (512, 512), "blue").save(target)
+    before = target.read_bytes()
+    calls = []
+    def rejected(*_):
+        calls.append(1)
+        raise NativeEditRejected("moderation_blocked")
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.generate", rejected)
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.restore_visible_source",
+                        lambda *a: pytest.fail("No further editing after a provider refusal"))
+    entry = {"file": "target.png", "identity": {"output_sha256": file_sha256(target)},
+             "verdict": case_verdict("residual_watermark")}
+    def work(value):
+        if value == 0:
+            return repair_one("unused", original, target, entry, [], tmp_path / "repair")
+        return {"status": "passed", "other_photo": True}
+    reports = dict(photo_map([("blocked", 0), ("normal", 1)], work, 2))
+    report = reports["blocked"]
+    assert reports["normal"]["other_photo"]
+    assert report["status"] == "needs_review" and report["final_verdict"] == entry["verdict"]
+    assert report["disposition"] == "native_edit_provider_rejected"
+    assert report["provider_error_code"] == "moderation_blocked"
+    assert report["history"] == [{"attempt": 1, "state": "provider_rejected",
+                                   "code": "moderation_blocked", "native_generation": False}]
+    assert target.read_bytes() == before and len(calls) == 1
+    assert repair_one("unused", original, target, entry, [], tmp_path / "repair") == report
+    assert len(calls) == 1

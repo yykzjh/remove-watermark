@@ -42,3 +42,5 @@ early-codex/passed-results.json 保存抽检结果，passed-needs-review-relativ
 状态中的 passed_sample_reviewed、passed_sample_accepted、passed_sample_needs_review 与失败图像兜底计数分开。最终报告同时给出最终千张抽检结果和提前完成的校验数量。
 
 配置 codex_receipt_prefetch=8 可为每个来源预取至多八条回执，减少目录尾部空等；每条 SSH 命令仍最多返回两条回执。该值不是 Codex 并发数。
+
+图像编辑服务若明确返回 moderation_blocked，仅将该图像标记为待复核，记录 native_edit_provider_rejected 和原始服务日志，保留此前最佳输出并继续其他图像。重启后复用这条拒绝记录，不重发该图像、不改写提示词规避拒绝；其他网络、配额或工具不可用错误仍作为基础设施故障显式报告。已完成的独立校验结论保持不变。

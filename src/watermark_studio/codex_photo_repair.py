@@ -24,6 +24,27 @@ EDIT_SCHEMA = {"type": "object", "properties": {
     "required": ["status", "output_path", "evidence"], "additionalProperties": False}
 
 
+class NativeEditRejected(RuntimeError):
+    """The provider refused this photo edit; do not retry or change its prompt."""
+
+
+def reject_blocked_edit(folder, identity, policy):
+    cached = folder / "provider-rejection.json"
+    if cached.exists():
+        saved = json.loads(cached.read_text())
+        if saved["input_identity"] != identity or saved["policy"] != policy:
+            raise ValueError("Previously rejected native edit belongs to different inputs")
+        raise NativeEditRejected("Native image service rejected this edit (moderation_blocked)")
+    stderr = folder / "stderr.log"
+    evidence = stderr.read_text(errors="replace") if stderr.exists() else ""
+    if ("codex_core::tools::router" in evidence and "image generation failed" in evidence
+            and "moderation_blocked" in evidence):
+        write_json(cached, {"state": "provider_rejected", "code": "moderation_blocked",
+                            "input_identity": identity, "policy": policy,
+                            "native_generation_completed": False})
+        raise NativeEditRejected("Native image service rejected this edit (moderation_blocked)")
+
+
 def native_output(value, events, started, generated_root=None):
     root = Path(generated_root or "/mnt/c/Users/yyk/.codex/generated_images").resolve()
     wp = PureWindowsPath(value)
@@ -93,6 +114,8 @@ def generate(executable, original, candidate, defects, folder, model="gpt-6.1-so
     refinement = policy in {"processed_context_refinement_v1", "processed_residual_context_v1"}
     residual_cleanup = policy == "processed_residual_context_v1"
     result = folder / "generation.json"
+    # Reuse an existing refusal as terminal evidence, including pre-handler CLI logs.
+    reject_blocked_edit(folder, identity, policy)
     if result.exists():
         saved = json.loads(result.read_text())
         p = Path(saved["generated_file"])
@@ -165,7 +188,9 @@ Observed defects and intended repair locations:
                            timeout=1200, check=False)
     write_json(folder / "execution.json", {"returncode": p.returncode,
                "elapsed_seconds": round(time.time() - started, 3),
-               "tool_result_exists": (folder / "tool-result.json").is_file(), "policy": policy})
+               "tool_result_exists": (folder / "tool-result.json").is_file(), "policy": policy,
+               "input_identity": identity})
+    reject_blocked_edit(folder, identity, policy)
     if p.returncode or not (folder / "tool-result.json").exists():
         raise RuntimeError(f"Actual Codex image edit did not complete (exit {p.returncode})")
     answer = json.loads((folder / "tool-result.json").read_text())
@@ -326,6 +351,7 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3,
         atomic_copy(target, initial, False, preserve_metadata=True)
     best, verdict = initial, entry["verdict"]
     history = []
+    provider_rejected = False
     for attempt in range(1, attempts + 1):
         if verdict["acceptable"]:
             break
@@ -354,6 +380,12 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3,
             else:
                 # Keep the best output but target the current strongest evidence on next try.
                 history[-1]["kept_previous_best"] = True
+        except NativeEditRejected:
+            provider_rejected = True
+            history.append({"attempt": attempt, "state": "provider_rejected",
+                            "code": "moderation_blocked", "native_generation": False})
+            write_json(folder / "attempt-errors.json", history)
+            break
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             history.append({"attempt": attempt, "state": "error", "error": type(error).__name__,
                             "message": str(error)[:300]})
@@ -362,15 +394,19 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3,
             raise
     # A final generation can reveal a small newly identified real-text change.
     # One bounded copy-and-review step repairs that evidence without another edit model call.
-    best, verdict, restoration = restore_visible_source(
-        executable, original, best, verdict, regions, folder / "visible-source-restoration")
-    if restoration is not None:
-        history.append({"attempt": len(history) + 1, **restoration})
+    if not provider_rejected:
+        best, verdict, restoration = restore_visible_source(
+            executable, original, best, verdict, regions, folder / "visible-source-restoration")
+        if restoration is not None:
+            history.append({"attempt": len(history) + 1, **restoration})
     atomic_copy(best, target, True, preserve_metadata=True)
     report = {"file": entry["file"], "status": "passed" if verdict["acceptable"] else "needs_review",
               "initial_sha256": entry["identity"]["output_sha256"], "final_sha256": file_sha256(target),
               "original_md5": digest(original), "selected_file": str(best.resolve()),
               "final_verdict": verdict, "history": history}
+    if provider_rejected:
+        report["disposition"] = "native_edit_provider_rejected"
+        report["provider_error_code"] = "moderation_blocked"
     write_json(report_path, report)
     return report
 
