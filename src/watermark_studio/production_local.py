@@ -44,8 +44,8 @@ def run(c):
     state = Path(c["state"])
     state.mkdir(parents=True, exist_ok=True)
     state.chmod(0o700)
-    deliveries = {}
-    while len(deliveries) != 2:
+    deliveries, downloaded = {}, {}
+    while len(downloaded) != 2:
         snapshots = {}
         with cf.ThreadPoolExecutor(2) as pool:
             futures = {pool.submit(remote_snapshot, node, root): node
@@ -60,17 +60,33 @@ def run(c):
                 snapshots[node] = snapshot
                 receipt = snapshot.get("workflow/delivery.json")
                 if receipt and receipt["state"] == "published":
+                    if receipt["node"] != node:
+                        raise ValueError("Published receipt belongs to a different node")
+                    if node in deliveries and deliveries[node] != receipt:
+                        raise ValueError("Previously published delivery receipt changed")
                     deliveries[node] = receipt
         write_json(state / "remote-status.json", snapshots)
+        # One owner downloads each published node while the other can keep uploading.
+        for node in sorted(deliveries):
+            if node in downloaded:
+                continue
+            write_json(state / "status.json", {"phase": "downloading_via_baidu",
+                                              "nodes": [node], "downloaded_nodes": sorted(downloaded)})
+            paths = retrieve([deliveries[node]], Path(c["baidu_config"]), state / "cloud",
+                             Path(c["artifacts"]))
+            if len(paths) != 1:
+                raise ValueError("A single published node must yield exactly one verified index")
+            downloaded[node] = paths[0]
+            write_json(state / "prefetched-deliveries.json",
+                       {"deliveries": deliveries, "indexes": {k: str(v) for k, v in downloaded.items()}})
         write_json(state / "status.json", {"phase": "waiting_for_remote_delivery",
-                                          "published_nodes": sorted(deliveries)})
-        if len(deliveries) != 2:
+                                          "published_nodes": sorted(deliveries),
+                                          "downloaded_nodes": sorted(downloaded)})
+        if len(downloaded) != 2:
             time.sleep(30)
     ordered = [deliveries[node] for node in ["cdu_dev1", "cdu_dev2"]]
     write_json(state / "trusted-deliveries.json", ordered)
-    write_json(state / "status.json", {"phase": "downloading_via_baidu"})
-    indexes = retrieve(ordered, Path(c["baidu_config"]), state / "cloud",
-                       Path(c["artifacts"]))
+    indexes = [downloaded[node] for node in ["cdu_dev1", "cdu_dev2"]]
     write_json(state / "status.json", {"phase": "assembling_exact_tree"})
     report = assemble(indexes, Path(c["artifacts"]), Path(c["destination"]), state / "assembly")
     write_json(state / "status.json", {"phase": "waiting_for_early_codex_handoff", "assembly": report})
