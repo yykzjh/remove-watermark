@@ -213,6 +213,7 @@ def test_public_ssh_snapshot_keeps_only_bounded_preview_receipt_metadata(tmp_pat
     import sys
 
     real_run = subprocess.run
+    monkeypatch.setattr(production_local, "default_ssh_program", lambda: "ssh")
 
     workflow = tmp_path / "workflow"
     workflow.mkdir()
@@ -227,6 +228,7 @@ def test_public_ssh_snapshot_keeps_only_bounded_preview_receipt_metadata(tmp_pat
         assert cmd[0] == "ssh"
         words = shlex.split(cmd[-1])
         assert words[:2] == ["python3", "-c"]
+        assert "base64.b64decode" in words[2]
         result = real_run([sys.executable, "-c", words[2]], capture_output=True, text=True, check=True)
         assert len(result.stdout) < 4096
         return subprocess.CompletedProcess(cmd, 0, stdout=result.stdout, stderr="")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures as cf
 import json
 import shlex
@@ -16,6 +17,7 @@ from .early_review import wait_for_handoff
 from .production_assembly import assemble
 from .production_cloud import delivery_identity, retrieve, retrieve_available
 from .production_final import finalize
+from .ssh_transport import default_ssh_program
 
 
 def remote_snapshot(node, root):
@@ -35,12 +37,15 @@ def remote_snapshot(node, root):
             "{k:(len(x) if isinstance(x,list) and k!='gpus' else x[:400] "
             "if isinstance(x,str) else x) for k,x in v.items() if k in keys}) "
             "for n,v in data.items()},ensure_ascii=False))")
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+    payload = base64.b64encode(code.encode()).decode()
+    encoded = "import base64;exec(base64.b64decode(" + repr(payload) + "))"
+    cmd = [default_ssh_program(), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
            "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2",
-           node, "python3 -c " + shlex.quote(code)]
+           node, "python3 -c " + shlex.quote(encoded)]
     r = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=40)
     if r.returncode:
-        raise ConnectionError("Could not read compact remote state: " + node)
+        reason = r.stderr.strip().splitlines()[-1][:200] if r.stderr.strip() else "no SSH diagnostic"
+        raise ConnectionError(f"Could not read compact remote state: {node} (exit {r.returncode}: {reason})")
     return json.loads(r.stdout)
 
 
@@ -59,7 +64,9 @@ def run(c):
                 try:
                     snapshot = future.result()
                 except (ConnectionError, subprocess.TimeoutExpired) as error:
-                    snapshots[node] = {"state": "temporarily_unreachable", "error": type(error).__name__}
+                    snapshots[node] = {"state": "temporarily_unreachable", "error": type(error).__name__,
+                                       "message": str(error)[:250] if isinstance(error, ConnectionError)
+                                       else "SSH metadata request timed out"}
                     continue
                 snapshots[node] = snapshot
                 preview = snapshot.get("workflow/preview-delivery.json")

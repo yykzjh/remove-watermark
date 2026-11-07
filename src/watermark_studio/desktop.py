@@ -8,7 +8,6 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import httpx
 from PySide6.QtCore import QObject, QSize, QTimer, Signal
@@ -38,6 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from .config import ProcessingConfig, Region
+from .ssh_transport import default_ssh_program
 
 STYLE = """
 QWidget { background: #f4f6f5; color: #182d2a; font-size: 14px; font-family: "Noto Sans CJK SC", sans-serif; }
@@ -713,15 +713,6 @@ class Startup(QWidget):
         self.progress.setRange(0, 0)
         layout.addWidget(self.progress)
         layout.addWidget(QLabel("模型下载及加载完成后，批处理窗口将自动打开。"))
-
-
-def default_ssh_program():
-    # Use the host SSH transport in WSL; model, GUI and dependencies remain Linux.
-    native = Path("/mnt/c/Windows/System32/OpenSSH/ssh.exe")
-    release = Path("/proc/sys/kernel/osrelease")
-    if native.is_file() and release.exists() and "microsoft" in release.read_text().lower():
-        return str(native)
-    return "ssh"
 
 
 def apply_processing_defaults(window, args):
