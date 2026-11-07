@@ -198,3 +198,93 @@ def test_idle_node_can_finish_when_peer_completes_all_work():
     runner.resources = list
     runner.broker = lambda path: {"state": "completed"}
     runner.ensure_service()
+
+
+def test_controller_recovery_reattaches_running_unit_before_expanding_gpus(tmp_path, monkeypatch):
+    runner = object.__new__(ProductionRunner)
+    runner.source, runner.output, runner.state = tmp_path / "input", tmp_path / "output", tmp_path / "state"
+    runner.c = {"options": {"quality_check": True}}
+    runner.gpus, runner.service = [0], {"pid": 42}
+    monkeypatch.setattr("watermark_studio.production.group_members", lambda _: [42])
+    expanded = []
+    runner.resources = lambda: expanded.append(True) or [0, 1]
+    runner.deploy = lambda selected: setattr(runner, "gpus", selected)
+    for mode in ["direct", "subtree"]:
+        unit = {"id": "owned", "prefix": "A", "mode": mode}
+        runner.current = {"unit": unit}
+        input_dir = runner.state / "direct-input/owned" if mode == "direct" else runner.source / "A"
+        job = {"state": "running", "input_dir": str(input_dir), "output_dir": str(runner.output / "A"),
+               "options": {"quality_check": True, "concurrency": 4}}
+        runner.api = lambda _, value=job: {"stage": "ready", "job": value}
+        runner.ensure_service()
+        assert runner.gpus == [0] and not expanded
+    job["state"] = "completed"
+    runner.ensure_service()
+    assert runner.gpus == [0, 1] and expanded == [True]
+
+
+def test_controller_recovery_refuses_to_replace_an_unrecognized_active_job(tmp_path, monkeypatch):
+    import pytest
+    runner = object.__new__(ProductionRunner)
+    runner.source, runner.output, runner.state = tmp_path / "input", tmp_path / "output", tmp_path
+    runner.current = {"unit": {"id": "owned", "prefix": "A", "mode": "subtree"}}
+    runner.c, runner.gpus, runner.service = {"options": {}}, [0], {"pid": 42}
+    runner.api = lambda _: {"stage": "ready", "job": {"state": "running", "input_dir": "someone-else"}}
+    runner.resources = lambda: pytest.fail("Do not redeploy a model serving an unrecognized job")
+    monkeypatch.setattr("watermark_studio.production.group_members", lambda _: [42])
+    with pytest.raises(RuntimeError, match="Unrecognized active"):
+        runner.ensure_service()
+
+
+def test_runtime_oom_cannot_be_committed_as_an_unprocessed_photo(tmp_path):
+    import pytest
+
+    from watermark_studio.production import DeploymentCapacityError
+    runner = object.__new__(ProductionRunner)
+    runner.c = {"options": {}, "server_state_dir": str(tmp_path / "service")}
+    runner.output, runner.state = tmp_path / "output", tmp_path
+    runner.gpus, runner.current = [0], {"lease": "owned"}
+    runner.prepare = lambda _: tmp_path / "input/A"
+    runner.status = lambda *args, **kwargs: None
+    runner.heartbeat = lambda *args, **kwargs: None
+    runner.validate_output = lambda *args: pytest.fail("Never normalize a CUDA failure into completed work")
+    report = tmp_path / "service/new"
+    report.mkdir(parents=True)
+    (report / "results.jsonl").write_text(json.dumps(
+        {"file": "a.jpg", "ok": False, "error": "RuntimeError: CUDA out of memory"}) + "\n")
+    requested = []
+    def api(path, payload=None):
+        if path == "/jobs":
+            requested.append(True)
+            return {"id": "new"}
+        return {"stage": "ready", "job": None if not requested else
+                {"id": "new", "state": "completed", "completed": 1, "total": 1}}
+    runner.api = api
+    with pytest.raises(DeploymentCapacityError, match="retain lease"):
+        runner.run_directory({"id": "unit", "prefix": "A", "files": [{"path": "A/a.jpg"}]})
+    assert runner.current["lease"] == "owned"
+    assert not (tmp_path / "unit-results.json").exists()
+    history = [json.loads(line) for line in (tmp_path / "unit-capacity-replays.jsonl").read_text().splitlines()]
+    assert history[0]["job"] == "new"
+    assert history[0]["failed"][0]["file"] == "A/a.jpg"
+
+    runner.source, runner.node = tmp_path / "input", "cdu_dev1"
+    (runner.source / "A").mkdir(parents=True)
+    (runner.output / "A").mkdir(parents=True)
+    for photo in [runner.source / "A/a.jpg", runner.output / "A/a.jpg"]:
+        Image.new("RGB", (16, 12), "green").save(photo)
+    report = tmp_path / "service/recovered"
+    report.mkdir()
+    (report / "results.jsonl").write_text(json.dumps(
+        {"file": "a.jpg", "ok": True, "quality_attempts": 1,
+         "quality": {"status": "passed"}}) + "\n")
+    runner.api = lambda _: {"stage": "ready", "job": {
+        "id": "recovered", "state": "completed", "completed": 1, "total": 1,
+        "input_dir": str(runner.source / "A"), "output_dir": str(runner.output / "A"),
+        "options": {"concurrency": 4}}}
+    runner.validate_output = lambda *args: ProductionRunner.validate_output(runner, *args)
+    rows = runner.run_directory({"id": "unit", "prefix": "A", "files": [{"path": "A/a.jpg"}]})
+    assert rows[0]["quality_status"] == "passed"
+    assert rows[0]["quality_attempts"] == 1
+    assert rows[0]["capacity_replays"] == [
+        {"job": "new", "reason": "cuda_out_of_memory", "failed_this_file": True}]

@@ -211,7 +211,34 @@ class ProductionRunner:
             time.sleep(2)
         raise TimeoutError("Model deployment timed out")
 
+    def resumable_directory(self):
+        current = getattr(self, "current", None)
+        if not current or not current.get("unit") or not self.service:
+            return False
+        if not group_members(self.service["pid"]):
+            return False
+        health = self.api("/health")
+        job = health.get("job") or {}
+        if health.get("stage") != "ready" or job.get("state") not in {
+            "scanning", "running", "paused", "cancelling",
+        }:
+            return False
+        unit = current["unit"]
+        input_dir = (self.state / "direct-input" / unit["id"]
+                     if unit["mode"] == "direct" else self.source / unit["prefix"])
+        options = dict(self.c["options"],
+                       concurrency=min(4 * len(self.gpus), self.c.get("max_concurrency", 64)))
+        if (job.get("input_dir") != str(input_dir)
+                or job.get("output_dir") != str(self.output / unit["prefix"])
+                or any(job.get("options", {}).get(k) != v for k, v in options.items())):
+            raise RuntimeError("Unrecognized active service job; refusing resource redeployment")
+        return True
+
     def ensure_service(self):
+        # Controller recovery must reattach an owned active directory, not restart
+        # its healthy model workers merely because another GPU became available.
+        if self.resumable_directory():
+            return
         while True:
             selected = self.resources()
             if not selected:
@@ -328,7 +355,25 @@ class ProductionRunner:
                 result = json.loads(line)
                 path = (PurePosixPath(unit["prefix"]) / result["file"]).as_posix()
                 records[path] = result | {"file": path}
+        capacity_log = self.state / (unit["id"] + "-capacity-replays.jsonl")
+        exhausted = [r for r in records.values()
+                     if not r.get("ok") and "cuda out of memory" in r.get("error", "").lower()]
+        if exhausted:
+            with capacity_log.open("a") as stream:
+                stream.write(json.dumps({"job": job_id, "time": time.time(),
+                             "reason": "cuda_out_of_memory",
+                             "failed": [{"file": r["file"], "error": r.get("error", "")[:1200]}
+                                        for r in exhausted]}, ensure_ascii=False) + "\n")
+            raise DeploymentCapacityError(
+                "Directory contains CUDA memory errors; retain lease and reassess GPU capacity")
         rows = [self.validate_output(row, records.get(row["path"]), job_id) for row in unit["files"]]
+        if capacity_log.exists():
+            history = [json.loads(line) for line in capacity_log.read_text().splitlines()]
+            for row in rows:
+                row["capacity_replays"] = [
+                    {"job": attempt["job"], "reason": attempt["reason"],
+                     "failed_this_file": any(r["file"] == row["file"] for r in attempt["failed"])}
+                    for attempt in history]
         write_json(self.state / (unit["id"] + "-results.json"),
                    {"unit": unit["id"], "job": job_id, "rows": rows})
         return rows
