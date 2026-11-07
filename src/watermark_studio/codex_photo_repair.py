@@ -272,6 +272,25 @@ def defect_score(verdict):
                    (d["box"][3] - d["box"][1])) for d in verdict["defects"]) + 10 * verdict["uncertain"]
 
 
+
+def restore_visible_source(executable, original, best, verdict, regions, folder):
+    """Restore observed unoccluded source details; never generate physical text."""
+    validate_verdict(verdict)
+    visible = [d for d in verdict["defects"]
+               if d["kind"] == "content_change" and d.get("source_visible") is True]
+    if verdict["acceptable"] or not visible:
+        return best, verdict, None
+    folder.mkdir(parents=True, exist_ok=True)
+    image, exif, icc = protected_repair(original, best, None, visible, regions)
+    candidate = folder / ("candidate" + Path(best).suffix)
+    save_output(image, original, candidate, exif, icc, ProcessingConfig(overwrite=True))
+    proposed = review_photo(executable, original, candidate, folder / "independent-review", regions)["verdict"]
+    adopted = defect_score(proposed) < defect_score(verdict)
+    record = {"state": "visible_source_restored", "adopted": adopted,
+              "candidate_sha256": file_sha256(candidate), "verdict": proposed,
+              "native_generation": False}
+    return (candidate, proposed, record) if adopted else (best, verdict, record)
+
 def repair_one(executable, original, target, entry, regions, folder, attempts=3, cached_only=False):
     folder.mkdir(parents=True, exist_ok=True)
     validate_verdict(entry["verdict"])
@@ -341,6 +360,12 @@ def repair_one(executable, original, target, entry, regions, folder, attempts=3,
             write_json(folder / "attempt-errors.json", history)
             # Infrastructure/tool failure must remain visible; don't loop rapidly on quota errors.
             raise
+    # A final generation can reveal a small newly identified real-text change.
+    # One bounded copy-and-review step repairs that evidence without another edit model call.
+    best, verdict, restoration = restore_visible_source(
+        executable, original, best, verdict, regions, folder / "visible-source-restoration")
+    if restoration is not None:
+        history.append({"attempt": len(history) + 1, **restoration})
     atomic_copy(best, target, True, preserve_metadata=True)
     report = {"file": entry["file"], "status": "passed" if verdict["acceptable"] else "needs_review",
               "initial_sha256": entry["identity"]["output_sha256"], "final_sha256": file_sha256(target),

@@ -288,3 +288,59 @@ def test_preserving_prior_work_can_never_generate_when_repair_cache_is_absent(tm
              "verdict": case_verdict("unnatural_fill")}
     with pytest.raises(ValueError, match="repair cache"):
         repair_one("must-not-run", source, target, entry, [], tmp_path / "missing", cached_only=True)
+
+
+def test_last_generation_visible_text_defect_gets_bounded_source_restore(tmp_path, monkeypatch):
+    from watermark_studio.codex_photo_repair import repair_one
+    from watermark_studio.production_archives import file_sha256
+
+    source, target, native = [tmp_path / n for n in ["source.png", "target.png", "native.png"]]
+    for p, color in [(source, "green"), (target, "blue"), (native, "red")]:
+        Image.new("RGB", (512, 512), color).save(p)
+    revealed = case_verdict("content_change")
+    revealed["defects"][0].update(box=[.6, .6, .8, .8], source_visible=True)
+    reviews, generated = [], []
+    def review(*args):
+        reviews.append(args[2])
+        return {"verdict": revealed if len(reviews) == 1 else case_verdict()}
+    def generate(*_):
+        generated.append(1)
+        return native
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.generate", generate)
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.review_photo", review)
+    initial = case_verdict("content_change")
+    initial["defects"][0]["box"] = [.05, .05, .95, .95]
+    entry = {"file": "target.png", "identity": {"output_sha256": file_sha256(target)},
+             "verdict": initial}
+    report = repair_one("unused", source, target, entry, [{"box": [.05, .05, .95, .95]}],
+                        tmp_path / "repair", attempts=1)
+    assert report["status"] == "passed"
+    assert len(generated) == 1 and len(reviews) == 2
+    assert report["history"][-1]["state"] == "visible_source_restored"
+    assert report["history"][-1]["native_generation"] is False
+    with Image.open(target) as actual:
+        assert actual.getpixel((350, 350)) == (0, 128, 0)
+        assert actual.getpixel((0, 0)) == (0, 0, 255)
+
+
+def test_source_restoration_never_guesses_through_occlusion_or_waives_review(tmp_path, monkeypatch):
+    from watermark_studio.codex_photo_repair import restore_visible_source
+
+    source, target = tmp_path / "source.png", tmp_path / "target.png"
+    Image.new("RGB", (512, 512), "green").save(source)
+    Image.new("RGB", (512, 512), "blue").save(target)
+    verdict = case_verdict("content_change")
+    calls = []
+    def review(*_):
+        calls.append(1)
+        return {"verdict": verdict}
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.review_photo", review)
+    best, grade, record = restore_visible_source(
+        "unused", source, target, verdict, [], tmp_path / "occluded")
+    assert best == target and grade == verdict and record is None
+    assert not calls
+    verdict["defects"][0]["source_visible"] = True
+    best, grade, record = restore_visible_source(
+        "unused", source, target, verdict, [], tmp_path / "visible")
+    assert best == target and not grade["acceptable"]
+    assert record["adopted"] is False and len(calls) == 1
