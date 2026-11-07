@@ -176,6 +176,47 @@ def original_for(row, c, client):
     return target
 
 
+def prepared_deliveries(c, state, batches, results, client, control, human):
+    """One serialized producer keeps all photo slots occupied across directory packets."""
+    for batch in batches.values():
+        for delivery in batch["deliveries"]:
+            if control.exists():
+                return
+            token = delivery["index"]["sha256"]
+            folder = state / "packets" / token
+            indexes = retrieve([delivery], Path(c["baidu_config"]), folder / "cloud",
+                               folder / "artifacts")
+            index = json.loads(Path(indexes[0]).read_text())
+            for artifact in index["artifacts"]:
+                packet = folder / "artifacts" / artifact["name"]
+                meta = unpack_packet(packet, folder / "unpacked", delivery)
+                sources = {r["path"]: r for r in meta["sources"]}
+                proofs = packet_dispositions(meta, c["remote_states"], folder)
+                for row in meta["files"]:
+                    if control.exists():
+                        return
+                    name = row["file"]
+                    proof = proofs[hashlib.sha256(name.encode()).hexdigest()]
+                    eligible = allowed_fallback(row, proof, c.get("codex_min_server_attempts", 0))
+                    if name in results:
+                        results[name].update(server_attempts=proof["attempts"],
+                                             server_final_status=proof["status"],
+                                             eligible_under_current_scope=eligible)
+                        write_json(state / "results.json", results)
+                    if name in results and results[name]["baseline_sha256"] == row["sha256"]:
+                        continue
+                    if not eligible:
+                        continue
+                    if (name, row["sha256"]) in human:
+                        yield name, (row, None, None, True, proof)
+                        continue
+                    original = original_for(sources[name], c, client)
+                    candidate = beneath(folder / "unpacked/images", name)
+                    if file_sha256(candidate) != row["sha256"]:
+                        raise ValueError("Early candidate changed after committed-byte verification")
+                    yield name, (row, original, candidate, False, proof)
+
+
 def local(c):
     root = Path(c["state"])
     state = root / "early-codex"
@@ -190,97 +231,61 @@ def local(c):
     overrides = [json.loads(Path(p).read_text()) for p in c.get("human_acceptance", [])]
     human = {(r["file"], r["candidate_sha256"]) for r in overrides
              if r["decision"] == "accepted_by_user"}
+    concurrency = c.get("codex_concurrency", 1)
+    minimum_attempts = c.get("codex_min_server_attempts", 0)
+    def inspect(payload):
+        row, original, candidate, human_accepted, proof = payload
+        name = row["file"]
+        status = "accepted_by_user" if human_accepted else "accepted_without_edit"
+        if not human_accepted:
+            key = hashlib.sha256(name.encode()).hexdigest()
+            reviewed = review_photo(c["codex_executable"], original, candidate,
+                                    root / "codex/initially-rejected" / key,
+                                    row.get("regions", []))
+            entry = {"file": name, "group": "initially-rejected", **reviewed}
+            if not reviewed["verdict"]["acceptable"]:
+                target = beneath(state / "repair-targets", name)
+                atomic_copy(candidate, target, True, preserve_metadata=True)
+                report = repair_one(c["codex_executable"], original, target, entry,
+                                    row.get("regions", []), root / "codex-repairs" / key)
+                status = report["status"]
+        return {"file": name, "baseline_sha256": row["sha256"],
+                "status": status, "codex_reviewed": not human_accepted,
+                "server_attempts": proof["attempts"], "server_final_status": proof["status"],
+                "eligible_under_current_scope": True}
+
+
+    def progress(active, workers=concurrency, required_attempts=minimum_attempts):
+        write_json(state / "status.json", {"phase": "reviewing_and_repairing",
+                   "concurrency": workers, "minimum_server_attempts": required_attempts,
+                   "scope": "committed_server_failures_only", "active": list(active),
+                   "reviewed": len(results),
+                   "completed_in_scope": sum(r.get("eligible_under_current_scope") is True for r in results.values()),
+                   "completed_before_scope_change": sum(r.get("eligible_under_current_scope") is False for r in results.values()),
+                   "accepted": sum(
+                       r["status"] in {"passed", "accepted_without_edit", "accepted_by_user"}
+                       for r in results.values()),
+                   "needs_review": sum(r["status"] == "needs_review" for r in results.values())})
     while not control.exists():
-        did_work = False
+        batches = {}
         for node, remote_root in c["remote_states"].items():
             try:
-                batch = receipts(node, remote_root, cursors.get(node, 0))
+                batches[node] = receipts(node, remote_root, cursors.get(node, 0))
             except (OSError, subprocess.TimeoutExpired):
                 continue
-            for delivery in batch["deliveries"]:
-                if control.exists():
-                    break
-                did_work = True
-                token = delivery["index"]["sha256"]
-                folder = state / "packets" / token
-                indexes = retrieve([delivery], Path(c["baidu_config"]), folder / "cloud",
-                                   folder / "artifacts")
-                index = json.loads(Path(indexes[0]).read_text())
-                for artifact in index["artifacts"]:
-                    packet = folder / "artifacts" / artifact["name"]
-                    meta = unpack_packet(packet, folder / "unpacked", delivery)
-                    sources = {r["path"]: r for r in meta["sources"]}
-                    proofs = packet_dispositions(meta, c["remote_states"], folder)
-                    minimum_attempts = c.get("codex_min_server_attempts", 0)
-                    def prepare(rows=meta["files"], source_records=sources, packet_folder=folder,
-                                final_proofs=proofs, required_attempts=minimum_attempts):
-                        for row in rows:
-                            if control.exists():
-                                break
-                            name = row["file"]
-                            proof = final_proofs[hashlib.sha256(name.encode()).hexdigest()]
-                            eligible = allowed_fallback(row, proof, required_attempts)
-                            if name in results:
-                                results[name].update(server_attempts=proof["attempts"],
-                                                     server_final_status=proof["status"],
-                                                     eligible_under_current_scope=eligible)
-                                write_json(results_path, results)
-                            if name in results and results[name]["baseline_sha256"] == row["sha256"]:
-                                continue
-                            if not eligible:
-                                continue
-                            if (name, row["sha256"]) in human:
-                                yield name, (row, None, None, True, proof)
-                                continue
-                            original = original_for(source_records[name], c, client)
-                            candidate = beneath(packet_folder / "unpacked/images", name)
-                            if file_sha256(candidate) != row["sha256"]:
-                                raise ValueError("Early candidate changed after committed-byte verification")
-                            yield name, (row, original, candidate, False, proof)
-
-                    def inspect(payload):
-                        row, original, candidate, human_accepted, proof = payload
-                        name = row["file"]
-                        status = "accepted_by_user" if human_accepted else "accepted_without_edit"
-                        if not human_accepted:
-                            key = hashlib.sha256(name.encode()).hexdigest()
-                            reviewed = review_photo(c["codex_executable"], original, candidate,
-                                                    root / "codex/initially-rejected" / key,
-                                                    row.get("regions", []))
-                            entry = {"file": name, "group": "initially-rejected", **reviewed}
-                            if not reviewed["verdict"]["acceptable"]:
-                                target = beneath(state / "repair-targets", name)
-                                atomic_copy(candidate, target, True, preserve_metadata=True)
-                                report = repair_one(c["codex_executable"], original, target, entry,
-                                                    row.get("regions", []), root / "codex-repairs" / key)
-                                status = report["status"]
-                        return {"file": name, "baseline_sha256": row["sha256"],
-                                "status": status, "codex_reviewed": not human_accepted,
-                                "server_attempts": proof["attempts"], "server_final_status": proof["status"],
-                                "eligible_under_current_scope": True}
-
-                    concurrency = c.get("codex_concurrency", 1)
-                    def progress(active, workers=concurrency, required_attempts=minimum_attempts):
-                        write_json(state / "status.json", {"phase": "reviewing_and_repairing",
-                                   "concurrency": workers, "minimum_server_attempts": required_attempts,
-                                   "scope": "committed_server_failures_only", "active": list(active),
-                                   "reviewed": len(results),
-                                   "completed_in_scope": sum(r.get("eligible_under_current_scope") is True for r in results.values()),
-                                   "completed_before_scope_change": sum(r.get("eligible_under_current_scope") is False for r in results.values()),
-                                   "accepted": sum(
-                                       r["status"] in {"passed", "accepted_without_edit", "accepted_by_user"}
-                                       for r in results.values()),
-                                   "needs_review": sum(r["status"] == "needs_review" for r in results.values())})
-                    for name, result in photo_map(prepare(), inspect, concurrency,
-                                                  stop=control.exists, progress=progress):
-                        results[name] = result
-                        write_json(results_path, results)
-                    if control.exists():
-                        break
-            if not control.exists():
+        did_work = any(batch["deliveries"] for batch in batches.values())
+        prepared = prepared_deliveries(c, state, batches, results, client, control, human)
+        for name, result in photo_map(prepared, inspect, concurrency,
+                                      stop=control.exists, progress=progress):
+            results[name] = result
+            write_json(results_path, results)
+        # A cursor acknowledges the complete snapshot only after every photo drains.
+        # On failure or handoff, replay is safe through immutable per-photo caches.
+        if not control.exists():
+            for node, batch in batches.items():
                 cursors[node] = batch["cursor"]
-                write_json(cursors_path, cursors)
-        if not did_work:
+            write_json(cursors_path, cursors)
+        if not did_work and not control.exists():
             time.sleep(10)
     write_json(state / "status.json", {"phase": "handoff_ready", "reviewed": len(results)})
 
