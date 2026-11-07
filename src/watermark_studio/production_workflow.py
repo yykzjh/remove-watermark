@@ -163,13 +163,23 @@ def remote(c):
     original = runner.broker("/manifest")
     write_json(state / "ownership.json", ownership)
     write_json(state / "original-manifest.json", original)
+    return publish_results(c)
+
+
+def publish_results(c):
+    """Resume sealed result publication without deploying models or claiming work."""
+    state = Path(c["workflow_state"])
+    ownership = json.loads((state / "ownership.json").read_text())
+    original = json.loads((state / "original-manifest.json").read_text())
     write_json(state / "status.json", {"phase": "packaging"})
     index = build_archives(Path(c["production"]["output_root"]),
               Path(c["production"]["state_dir"]), ownership, original,
               c["production"]["node"], Path(c["archive_dir"]))
-    write_json(state / "status.json", {"phase": "uploading", "artifacts": len(index["artifacts"])})
+    parallel = c.get("baidu_upload_parallel", 4)
+    write_json(state / "status.json", {"phase": "uploading", "artifacts": len(index["artifacts"]),
+                                      "upload_parallel": parallel})
     receipt = publish(Path(c["archive_dir"]) / "index.json", c["cloud_root"],
-                      Path(c["baidu_config"]), state / "cloud")
+                      Path(c["baidu_config"]), state / "cloud", upload_parallel=parallel)
     write_json(state / "delivery.json", receipt)
     write_json(state / "status.json", {"phase": "published", "delivery": receipt})
     return receipt
@@ -177,12 +187,17 @@ def remote(c):
 
 def main():
     p = argparse.ArgumentParser(__doc__)
-    p.add_argument("mode", choices=["pilot", "remote"])
+    p.add_argument("mode", choices=["pilot", "remote", "resume-publish"])
     p.add_argument("--config", type=Path, required=True)
+    p.add_argument("--upload-parallel", type=int,
+                   help="Baidu upload threads per file, 1..64; remote/resume-publish only (default: 4)")
     a = p.parse_args()
     c = json.loads(a.config.read_text())
+    if a.upload_parallel is not None:
+        c["baidu_upload_parallel"] = a.upload_parallel
     try:
-        result = pilot(c) if a.mode == "pilot" else remote(c)
+        result = (pilot(c) if a.mode == "pilot" else publish_results(c)
+                  if a.mode == "resume-publish" else remote(c))
     except Exception as error:
         state = Path(c["pilot_state"] if a.mode == "pilot" else c["workflow_state"])
         write_json(state / "status.json", {"phase": "error", "error": type(error).__name__,

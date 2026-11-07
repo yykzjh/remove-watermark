@@ -22,7 +22,10 @@ def cloud_path(value):
 
 
 class BaiduDelivery:
-    def __init__(self, config, state, binary=None):
+    def __init__(self, config, state, binary=None, upload_parallel=4):
+        if type(upload_parallel) is not int or not 1 <= upload_parallel <= 64:
+            raise ValueError("Upload parallelism must be an integer from 1 to 64")
+        self.upload_parallel = upload_parallel
         self.config = Path(config)
         self.state = Path(state)
         self.state.mkdir(parents=True, exist_ok=True)
@@ -75,7 +78,7 @@ class BaiduDelivery:
             remote = self.listing(directory).get(source.name)
             if remote and not remote["isdir"] and remote["size"] == source.stat().st_size:
                 return
-            self.command(["upload", "-p", "4", "-l", "1", "--retry", "3",
+            self.command(["upload", "-p", str(self.upload_parallel), "-l", "1", "--retry", "3",
                           "--policy", "overwrite", str(source), directory], "upload-" + source.name)
             remote = self.listing(directory).get(source.name)
             if remote and not remote["isdir"] and remote["size"] == source.stat().st_size:
@@ -113,10 +116,10 @@ class BaiduDelivery:
         raise RuntimeError("Artifact download failed size/SHA256 verification: " + name)
 
 
-def publish(index_path, cloud_root, config, state, binary=None):
+def publish(index_path, cloud_root, config, state, binary=None, upload_parallel=4):
     index_path, state = Path(index_path), Path(state)
     index = json.loads(index_path.read_text())
-    client = BaiduDelivery(config, state, binary)
+    client = BaiduDelivery(config, state, binary, upload_parallel=upload_parallel)
     client.command(["mkdir", cloud_path(cloud_root)], "mkdir")
     client.listing(cloud_root)  # exit status alone never proves directory creation.
     public = {key: index[key] for key in ["schema", "node", "manifest_sha256",
