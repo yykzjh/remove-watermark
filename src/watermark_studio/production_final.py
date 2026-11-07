@@ -110,6 +110,8 @@ def finalize(assembly, audit, repairs, output, state, workers=8):
               "valid_images": len(baseline), "preserved_auxiliary_files": len(rows) - len(baseline),
               "individually_reviewed_by_codex": len(reviews), "initial_sample_size": len(sample),
               "initial_sample_passed": initial_sample_passed, "sample_passed_after_repairs": final_sample_passed,
+              "sample_reviewed_while_processing": sum(
+                  bool(review_map[name].get("reviewed_while_processing")) for name in sample),
               "codex_repair_dispositions": len(changes), "remaining_valid_images_needing_review": len(remaining),
               "source_empty_images": assembly_report["source_empty_images"],
               "server_review_deferred_by_scope": len(deferred),

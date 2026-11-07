@@ -78,11 +78,18 @@ def run(c):
     write_json(state / "status.json", {"phase": "individual_codex_review", "assembly": report})
     completed_path = c.get("codex_completed_before_scope_change")
     completed = json.loads(Path(completed_path).read_text())["files"] if completed_path else []
+    primary = state / "early-codex/stream-sampling-plan.json"
+    streamed = state / "early-codex/passed-results.json"
     audit = run_audit(state / "assembly", Path(c["destination"]), Path(c["original_root"]),
                       state / "codex", Path(c["codex_executable"]), Path(c["baidu_config"]),
                       concurrency=c.get("codex_concurrency", 1),
                       minimum_server_attempts=c.get("codex_min_server_attempts", 0),
-                      completed_before_scope_change=completed)
+                      completed_before_scope_change=completed,
+                      sample_size=c.get("codex_sample_size", 1000),
+                      seed=c.get("codex_sample_seed", 20261106),
+                      stream_sampling=c.get("stream_passed_sample", False),
+                      sampling_plan=json.loads(primary.read_text()) if primary.exists() else None,
+                      streamed_sample_reviews=json.loads(streamed.read_text()) if streamed.exists() else None)
     write_json(state / "status.json", {"phase": "individual_codex_repairs",
                                       "assembly": report, "audit": audit})
     overrides = [json.loads(Path(p).read_text()) for p in c.get("human_acceptance", [])]

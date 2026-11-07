@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .codex_pool import photo_map
+from .codex_sampling import final_sample, make_sampling_plan
 from .dataset_transfer import beneath, digest, write_json
 from .production_archives import file_sha256
 from .production_cloud import BaiduDelivery
@@ -75,7 +76,7 @@ def validate_verdict(value):
 
 
 def freeze_plan(records, state, seed=20261106, sample_size=1000, minimum_server_attempts=0,
-                completed_before_scope_change=()):
+                completed_before_scope_change=(), stream_sampling_plan=None):
     if type(minimum_server_attempts) is not int or minimum_server_attempts < 0:
         raise ValueError("Minimum server attempts must be a nonnegative integer")
     completed = set(completed_before_scope_change)
@@ -88,16 +89,25 @@ def freeze_plan(records, state, seed=20261106, sample_size=1000, minimum_server_
     deferred = sorted(r["file"] for r in records if r["quality_status"] != "passed"
                       and r.get("server_attempts", 0) < minimum_server_attempts and r["file"] not in completed)
     identity = hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest()
+    if stream_sampling_plan is not None:
+        expected = make_sampling_plan([r["file"] for r in records], sample_size, seed)
+        if stream_sampling_plan != expected:
+            raise ValueError("Streaming sampling frame changed before final freeze")
     path = Path(state) / "audit-plan.json"
     if path.exists():
         plan = json.loads(path.read_text())
         if (plan["records_sha256"] != identity
                 or plan.get("minimum_server_attempts", 0) != minimum_server_attempts
-                or set(plan.get("completed_before_scope_change", [])) != completed):
+                or set(plan.get("completed_before_scope_change", [])) != completed
+                or plan.get("stream_sampling_plan") != stream_sampling_plan):
             raise ValueError("Audit input changed after the original sample was frozen")
         return plan
-    plan = {"records_sha256": identity, "seed": seed, "sampling": "uniform_without_replacement_by_path",
-            "sample": random.Random(seed).sample(eligible, min(sample_size, len(eligible))),
+    sample = (final_sample(eligible, stream_sampling_plan) if stream_sampling_plan is not None
+              else random.Random(seed).sample(eligible, min(sample_size, len(eligible))))
+    plan = {"records_sha256": identity, "seed": seed,
+            "sampling": ("uniform_two_stage_by_path" if stream_sampling_plan is not None
+                         else "uniform_without_replacement_by_path"),
+            "stream_sampling_plan": stream_sampling_plan, "sample": sample,
             "initially_rejected": rejected, "eligible": len(eligible),
             "deferred_server_review": deferred, "minimum_server_attempts": minimum_server_attempts,
             "completed_before_scope_change": sorted(completed)}
@@ -193,7 +203,8 @@ def review_photo(executable, original, output, folder, regions=(), model="gpt-6.
 
 
 def run_audit(assembly, output, original_root, state, executable, baidu_config, sample_size=1000, concurrency=1, minimum_server_attempts=0,
-              completed_before_scope_change=()):
+              completed_before_scope_change=(), stream_sampling=False, sampling_plan=None,
+              streamed_sample_reviews=None, seed=20261106):
     assembly, output, original_root, state = map(Path, [assembly, output, original_root, state])
     state.mkdir(parents=True, exist_ok=True)
     records = [json.loads(line) for line in (assembly / "assembled-images.jsonl").read_text().splitlines()]
@@ -218,8 +229,26 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     for name, prior in completed.items():
         if baselines.get(name) != prior["baseline_sha256"]:
             raise ValueError("Previously completed fallback belongs to another server candidate")
-    plan = freeze_plan(records, state, sample_size=sample_size, minimum_server_attempts=minimum_server_attempts,
-                       completed_before_scope_change=completed)
+    streamed = dict(streamed_sample_reviews or {})
+    selected_plan = (make_sampling_plan([r["file"] for r in records], sample_size, seed)
+                     if stream_sampling or sampling_plan is not None else None)
+    if sampling_plan is not None and sampling_plan != selected_plan:
+        raise ValueError("Early sampling frame differs from the complete input")
+    if streamed and selected_plan is None:
+        raise ValueError("Streaming sample grades require their frozen sampling protocol")
+    for name, reviewed in streamed.items():
+        if (name not in selected_plan["primary"] or source_status.get(name) != "passed"
+                or baselines.get(name) != reviewed["baseline_sha256"]
+                or reviewed.get("server_final_status") != "passed"
+                or not reviewed.get("audit_only") or not reviewed.get("codex_reviewed")):
+            raise ValueError("Early sample no longer matches its committed passed candidate")
+        if (reviewed.get("review", {}).get("identity", {}).get("original_md5") != sources[name]["md5"]
+                or reviewed["review"]["identity"].get("output_sha256") != baselines[name]):
+            raise ValueError("Early sample lacks matching immutable comparison evidence")
+        validate_verdict(reviewed["review"]["verdict"])
+    plan = freeze_plan(records, state, seed=seed, sample_size=sample_size,
+                       minimum_server_attempts=minimum_server_attempts,
+                       completed_before_scope_change=completed, stream_sampling_plan=selected_plan)
     (state / "deferred-server-review.jsonl").write_text("".join(
         json.dumps({"file": name, **notes.get(name, {})}, ensure_ascii=False) + chr(10)
         for name in plan.get("deferred_server_review", [])))
@@ -246,8 +275,11 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
     def inspect(payload):
         name, source, target, group = payload
         key = hashlib.sha256(name.encode()).hexdigest()
-        return review_photo(executable, source, target, state / group / key, detailed.get(name, []),
-                            cached_only=name in completed)
+        reviewed = review_photo(executable, source, target, state / group / key, detailed.get(name, []),
+                                cached_only=name in completed or name in streamed)
+        if name in streamed and reviewed != streamed[name]["review"]:
+            raise ValueError("An early sample's first verdict changed")
+        return reviewed
 
     with (state / "audit-results.jsonl").open("w") as journal, (state / "codex-repair-queue.jsonl").open("w") as queue:
         for group, paths in [("initially-rejected", plan["initially_rejected"]), ("sample-1000", plan["sample"])]:
@@ -257,6 +289,8 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
                 if name in completed:
                     row["reuse_completed_before_scope_change"] = True
                     row["prior_completed_final_sha256"] = completed[name]["final_sha256"]
+                if name in streamed:
+                    row["reviewed_while_processing"] = True
                 all_results.append(row)
                 journal.write(json.dumps(row, ensure_ascii=False) + chr(10))
                 journal.flush()
@@ -273,7 +307,8 @@ def run_audit(assembly, output, original_root, state, executable, baidu_config, 
               "needs_codex_repair": sum(not r["verdict"]["acceptable"] for r in all_results),
               "minimum_server_attempts": minimum_server_attempts,
               "deferred_server_reviews": len(plan.get("deferred_server_review", [])),
-              "previously_completed_reused": len(completed)}
+              "previously_completed_reused": len(completed),
+              "streamed_sample_reused": len(streamed)}
     write_json(state / "report.json", report)
     write_json(state / "status.json", report)
     return report
@@ -287,10 +322,18 @@ def main():
     p.add_argument("--concurrency", type=int, default=1)
     p.add_argument("--minimum-server-attempts", type=int, default=0)
     p.add_argument("--completed-before-scope-change", type=Path)
+    p.add_argument("--stream-sampling", action="store_true")
+    p.add_argument("--sampling-plan", type=Path)
+    p.add_argument("--streamed-sample-reviews", type=Path)
+    p.add_argument("--seed", type=int, default=20261106)
     a = p.parse_args()
     completed = json.loads(a.completed_before_scope_change.read_text())["files"] if a.completed_before_scope_change else []
     print(json.dumps(run_audit(a.assembly, a.output, a.original_root, a.state,
-                               a.executable, a.baidu_config, a.sample_size, a.concurrency, a.minimum_server_attempts, completed)))
+                               a.executable, a.baidu_config, a.sample_size, a.concurrency, a.minimum_server_attempts, completed,
+                               stream_sampling=a.stream_sampling,
+                               sampling_plan=json.loads(a.sampling_plan.read_text()) if a.sampling_plan else None,
+                               streamed_sample_reviews=json.loads(a.streamed_sample_reviews.read_text()) if a.streamed_sample_reviews else None,
+                               seed=a.seed)))
 
 
 if __name__ == "__main__":

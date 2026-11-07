@@ -249,3 +249,56 @@ def test_only_explicit_pre_scope_cache_can_be_merged_without_any_new_edit(tmp_pa
                          concurrency=4, minimum_server_attempts=3, server_failures_only=True)
     assert result["accepted"] == int(reuse)
     assert file_sha256(output / name) == (final_sha if reuse else baseline)
+
+
+def test_streamed_failed_sample_is_retained_and_reused_without_new_codex_or_edit(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from watermark_studio.codex_photo_audit import PROMPT, run_audit
+    from watermark_studio.codex_photo_repair import run_repairs
+    from watermark_studio.codex_sampling import make_sampling_plan
+    from watermark_studio.production_archives import file_sha256
+    indexes, artifacts, source = shards(tmp_path)
+    output, assembly, audit, repairs = [tmp_path / n for n in ["output", "assembly", "audit", "repairs"]]
+    assemble(indexes, artifacts, output, assembly)
+    records = [json.loads(line) for line in (assembly / "assembled-images.jsonl").read_text().splitlines()]
+    primary = make_sampling_plan([r["file"] for r in records], 2)
+    name = next(r["file"] for r in records if r["quality_status"] == "passed")
+    folder = audit / "sample-1000" / hashlib.sha256(name.encode()).hexdigest()
+    folder.mkdir(parents=True)
+    sha = file_sha256(output / name)
+    bad = {"acceptable": False, "watermark_removed": True, "natural_fill": False,
+           "content_preserved": True, "uncertain": False,
+           "evidence": ["A visible straight repair seam remains."],
+           "defects": [{"kind": "unnatural_fill", "box": [.1, .1, .2, .2],
+                        "evidence": "Visible seam.", "repair_instruction": "Blend the seam."}]}
+    cached = {"identity": {"original_md5": digest(source / name), "output_sha256": sha,
+                          "model": "gpt-6.1-sol", "prompt_sha256": hashlib.sha256(PROMPT.encode()).hexdigest()},
+              "verdict": bad}
+    path = folder / "review.json"
+    path.write_text(json.dumps(cached))
+    before = path.read_bytes()
+    streamed = {name: {"baseline_sha256": sha, "server_final_status": "passed",
+                       "audit_only": True, "codex_reviewed": True, "review": cached}}
+    monkeypatch.setattr("watermark_studio.codex_photo_audit.BaiduDelivery",
+                        lambda *a: SimpleNamespace(command=lambda *a: pytest.fail("Original is local")))
+    monkeypatch.setattr("watermark_studio.codex_photo_audit.subprocess.run",
+                        lambda *a, **k: pytest.fail("The immutable early verdict must be reused"))
+    report = run_audit(assembly, output, source, audit, "must-not-run", tmp_path / "baidu",
+                       sample_size=2, concurrency=4, minimum_server_attempts=3,
+                       stream_sampling=True, sampling_plan=primary, streamed_sample_reviews=streamed)
+    assert report["streamed_sample_reused"] == 1
+    assert report["original_sample_size"] == 1 and report["original_sample_passed"] == 0
+    plan = json.loads((audit / "audit-plan.json").read_text())
+    assert name in plan["sample"] and path.read_bytes() == before
+    monkeypatch.setattr("watermark_studio.codex_photo_repair.repair_one",
+                        lambda *a, **k: pytest.fail("Passed samples are inspection only"))
+    repaired = run_repairs(assembly, audit, output, source, repairs, "must-not-run",
+                           minimum_server_attempts=3, server_failures_only=True)
+    assert repaired["needs_review"] == 1 and file_sha256(output / name) == sha
+    frozen = json.loads((audit / "audit-results.jsonl").read_text())
+    assert frozen["reviewed_while_processing"] and frozen["verdict"] == bad
+    from watermark_studio.production_final import finalize
+    final = finalize(assembly, audit, repairs, output, tmp_path / "final")
+    assert final["initial_sample_passed"] == 0 and final["sample_reviewed_while_processing"] == 1
+    assert final["remaining_valid_images_needing_review"] == 2
