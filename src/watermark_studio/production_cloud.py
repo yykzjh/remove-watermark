@@ -116,16 +116,84 @@ class BaiduDelivery:
         raise RuntimeError("Artifact download failed size/SHA256 verification: " + name)
 
 
+def public_index(index):
+    public = {key: index[key] for key in ["schema", "node", "manifest_sha256",
+                                         "files", "image_files", "auxiliary_files"]}
+    public["artifacts"] = [{k: a[k] for k in ["name", "size", "sha256", "kind"]}
+                           for a in index["artifacts"]]
+    return public
+
+
+def publish_preview(index_path, cloud_root, config, state, binary=None):
+    """Publish only the sealed artifact table; this is never a completion receipt."""
+    state = Path(state)
+    index = json.loads(Path(index_path).read_text())
+    client = BaiduDelivery(config, state, binary)
+    client.command(["mkdir", cloud_path(cloud_root)], "mkdir")
+    client.listing(cloud_root)
+    temporary = state / "public-index.json"
+    write_json(temporary, public_index(index))
+    sha = file_sha256(temporary)
+    final = state / (index["node"] + "-preview-index-" + sha[:16] + ".json")
+    temporary.replace(final)
+    client.upload(final, cloud_root, sha)
+    return {"state": "publishing", "node": index["node"], "cloud_root": cloud_path(cloud_root),
+            "manifest_sha256": index["manifest_sha256"],
+            "index": {"name": final.name, "size": final.stat().st_size, "sha256": sha}}
+
+
+def delivery_identity(delivery):
+    # Preview and final metadata use separate names but must contain identical bytes.
+    return {k: delivery[k] for k in ["node", "cloud_root", "manifest_sha256"]} | {
+        "index": {k: delivery["index"][k] for k in ["size", "sha256"]}}
+
+
+def retrieve_available(delivery, available, config, state, destination, previous=None, binary=None):
+    """One owner receives only a checksum-pinned uploaded prefix; do not assemble it."""
+    if delivery["state"] not in {"publishing", "published"}:
+        raise ValueError("Invalid streaming delivery state")
+    client = BaiduDelivery(config, state, binary)
+    identity = delivery_identity(delivery)
+    if previous is None:
+        path = client.download(delivery["cloud_root"], delivery["index"], destination)
+        index = json.loads(path.read_text())
+        if index["node"] != delivery["node"] or index["manifest_sha256"] != delivery["manifest_sha256"]:
+            raise ValueError("Cloud index identity differs from trusted delivery receipt")
+        names = [a["name"] for a in index["artifacts"]]
+        if len(set(names)) != len(names):
+            raise ValueError("Duplicate streaming artifact name")
+        progress = {"identity": identity, "index_path": str(path),
+                    "artifacts": index["artifacts"], "verified": 0}
+    else:
+        if previous["identity"] != identity:
+            raise ValueError("Streaming delivery receipt changed")
+        progress = previous
+    total = len(progress["artifacts"])
+    if available is None:
+        if delivery["state"] != "published":
+            raise ValueError("Unpublished delivery requires a bounded available count")
+        available = total
+    if type(available) is not int or not 0 <= available <= total:
+        raise ValueError("Invalid uploaded artifact prefix")
+    for position in range(progress["verified"], available):
+        client.download(delivery["cloud_root"], progress["artifacts"][position], destination)
+        progress["verified"] = position + 1
+        write_json(Path(state) / "status.json", {"state": "downloading", "node": delivery["node"],
+                   "complete": progress["verified"], "available": available, "total": total})
+    if delivery["state"] == "published":
+        # Revalidate the tiny pinned index before final assembly, even after a long prefetch.
+        path = client.download(delivery["cloud_root"], delivery["index"], destination)
+        progress["index_path"] = str(path)
+    return progress
+
+
 def publish(index_path, cloud_root, config, state, binary=None, upload_parallel=4):
     index_path, state = Path(index_path), Path(state)
     index = json.loads(index_path.read_text())
     client = BaiduDelivery(config, state, binary, upload_parallel=upload_parallel)
     client.command(["mkdir", cloud_path(cloud_root)], "mkdir")
     client.listing(cloud_root)  # exit status alone never proves directory creation.
-    public = {key: index[key] for key in ["schema", "node", "manifest_sha256",
-                                         "files", "image_files", "auxiliary_files"]}
-    public["artifacts"] = [{k: a[k] for k in ["name", "size", "sha256", "kind"]}
-                           for a in index["artifacts"]]
+    public = public_index(index)
     for number, artifact in enumerate(index["artifacts"], 1):
         write_json(state / "status.json", {"state": "uploading", "complete": number - 1,
                                          "total": len(index["artifacts"]), "node": index["node"]})

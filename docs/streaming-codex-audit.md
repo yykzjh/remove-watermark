@@ -48,3 +48,5 @@ early-codex/passed-results.json 保存抽检结果，passed-needs-review-relativ
 两台服务器的结果不必同时发布：某一节点的固定 SHA256 交付回执发布后，协调器立即经百度网盘下载并校验该节点的完整分包，另一节点可继续打包上传。只有两节点的全部分包都验证完成后，才组装最终目录和补齐千张抽样。每个节点只有一个下载所有者；重启会复用校验匹配的缓存，已发布回执发生变化则停止并报告，避免混入不同版本。
 
 结果上传分片并发可用 production_workflow 的 --upload-parallel 设置（1..64，默认4，单文件线程数）。已有完整 ownership.json、original-manifest.json 和已提交结果时，可运行 resume-publish --config 配置路径 --upload-parallel 16：只验证/复用分包并继续发布，不部署模型、不重新认领图像任务。必须先确认旧上传者已退出，避免同一文件存在两个上传者。以两台机器合计的持续字节吞吐评估，不只比较某一台的速度；16仅是待实测选择。
+
+分包级预下载：服务器执行 production_workflow publish-preview --config 配置路径，仅把已经封存的公开索引上传到网盘，并写入小型 preview-delivery.json 回执。协调器通过 SSH 只读索引 SHA256/大小及已上传分包数量，完整分包表和所有图像字节仍走百度网盘。每个分包上传校验完成即可下载并验 SHA256，避免等待整台服务器发布。预回执始终是 publishing，只有两个正式 published 回执、相同索引身份和全量分包校验都齐备后才组装输出；重启会重新校验已有缓存。原始千张抽样结论不变。

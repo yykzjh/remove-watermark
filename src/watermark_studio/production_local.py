@@ -14,20 +14,24 @@ from .codex_photo_repair import run_repairs
 from .dataset_transfer import write_json
 from .early_review import wait_for_handoff
 from .production_assembly import assemble
-from .production_cloud import retrieve
+from .production_cloud import delivery_identity, retrieve, retrieve_available
 from .production_final import finalize
 
 
 def remote_snapshot(node, root):
     # Only small state and final pinned SHA256 receipts cross the public SSH gateway.
     code = ("import pathlib,json; p=pathlib.Path(" + repr(root) + "); "
-            "names=['workflow/status.json','workflow/delivery.json','controller/status.json',"
+            "names=['workflow/status.json','workflow/delivery.json','workflow/preview-delivery.json',"
+            "'workflow/cloud/status.json','controller/status.json',"
             "'full-dataset-transfer/status.json','full-dataset-transfer/report.json','pilot/status.json']; "
             "data={n:json.loads((p/n).read_text()) for n in names if (p/n).is_file()}; "
             "keys={'phase','state','complete','completed','files','total','bytes','total_bytes',"
             "'failures','verified_files','directories_including_root','controller_attempt',"
             "'error','message','gpus','directory','job','node','images','passed','review'}; "
-            "print(json.dumps({n:(v if n.endswith('delivery.json') else "
+            "print(json.dumps({n:({k:({a:x[a] for a in ['name','size','sha256'] if a in x} "
+            "if k=='index' else x) for k,x in v.items() "
+            "if k in {'state','node','cloud_root','manifest_sha256','index'}} "
+            "if n.endswith('delivery.json') else "
             "{k:(len(x) if isinstance(x,list) and k!='gpus' else x[:400] "
             "if isinstance(x,str) else x) for k,x in v.items() if k in keys}) "
             "for n,v in data.items()},ensure_ascii=False))")
@@ -44,7 +48,7 @@ def run(c):
     state = Path(c["state"])
     state.mkdir(parents=True, exist_ok=True)
     state.chmod(0o700)
-    deliveries, downloaded = {}, {}
+    deliveries, downloaded, previews, streams, available = {}, {}, {}, {}, {}
     while len(downloaded) != 2:
         snapshots = {}
         with cf.ThreadPoolExecutor(2) as pool:
@@ -58,25 +62,55 @@ def run(c):
                     snapshots[node] = {"state": "temporarily_unreachable", "error": type(error).__name__}
                     continue
                 snapshots[node] = snapshot
+                preview = snapshot.get("workflow/preview-delivery.json")
+                if preview and preview["state"] == "publishing":
+                    if preview["node"] != node:
+                        raise ValueError("Preview receipt belongs to a different node")
+                    if node in previews and delivery_identity(previews[node]) != delivery_identity(preview):
+                        raise ValueError("Streaming delivery receipt changed")
+                    if node in deliveries and delivery_identity(deliveries[node]) != delivery_identity(preview):
+                        raise ValueError("Preview differs from published delivery")
+                    previews[node] = preview
+                    count = snapshot.get("workflow/cloud/status.json", {}).get("complete", 0)
+                    if type(count) is not int or count < 0:
+                        raise ValueError("Invalid uploaded artifact prefix")
+                    available[node] = max(available.get(node, 0), count)
                 receipt = snapshot.get("workflow/delivery.json")
                 if receipt and receipt["state"] == "published":
                     if receipt["node"] != node:
                         raise ValueError("Published receipt belongs to a different node")
                     if node in deliveries and deliveries[node] != receipt:
                         raise ValueError("Previously published delivery receipt changed")
+                    if node in previews and delivery_identity(previews[node]) != delivery_identity(receipt):
+                        raise ValueError("Final delivery differs from pinned streaming preview")
                     deliveries[node] = receipt
         write_json(state / "remote-status.json", snapshots)
         # One owner downloads each published node while the other can keep uploading.
-        for node in sorted(deliveries):
+        for node in sorted(set(previews) | set(deliveries)):
             if node in downloaded:
                 continue
             write_json(state / "status.json", {"phase": "downloading_via_baidu",
                                               "nodes": [node], "downloaded_nodes": sorted(downloaded)})
-            paths = retrieve([deliveries[node]], Path(c["baidu_config"]), state / "cloud",
-                             Path(c["artifacts"]))
-            if len(paths) != 1:
-                raise ValueError("A single published node must yield exactly one verified index")
-            downloaded[node] = paths[0]
+            if node in previews:
+                header = deliveries.get(node, previews[node])
+                streams[node] = retrieve_available(
+                    header, None if node in deliveries else available.get(node, 0),
+                    Path(c["baidu_config"]), state / "cloud", Path(c["artifacts"]),
+                    previous=streams.get(node))
+                write_json(state / "streamed-artifacts.json",
+                           {k: {"verified": v["verified"], "total": len(v["artifacts"]),
+                                "index_path": v["index_path"]} for k, v in streams.items()})
+                if node not in deliveries:
+                    continue
+                if streams[node]["verified"] != len(streams[node]["artifacts"]):
+                    raise ValueError("Published node still lacks verified artifacts")
+                downloaded[node] = streams[node]["index_path"]
+            else:
+                paths = retrieve([deliveries[node]], Path(c["baidu_config"]), state / "cloud",
+                                 Path(c["artifacts"]))
+                if len(paths) != 1:
+                    raise ValueError("A single published node must yield exactly one verified index")
+                downloaded[node] = paths[0]
             write_json(state / "prefetched-deliveries.json",
                        {"deliveries": deliveries, "indexes": {k: str(v) for k, v in downloaded.items()}})
         write_json(state / "status.json", {"phase": "waiting_for_remote_delivery",

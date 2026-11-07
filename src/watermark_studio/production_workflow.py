@@ -13,7 +13,7 @@ from pathlib import Path
 from .dataset_transfer import write_json
 from .production import ProductionRunner, gpu_inventory, process_start, stop_service
 from .production_archives import build_archives
-from .production_cloud import publish
+from .production_cloud import publish, publish_preview
 
 
 def request(url, path, payload=None):
@@ -185,9 +185,24 @@ def publish_results(c):
     return receipt
 
 
+def preview_results(c):
+    state = Path(c["workflow_state"])
+    if json.loads((state / "status.json").read_text())["phase"] not in {"uploading", "published"}:
+        raise ValueError("Only sealed uploading/published results can expose a preview")
+    index_path = Path(c["archive_dir"]) / "index.json"
+    index = json.loads(index_path.read_text())
+    ownership = json.loads((state / "ownership.json").read_text())
+    if index["node"] != c["production"]["node"] or index["manifest_sha256"] != ownership["manifest_sha256"]:
+        raise ValueError("Preview differs from frozen result ownership")
+    receipt = publish_preview(index_path, c["cloud_root"], Path(c["baidu_config"]), state / "preview-cloud")
+    write_json(state / "preview-delivery.json", receipt)
+    write_json(state / "preview-status.json", {"phase": "preview_published", "delivery": receipt})
+    return receipt
+
+
 def main():
     p = argparse.ArgumentParser(__doc__)
-    p.add_argument("mode", choices=["pilot", "remote", "resume-publish"])
+    p.add_argument("mode", choices=["pilot", "remote", "resume-publish", "publish-preview"])
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--upload-parallel", type=int,
                    help="Baidu upload threads per file, 1..64; remote/resume-publish only (default: 4)")
@@ -197,11 +212,13 @@ def main():
         c["baidu_upload_parallel"] = a.upload_parallel
     try:
         result = (pilot(c) if a.mode == "pilot" else publish_results(c)
-                  if a.mode == "resume-publish" else remote(c))
+                  if a.mode == "resume-publish" else preview_results(c)
+                  if a.mode == "publish-preview" else remote(c))
     except Exception as error:
         state = Path(c["pilot_state"] if a.mode == "pilot" else c["workflow_state"])
-        write_json(state / "status.json", {"phase": "error", "error": type(error).__name__,
-                                           "message": str(error)[:500]})
+        status = "preview-status.json" if a.mode == "publish-preview" else "status.json"
+        write_json(state / status, {"phase": "error", "error": type(error).__name__,
+                                  "message": str(error)[:500]})
         raise
     print(json.dumps(result, ensure_ascii=False), flush=True)
 
